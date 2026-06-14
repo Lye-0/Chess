@@ -5,6 +5,7 @@ import {
   onSnapshot,
   serverTimestamp,
   setDoc,
+  updateDoc,
   type DocumentData,
   type FirestoreError,
   type QueryDocumentSnapshot,
@@ -207,6 +208,58 @@ export async function loginEmployee(employeeId: string, password: string) {
   if (data.passwordHash !== passwordHash) return null;
 
   return toEmployeeProfile(snapshot);
+}
+
+export async function changeEmployeePassword(
+  employeeId: string,
+  currentPassword: string,
+  newPassword: string,
+) {
+  const normalizedEmployeeId = normalizeEmployeeId(employeeId);
+  const snapshot = await getDoc(doc(employeesCollection, normalizedEmployeeId));
+
+  if (!snapshot.exists()) return false;
+  if (newPassword.length < 8) {
+    throw new Error("パスワードは8文字以上で設定してください。");
+  }
+
+  const data = snapshot.data() as EmployeeDocument;
+  const currentPasswordHash = await hashPassword(currentPassword);
+
+  if (data.passwordHash !== currentPasswordHash) return false;
+
+  await updateDoc(doc(employeesCollection, normalizedEmployeeId), {
+    passwordHash: await hashPassword(newPassword),
+    updatedAt: serverTimestamp(),
+    passwordChangedAt: serverTimestamp(),
+  });
+
+  return true;
+}
+
+export async function resetEmployeePassword(
+  employeeId: string,
+): Promise<RegisteredEmployeeResult> {
+  const normalizedEmployeeId = normalizeEmployeeId(employeeId);
+  const employeeRef = doc(employeesCollection, normalizedEmployeeId);
+  const snapshot = await getDoc(employeeRef);
+
+  if (!snapshot.exists()) {
+    throw new Error("従業員が見つかりません。");
+  }
+
+  const initialPassword = createRandomPassword();
+
+  await updateDoc(employeeRef, {
+    passwordHash: await hashPassword(initialPassword),
+    updatedAt: serverTimestamp(),
+    passwordResetAt: serverTimestamp(),
+  });
+
+  return {
+    employee: toEmployeeProfile(snapshot),
+    initialPassword,
+  };
 }
 
 export function saveEmployeeSession(employee: EmployeeProfile) {

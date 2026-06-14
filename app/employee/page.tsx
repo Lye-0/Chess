@@ -66,6 +66,22 @@ function ClockIcon() {
   );
 }
 
+function KeyIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-6 w-6"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <circle cx="7.5" cy="14.5" r="4.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 11 21 1m-4 4 2 2m-5 1 2 2" />
+    </svg>
+  );
+}
+
 function LogoutIcon() {
   return (
     <svg
@@ -231,6 +247,22 @@ export default function EmployeePage() {
               )}
             </div>
           </section>
+
+          <Link
+            href="/employee/password-change"
+            className="h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm transition hover:shadow-md"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#ececf0] text-[#030213]">
+              <KeyIcon />
+            </div>
+            <h2 className="mt-2 text-xl font-semibold">パスワード変更</h2>
+            <p className="mt-1 text-sm text-[#717182]">
+              ログイン用パスワードを変更できます
+            </p>
+            <div className="mt-5 rounded-md border border-black/10 bg-white px-4 py-2.5 text-center text-sm font-semibold shadow-sm">
+              変更ページを開く
+            </div>
+          </Link>
         </section>
 
         <section className="mt-6 rounded-xl border border-black/10 bg-white shadow-sm">
