@@ -37,13 +37,27 @@ function sortRequests(requests: ShiftRequest[]) {
   });
 }
 
-function calculateHours(request: ShiftRequest) {
-  const [startHour, startMinute] = request.startTime.split(":").map(Number);
-  const [endHour, endMinute] = request.endTime.split(":").map(Number);
-  const start = startHour + startMinute / 60;
-  const end = endHour + endMinute / 60;
+function parseTimeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
 
-  return Math.max(end - start, 0);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+
+  return hour * 60 + minute;
+}
+
+function calculateWorkMinutes(request: ShiftRequest) {
+  const start = parseTimeToMinutes(request.startTime);
+  const end = parseTimeToMinutes(request.endTime);
+  const diff = end - start;
+
+  return diff >= 0 ? diff : diff + 24 * 60;
+}
+
+function formatWorkHours(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  return `${hours}時間${remainingMinutes}分`;
 }
 
 export default function AdminEmployeeListPage() {
@@ -91,8 +105,8 @@ export default function AdminEmployeeListPage() {
     () => sortRequests(requestsByEmployee[selectedEmployee.id] ?? []),
     [requestsByEmployee, selectedEmployee.id],
   );
-  const totalHours = selectedRequests.reduce(
-    (total, request) => total + calculateHours(request),
+  const totalWorkMinutes = selectedRequests.reduce(
+    (total, request) => total + calculateWorkMinutes(request),
     0,
   );
 
@@ -213,7 +227,7 @@ export default function AdminEmployeeListPage() {
             </div>
             <div className="rounded-lg bg-[#eafbf0] p-5 text-center">
               <p className="text-2xl font-semibold text-[#00a63e]">
-                {Number.isInteger(totalHours) ? totalHours : totalHours.toFixed(1)}h
+                {formatWorkHours(totalWorkMinutes)}
               </p>
               <p className="mt-1 text-sm text-[#00a63e]">希望合計時間</p>
             </div>
