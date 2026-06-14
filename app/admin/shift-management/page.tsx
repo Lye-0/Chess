@@ -1,0 +1,348 @@
+"use client";
+
+import type { FormEvent } from "react";
+import { useMemo, useState } from "react";
+import {
+  BackHeader,
+  Card,
+  PlusIcon,
+} from "../../_components/shift-ui";
+
+type ShiftSlot = {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  capacity: number;
+};
+
+type ShiftForm = {
+  date: string;
+  startTime: string;
+  endTime: string;
+  capacity: string;
+};
+
+const emptyForm: ShiftForm = {
+  date: "",
+  startTime: "",
+  endTime: "",
+  capacity: "1",
+};
+const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+
+function createId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getDateLabel(date: string) {
+  const parsedDate = new Date(`${date}T00:00:00`);
+  const month = parsedDate.getMonth() + 1;
+  const day = parsedDate.getDate();
+  const weekday = weekdays[parsedDate.getDay()];
+
+  return `${month}月${day}日（${weekday}）`;
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m16.9 3.7 3.4 3.4L8.7 18.7 4 20l1.3-4.7L16.9 3.7Z" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3" />
+    </svg>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
+export default function AdminShiftManagementPage() {
+  const [slots, setSlots] = useState<ShiftSlot[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<ShiftForm>(emptyForm);
+
+  const groupedSlots = useMemo(() => {
+    const sortedSlots = [...slots].sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return a.startTime.localeCompare(b.startTime);
+    });
+
+    return sortedSlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
+      groups[slot.date] = [...(groups[slot.date] ?? []), slot];
+      return groups;
+    }, {});
+  }, [slots]);
+
+  const canSave = Boolean(
+    form.date &&
+    form.startTime &&
+    form.endTime &&
+    form.startTime < form.endTime &&
+    Number(form.capacity) >= 1 &&
+    Number(form.capacity) <= 100,
+  );
+
+  function persistSlots(nextSlots: ShiftSlot[]) {
+    setSlots(nextSlots);
+  }
+
+  function openCreateModal() {
+    setEditingId(null);
+    setForm(emptyForm);
+    setIsModalOpen(true);
+  }
+
+  function openEditModal(slot: ShiftSlot) {
+    setEditingId(slot.id);
+    setForm({
+      date: slot.date,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      capacity: String(slot.capacity),
+    });
+    setIsModalOpen(true);
+  }
+
+  function closeModal() {
+    setIsModalOpen(false);
+    setEditingId(null);
+    setForm(emptyForm);
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave) return;
+
+    const nextSlot: ShiftSlot = {
+      id: editingId ?? createId(),
+      date: form.date,
+      startTime: form.startTime,
+      endTime: form.endTime,
+      capacity: Number(form.capacity),
+    };
+
+    const nextSlots = editingId
+      ? slots.map((slot) => (slot.id === editingId ? nextSlot : slot))
+      : [...slots, nextSlot];
+
+    persistSlots(nextSlots);
+    closeModal();
+  }
+
+  function deleteSlot(slotId: string) {
+    persistSlots(slots.filter((slot) => slot.id !== slotId));
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
+      <BackHeader
+        right={
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#171624]"
+          >
+            <PlusIcon />
+            シフト枠を追加
+          </button>
+        }
+      />
+
+      <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
+        <Card className="min-h-[260px] p-6">
+          <h1 className="text-xl font-semibold">シフト管理</h1>
+          <p className="mt-2 text-sm text-[#717182]">
+            ここで設定したシフト枠のみ従業員が希望を出せます。鉛筆アイコンで募集人数を変更できます。
+          </p>
+
+          {slots.length === 0 ? (
+            <div className="flex min-h-[170px] flex-col items-center justify-center text-center text-[#717182]">
+              <p>シフトがまだ登録されていません</p>
+              <p className="mt-2">右上のボタンから追加してください</p>
+            </div>
+          ) : (
+            <div className="mt-6 space-y-6">
+              {Object.entries(groupedSlots).map(([date, dateSlots]) => (
+                <section key={date} className="rounded-lg border border-black/10 p-4">
+                  <h2 className="text-lg font-semibold">{getDateLabel(date)}</h2>
+                  <div className="mt-4 space-y-3">
+                    {dateSlots.map((slot) => (
+                      <div
+                        key={slot.id}
+                        className="flex flex-col gap-4 rounded-lg bg-[#f7f8fb] px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <p className="font-semibold">
+                              {slot.startTime} - {slot.endTime}
+                            </p>
+                            <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
+                          </div>
+                          <p className="mt-1 text-sm text-[#ff3b00]">希望者なし</p>
+                        </div>
+
+                        <div className="flex items-center gap-5 self-end sm:self-auto">
+                          <button
+                            type="button"
+                            aria-label="シフト枠を編集"
+                            onClick={() => openEditModal(slot)}
+                            className="text-[#596074] transition hover:text-[#030213]"
+                          >
+                            <PencilIcon />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="シフト枠を削除"
+                            onClick={() => deleteSlot(slot.id)}
+                            className="text-[#ff003d] transition hover:text-[#cc0031]"
+                          >
+                            <TrashIcon />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
+          <form
+            onSubmit={handleSubmit}
+            className="w-full max-w-[512px] rounded-xl bg-white p-6 shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold">
+                  {editingId ? "シフト枠を編集" : "シフト枠を追加"}
+                </h2>
+                <p className="mt-1 text-sm text-[#717182]">
+                  従業員が希望できるシフト枠を設定します
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="閉じる"
+                onClick={closeModal}
+                className="rounded-md p-1 text-[#596074] transition hover:bg-[#f0f1f4] hover:text-[#030213]"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <div className="mt-8 space-y-5">
+              <div>
+                <label htmlFor="shift-date" className="block text-sm font-semibold">
+                  日付
+                </label>
+                <input
+                  id="shift-date"
+                  type="date"
+                  value={form.date}
+                  onChange={(event) => setForm({ ...form, date: event.target.value })}
+                  className="mt-2 h-10 w-full rounded-md border border-black/20 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="shift-start" className="block text-sm font-semibold">
+                    開始時刻
+                  </label>
+                  <input
+                    id="shift-start"
+                    type="time"
+                    value={form.startTime}
+                    onChange={(event) => setForm({ ...form, startTime: event.target.value })}
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="shift-end" className="block text-sm font-semibold">
+                    終了時刻
+                  </label>
+                  <input
+                    id="shift-end"
+                    type="time"
+                    value={form.endTime}
+                    onChange={(event) => setForm({ ...form, endTime: event.target.value })}
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="shift-capacity" className="block text-sm font-semibold">
+                  募集人数（1〜100人）
+                </label>
+                <input
+                  id="shift-capacity"
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={form.capacity}
+                  onChange={(event) => setForm({ ...form, capacity: event.target.value })}
+                  className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={!canSave}
+                className={[
+                  "h-10 w-full rounded-md text-sm font-semibold text-white transition",
+                  canSave ? "bg-[#030213] hover:bg-[#171624]" : "cursor-not-allowed bg-[#8e8d95]",
+                ].join(" ")}
+              >
+                {editingId ? "更新" : "追加"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </main>
+  );
+}
