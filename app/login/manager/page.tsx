@@ -3,41 +3,23 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import {
-  sendEmailVerification,
-  signInWithEmailAndPassword,
-} from "firebase/auth";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
 export default function ManagerLoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
-    setMessage("");
     setIsSubmitting(true);
 
     try {
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        email,
-        password,
-      );
-
-      if (!userCredential.user.emailVerified) {
-        await sendEmailVerification(userCredential.user);
-        setMessage(
-          "メール確認リンクを送信しました。メールを確認してから、もう一度ログインしてください。",
-        );
-        return;
-      }
-
+      await signInWithEmailAndPassword(auth, email, password);
       router.push("/manager/select-organization");
     } catch {
       setError("メールアドレスまたはパスワードが正しくありません。");
@@ -80,7 +62,6 @@ export default function ManagerLoginPage() {
             />
           </label>
 
-          {message && <p className="text-sm text-blue-700">{message}</p>}
           {error && <p className="text-sm text-red-700">{error}</p>}
 
           <div className="flex items-center justify-between gap-4 pt-1">
