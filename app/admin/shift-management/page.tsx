@@ -1,20 +1,20 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  createShiftSlot,
+  removeShiftSlot,
+  subscribeShiftSlots,
+  updateShiftSlot,
+  type ShiftSlot,
+  type ShiftSlotInput,
+} from "@/lib/shiftSlots";
 import {
   BackHeader,
   Card,
   PlusIcon,
 } from "../../_components/shift-ui";
-
-type ShiftSlot = {
-  id: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  capacity: number;
-};
 
 type ShiftForm = {
   date: string;
@@ -30,14 +30,6 @@ const emptyForm: ShiftForm = {
   capacity: "1",
 };
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
-
-function createId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
 
 function getDateLabel(date: string) {
   const parsedDate = new Date(`${date}T00:00:00`);
@@ -98,6 +90,24 @@ export default function AdminShiftManagementPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ShiftForm>(emptyForm);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    return subscribeShiftSlots(
+      (nextSlots) => {
+        setSlots(nextSlots);
+        setIsLoading(false);
+        setErrorMessage(null);
+      },
+      (error) => {
+        console.error(error);
+        setIsLoading(false);
+        setErrorMessage("シフト枠の読み込みに失敗しました。Firebase の接続設定と Firestore Rules を確認してください。");
+      },
+    );
+  }, []);
 
   const groupedSlots = useMemo(() => {
     const sortedSlots = [...slots].sort((a, b) => {
@@ -119,10 +129,6 @@ export default function AdminShiftManagementPage() {
     Number(form.capacity) >= 1 &&
     Number(form.capacity) <= 100,
   );
-
-  function persistSlots(nextSlots: ShiftSlot[]) {
-    setSlots(nextSlots);
-  }
 
   function openCreateModal() {
     setEditingId(null);
@@ -147,28 +153,42 @@ export default function AdminShiftManagementPage() {
     setForm(emptyForm);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSave) return;
 
-    const nextSlot: ShiftSlot = {
-      id: editingId ?? createId(),
+    const nextSlot: ShiftSlotInput = {
       date: form.date,
       startTime: form.startTime,
       endTime: form.endTime,
       capacity: Number(form.capacity),
     };
 
-    const nextSlots = editingId
-      ? slots.map((slot) => (slot.id === editingId ? nextSlot : slot))
-      : [...slots, nextSlot];
-
-    persistSlots(nextSlots);
-    closeModal();
+    try {
+      setIsSaving(true);
+      setErrorMessage(null);
+      if (editingId) {
+        await updateShiftSlot(editingId, nextSlot);
+      } else {
+        await createShiftSlot(nextSlot);
+      }
+      closeModal();
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("シフト枠の保存に失敗しました。Firestore への書き込み権限を確認してください。");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function deleteSlot(slotId: string) {
-    persistSlots(slots.filter((slot) => slot.id !== slotId));
+  async function deleteSlot(slotId: string) {
+    try {
+      setErrorMessage(null);
+      await removeShiftSlot(slotId);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("シフト枠の削除に失敗しました。Firestore への書き込み権限を確認してください。");
+    }
   }
 
   return (
@@ -193,7 +213,17 @@ export default function AdminShiftManagementPage() {
             ここで設定したシフト枠のみ従業員が希望を出せます。鉛筆アイコンで募集人数を変更できます。
           </p>
 
-          {slots.length === 0 ? (
+          {errorMessage && (
+            <div className="mt-5 rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
+              {errorMessage}
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="flex min-h-[170px] flex-col items-center justify-center text-center text-[#717182]">
+              <p>シフトを読み込んでいます</p>
+            </div>
+          ) : slots.length === 0 ? (
             <div className="flex min-h-[170px] flex-col items-center justify-center text-center text-[#717182]">
               <p>シフトがまだ登録されていません</p>
               <p className="mt-2">右上のボタンから追加してください</p>
@@ -331,13 +361,15 @@ export default function AdminShiftManagementPage() {
 
               <button
                 type="submit"
-                disabled={!canSave}
+                disabled={!canSave || isSaving}
                 className={[
                   "h-10 w-full rounded-md text-sm font-semibold text-white transition",
-                  canSave ? "bg-[#030213] hover:bg-[#171624]" : "cursor-not-allowed bg-[#8e8d95]",
+                  canSave && !isSaving
+                    ? "bg-[#030213] hover:bg-[#171624]"
+                    : "cursor-not-allowed bg-[#8e8d95]",
                 ].join(" ")}
               >
-                {editingId ? "更新" : "追加"}
+                {isSaving ? "保存中..." : editingId ? "更新" : "追加"}
               </button>
             </div>
           </form>
