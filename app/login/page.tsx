@@ -15,7 +15,7 @@ export default function LoginPage() {
           </p>
           <h1 className="mt-3 text-3xl font-bold">利用者を選択</h1>
           <p className="mt-3 text-base text-slate-500">
-            Chessを利用する立場を選択してください
+            利用する立場を選択してください
           </p>
         </div>
 

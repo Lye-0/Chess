@@ -55,13 +55,13 @@ export default function ManagerLoginPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-6 py-10 text-slate-950">
-      <section className="w-full max-w-[430px] rounded-2xl border border-slate-200 bg-white px-8 py-10 shadow-sm">
+      <section className="w-full max-w-[460px] rounded-2xl border border-slate-200 bg-white px-8 py-10 shadow-sm">
         <Link
           href="/login"
           className="mb-8 inline-flex items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-slate-950"
         >
           <ArrowLeftIcon className="size-4" />
-          ログイン選択へ
+          利用者選択へ
         </Link>
 
         <div className="mx-auto mb-8 flex size-20 items-center justify-center rounded-2xl bg-slate-100 text-slate-950">
@@ -71,7 +71,7 @@ export default function ManagerLoginPage() {
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold">管理者ログイン</h1>
           <p className="mt-3 text-sm text-slate-500">
-            登録済みのメールアドレスとパスワードを入力してください
+            メールアドレスとパスワードを入力
           </p>
         </div>
 

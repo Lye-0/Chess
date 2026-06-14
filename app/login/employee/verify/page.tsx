@@ -28,7 +28,7 @@ function EmployeeVerifyContent() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-6 py-10 text-slate-950">
-      <section className="w-full max-w-[430px] rounded-2xl border border-slate-200 bg-white px-8 py-10 shadow-sm">
+      <section className="w-full max-w-[460px] rounded-2xl border border-slate-200 bg-white px-8 py-10 shadow-sm">
         <div className="mx-auto mb-8 flex size-20 items-center justify-center rounded-2xl bg-green-50 text-green-600">
           <BadgeIcon className="size-9" />
         </div>
@@ -36,14 +36,14 @@ function EmployeeVerifyContent() {
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold">確認用コード</h1>
           <p className="mt-3 text-sm text-slate-500">
-            メールに届いたコードを入力してください
+            メールに届いたコードを入力
           </p>
         </div>
 
         <div className="mb-6 space-y-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
           <p className="flex items-center gap-2 font-semibold text-slate-950">
             <CheckIcon className="size-4 text-green-600" />
-            入力されたメールアドレスに確認用コードを送信しました。
+            確認用コードを送信しました
           </p>
           {organizationId && (
             <p className="rounded-lg bg-white px-3 py-2">

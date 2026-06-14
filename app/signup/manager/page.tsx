@@ -64,7 +64,7 @@ export default function ManagerSignupPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-6 py-10 text-slate-950">
-      <section className="w-full max-w-[430px] rounded-2xl border border-slate-200 bg-white px-8 py-10 shadow-sm">
+      <section className="w-full max-w-[460px] rounded-2xl border border-slate-200 bg-white px-8 py-10 shadow-sm">
         <Link
           href="/login/manager"
           className="mb-8 inline-flex items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-slate-950"
@@ -80,7 +80,7 @@ export default function ManagerSignupPage() {
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold">アカウントを新規作成</h1>
           <p className="mt-3 text-sm text-slate-500">
-            確認メールを受け取れるメールアドレスで登録してください
+            確認メールを受け取れるアドレスで登録
           </p>
         </div>
 
