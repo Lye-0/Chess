@@ -1,0 +1,122 @@
+import Link from "next/link";
+import {
+  ArrowLeftIcon,
+  BuildingIcon,
+  CalendarIcon,
+  Card,
+  ClockIcon,
+  FileTextIcon,
+  IconBadge,
+  LogoutIcon,
+  UsersIcon,
+} from "../_components/shift-ui";
+
+const features = [
+  {
+    href: "/admin/shift-management",
+    title: "シフト管理",
+    description: "シフトの作成・編集・確定を行います",
+    icon: <CalendarIcon />,
+    color: "bg-[#2f7df6] text-white",
+  },
+  {
+    href: "/admin/employee-list",
+    title: "従業員シフト表",
+    description: "従業員ごとのシフトを確認します",
+    icon: <UsersIcon />,
+    color: "bg-[#08c853] text-white",
+  },
+  {
+    href: "/admin/timesheet",
+    title: "稼働時間",
+    description: "従業員の稼働時間を確認します",
+    icon: <ClockIcon />,
+    color: "bg-[#b347ff] text-white",
+  },
+  {
+    href: "/admin/employee-registration",
+    title: "従業員登録",
+    description: "新しい従業員を登録します",
+    icon: <FileTextIcon />,
+    color: "bg-[#ff650b] text-white",
+  },
+];
+
+export default function AdminPage() {
+  return (
+    <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
+      <header className="border-b border-black/10 bg-white shadow-sm">
+        <div className="mx-auto flex max-w-[1248px] items-center justify-between px-4 py-4 sm:px-6 lg:px-0">
+          <div className="flex min-w-0 items-center gap-6">
+            <Link
+              href="/organization-select"
+              className="inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
+            >
+              <ArrowLeftIcon />
+              組織選択
+            </Link>
+
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#ececf0]">
+                <BuildingIcon />
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-2xl font-semibold leading-tight">管理者ホーム</h1>
+                <p className="truncate text-sm text-[#717182]">組織未選択</p>
+              </div>
+            </div>
+          </div>
+
+          <Link
+            href="/login"
+            className="inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
+          >
+            <LogoutIcon />
+            ログアウト
+          </Link>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
+        <header>
+          <h2 className="text-2xl font-semibold">管理者用画面</h2>
+          <p className="mt-3 text-[#475569]">シフト管理や従業員情報の管理を行うことができます</p>
+        </header>
+
+        <section className="mt-9 grid gap-6 lg:grid-cols-2">
+          {features.map((feature) => (
+            <Card key={feature.href} className="p-6">
+              <IconBadge className={feature.color}>{feature.icon}</IconBadge>
+              <h3 className="mt-3 text-xl font-semibold">{feature.title}</h3>
+              <p className="mt-1 text-sm text-[#717182]">{feature.description}</p>
+              <Link
+                href={feature.href}
+                className="mt-7 flex h-10 w-full items-center justify-center rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
+              >
+                開く
+              </Link>
+            </Card>
+          ))}
+        </section>
+
+        <section className="mt-8 grid gap-6 lg:grid-cols-3">
+          <Card className="p-6">
+            <p className="text-sm text-[#717182]">登録シフト枠数</p>
+            <p className="mt-4 text-3xl font-semibold">0件</p>
+            <p className="mt-4 text-sm text-[#475569]">この組織のシフト枠</p>
+          </Card>
+          <Card className="p-6">
+            <p className="text-sm text-[#717182]">登録従業員数</p>
+            <p className="mt-4 text-3xl font-semibold">0人</p>
+            <p className="mt-4 text-sm text-[#475569]">この組織の従業員</p>
+          </Card>
+          <Card className="p-6">
+            <p className="text-sm text-[#717182]">今週の稼働時間</p>
+            <p className="mt-4 text-3xl font-semibold">1,245h</p>
+            <p className="mt-4 text-sm text-[#475569]">前週比 +8%</p>
+          </Card>
+        </section>
+      </div>
+    </main>
+  );
+}
