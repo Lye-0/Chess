@@ -1,8 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { currentEmployee } from "@/lib/people";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  clearEmployeeSession,
+  getEmployeeSessionServerSnapshot,
+  getEmployeeSessionSnapshot,
+  loadEmployeeSession,
+  parseEmployeeSessionSnapshot,
+  subscribeEmployeeSession,
+} from "@/lib/people";
 import {
   subscribeEmployeeShiftRequests,
   type ShiftRequest,
@@ -98,12 +106,30 @@ function sortRequests(requests: ShiftRequest[]) {
 }
 
 export default function EmployeePage() {
+  const router = useRouter();
+  const sessionSnapshot = useSyncExternalStore(
+    subscribeEmployeeSession,
+    getEmployeeSessionSnapshot,
+    getEmployeeSessionServerSnapshot,
+  );
+  const employee = useMemo(
+    () => parseEmployeeSessionSnapshot(sessionSnapshot),
+    [sessionSnapshot],
+  );
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    if (!employee && !loadEmployeeSession()) {
+      router.replace("/login");
+    }
+  }, [employee, router]);
+
+  useEffect(() => {
+    if (!employee) return;
+
     return subscribeEmployeeShiftRequests(
-      currentEmployee.id,
+      employee.employeeId,
       (nextRequests) => {
         setRequests(nextRequests);
         setIsLoading(false);
@@ -113,10 +139,23 @@ export default function EmployeePage() {
         setIsLoading(false);
       },
     );
-  }, []);
+  }, [employee]);
 
   const sortedRequests = useMemo(() => sortRequests(requests), [requests]);
   const nearestRequest = sortedRequests[0];
+
+  function handleLogout() {
+    clearEmployeeSession();
+    router.push("/login");
+  }
+
+  if (!employee) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] text-[#717182]">
+        <p>ログイン情報を確認しています</p>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
@@ -127,20 +166,24 @@ export default function EmployeePage() {
               <UserIcon />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-2xl font-semibold leading-tight">{currentEmployee.name}</h1>
+              <h1 className="truncate text-2xl font-semibold leading-tight">
+                {employee.name}
+              </h1>
               <p className="truncate text-sm text-[#717182]">
-                {currentEmployee.organization} - {currentEmployee.department}（{currentEmployee.employmentType}）
+                {employee.organization} - {employee.department}・{employee.employmentType}・
+                {employee.employeeId}
               </p>
             </div>
           </div>
 
-          <Link
-            href="/login"
+          <button
+            type="button"
+            onClick={handleLogout}
             className="inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
           >
             <LogoutIcon />
             ログアウト
-          </Link>
+          </button>
         </div>
       </header>
 
@@ -193,7 +236,7 @@ export default function EmployeePage() {
         <section className="mt-6 rounded-xl border border-black/10 bg-white shadow-sm">
           <div className="p-6">
             <h2 className="text-xl font-semibold">シフト希望一覧</h2>
-            <p className="mt-1 text-sm text-[#717182]">2026年6月 — 提出済みの希望シフト</p>
+            <p className="mt-1 text-sm text-[#717182]">提出済みの希望シフト</p>
           </div>
           {isLoading ? (
             <div className="flex min-h-40 items-center justify-center px-6 pb-6 text-center text-[#717182]">
@@ -202,7 +245,9 @@ export default function EmployeePage() {
           ) : sortedRequests.length === 0 ? (
             <div className="flex min-h-40 flex-col items-center justify-center px-6 pb-6 text-center text-[#717182]">
               <p>まだシフト希望を提出していません</p>
-              <p className="mt-1 text-sm">「希望シフト入力」からシフトを提出してください</p>
+              <p className="mt-1 text-sm">
+                「希望シフト入力」からシフトを提出してください
+              </p>
             </div>
           ) : (
             <div className="space-y-3 px-6 pb-6">

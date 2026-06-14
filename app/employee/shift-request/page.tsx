@@ -1,7 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  getEmployeeSessionServerSnapshot,
+  getEmployeeSessionSnapshot,
+  loadEmployeeSession,
+  parseEmployeeSessionSnapshot,
+  subscribeEmployeeSession,
+} from "@/lib/people";
 import {
   subscribeShiftSlots,
   type ShiftSlot,
@@ -11,7 +19,6 @@ import {
   subscribeEmployeeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
-import { currentEmployee } from "@/lib/people";
 
 const dayNames = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
@@ -154,6 +161,16 @@ function sortSlots(slots: ShiftSlot[]) {
 }
 
 export default function EmployeeShiftRequestPage() {
+  const router = useRouter();
+  const sessionSnapshot = useSyncExternalStore(
+    subscribeEmployeeSession,
+    getEmployeeSessionSnapshot,
+    getEmployeeSessionServerSnapshot,
+  );
+  const employee = useMemo(
+    () => parseEmployeeSessionSnapshot(sessionSnapshot),
+    [sessionSnapshot],
+  );
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [displayMonth, setDisplayMonth] = useState(() => getMonthStart(new Date()));
@@ -162,38 +179,42 @@ export default function EmployeeShiftRequestPage() {
   const [draftSlots, setDraftSlots] = useState<ShiftSlot[]>([]);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isSlotsLoading, setIsSlotsLoading] = useState(true);
+  const [isRequestsLoading, setIsRequestsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isLoading = isSlotsLoading || isRequestsLoading;
 
   useEffect(() => {
-    let loadedSources = 0;
-    const markLoaded = () => {
-      loadedSources += 1;
-      if (loadedSources === 2) setIsLoading(false);
-    };
+    if (!employee && !loadEmployeeSession()) {
+      router.replace("/login");
+    }
+  }, [employee, router]);
+
+  useEffect(() => {
+    if (!employee) return;
 
     const unsubscribeSlots = subscribeShiftSlots(
       (nextSlots) => {
         setSlots(nextSlots);
+        setIsSlotsLoading(false);
         setErrorMessage(null);
-        markLoaded();
       },
       (error) => {
         console.error(error);
-        setIsLoading(false);
+        setIsSlotsLoading(false);
         setErrorMessage("シフト枠の読み込みに失敗しました。");
       },
     );
     const unsubscribeRequests = subscribeEmployeeShiftRequests(
-      currentEmployee.id,
+      employee.employeeId,
       (nextRequests) => {
         setRequests(nextRequests);
+        setIsRequestsLoading(false);
         setErrorMessage(null);
-        markLoaded();
       },
       (error) => {
         console.error(error);
-        setIsLoading(false);
+        setIsRequestsLoading(false);
         setErrorMessage("希望シフトの読み込みに失敗しました。");
       },
     );
@@ -202,7 +223,7 @@ export default function EmployeeShiftRequestPage() {
       unsubscribeSlots();
       unsubscribeRequests();
     };
-  }, []);
+  }, [employee]);
 
   const requestedSlotIds = useMemo(
     () => new Set(requests.map((request) => request.slotId)),
@@ -274,17 +295,17 @@ export default function EmployeeShiftRequestPage() {
   }
 
   async function submitRequests() {
-    if (draftSlots.length === 0) return;
+    if (!employee || draftSlots.length === 0) return;
 
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
       await createShiftRequests(
         draftSlots.map((slot) => ({
-          employeeId: currentEmployee.id,
-          employeeName: currentEmployee.name,
-          employeeEmail: currentEmployee.email,
-          employmentType: currentEmployee.employmentType,
+          employeeId: employee.employeeId,
+          employeeName: employee.name,
+          employeeEmail: employee.email,
+          employmentType: employee.employmentType,
           slotId: slot.id,
           date: slot.date,
           startTime: slot.startTime,
@@ -295,10 +316,18 @@ export default function EmployeeShiftRequestPage() {
       setIsConfirmOpen(false);
     } catch (error) {
       console.error(error);
-      setErrorMessage("希望シフトの送信に失敗しました。Firestore Rules を確認してください。");
+      setErrorMessage("希望シフトの送信に失敗しました。Firestore Rulesを確認してください。");
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  if (!employee) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] text-[#717182]">
+        <p>ログイン情報を確認しています</p>
+      </main>
+    );
   }
 
   return (
@@ -313,7 +342,7 @@ export default function EmployeeShiftRequestPage() {
             戻る
           </Link>
           <p className="text-sm text-[#717182]">
-            {currentEmployee.organization} - {currentEmployee.department}
+            {employee.organization} - {employee.department}
           </p>
         </div>
       </header>
@@ -323,7 +352,7 @@ export default function EmployeeShiftRequestPage() {
           <header>
             <h1 className="text-xl font-semibold">希望シフト入力</h1>
             <p className="mt-1 text-sm text-[#717182]">
-              {currentEmployee.organization} {currentEmployee.department}の募集シフト枠から希望を選択してください
+              {employee.organization} {employee.department}の募集シフト枠から希望を選択してください
             </p>
           </header>
 
@@ -336,13 +365,15 @@ export default function EmployeeShiftRequestPage() {
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <section>
               <h2 className="font-semibold">日付を選択</h2>
-              <p className="mt-1 text-sm text-[#717182]">※ グレーアウトの日はシフト枠がありません</p>
+              <p className="mt-1 text-sm text-[#717182]">
+                ※ グレーアウトの日はシフト枠がありません
+              </p>
 
               <div className="mt-3 rounded-md border border-black/10 p-4">
                 <div className="relative flex max-w-56 items-center justify-center">
                   <button
                     type="button"
-                    aria-label="Go to previous month"
+                    aria-label="前の月へ"
                     onClick={() => changeDisplayMonth(-1)}
                     className="absolute left-0 flex h-7 w-7 items-center justify-center rounded-md border border-black/10 text-[#717182] shadow-sm"
                   >
@@ -351,7 +382,7 @@ export default function EmployeeShiftRequestPage() {
                   <h3 className="text-sm font-semibold">{monthLabel}</h3>
                   <button
                     type="button"
-                    aria-label="Go to next month"
+                    aria-label="次の月へ"
                     onClick={() => changeDisplayMonth(1)}
                     className="absolute right-0 flex h-7 w-7 items-center justify-center rounded-md border border-black/10 text-[#717182] shadow-sm"
                   >
@@ -366,6 +397,7 @@ export default function EmployeeShiftRequestPage() {
                   {calendarDays.map((day, index) => {
                     const enabled = !day.outside && selectableDates.has(day.date);
                     const selected = selectedDate === day.date;
+
                     return (
                       <button
                         key={`${day.date}-${index}`}
@@ -390,7 +422,9 @@ export default function EmployeeShiftRequestPage() {
               </div>
 
               {isLoading && (
-                <p className="mt-5 text-sm text-[#717182]">募集シフト枠を読み込んでいます</p>
+                <p className="mt-5 text-sm text-[#717182]">
+                  募集シフト枠を読み込んでいます
+                </p>
               )}
 
               {selectedDate && (
@@ -442,7 +476,9 @@ export default function EmployeeShiftRequestPage() {
               {draftSlots.length === 0 ? (
                 <div className="flex min-h-72 flex-col items-center justify-center text-center text-[#717182]">
                   <p>まだシフト希望がありません</p>
-                  <p className="mt-1 text-sm">左側から日付とシフト枠を選択してください</p>
+                  <p className="mt-1 text-sm">
+                    左側から日付とシフト枠を選択してください
+                  </p>
                 </div>
               ) : (
                 <div className="mt-3">

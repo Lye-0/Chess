@@ -36,7 +36,10 @@ export type ShiftRequest = {
   submittedDate: string;
 };
 
-export type ShiftRequestInput = Omit<ShiftRequest, "id" | "status" | "submittedDate">;
+export type ShiftRequestInput = Omit<
+  ShiftRequest,
+  "id" | "status" | "submittedDate"
+>;
 
 function getTodayString() {
   const today = new Date();
@@ -47,7 +50,9 @@ function getTodayString() {
   return `${year}-${month}-${date}`;
 }
 
-function toShiftRequest(snapshot: QueryDocumentSnapshot<DocumentData>): ShiftRequest {
+function toShiftRequest(
+  snapshot: QueryDocumentSnapshot<DocumentData>,
+): ShiftRequest {
   const data = snapshot.data();
 
   return {

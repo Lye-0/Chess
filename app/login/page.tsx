@@ -1,13 +1,61 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import type { FormEvent } from "react";
 import { useState } from "react";
-import { TextInput, UserCircleIcon } from "../_components/shift-ui";
+import { useRouter } from "next/navigation";
+import {
+  loginEmployee,
+  saveEmployeeSession,
+} from "@/lib/people";
+import { UserCircleIcon } from "../_components/shift-ui";
 
 export default function LoginPage() {
   const [role, setRole] = useState<"employee" | "admin">("employee");
+  const [employeeId, setEmployeeId] = useState("");
+  const [password, setPassword] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
   const isEmployee = role === "employee";
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setErrorMessage(null);
+
+    if (!isEmployee) {
+      router.push("/organization-select");
+      return;
+    }
+
+    if (!employeeId.trim() || !password) {
+      setErrorMessage("従業員IDとパスワードを入力してください。");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const employee = await loginEmployee(employeeId, password);
+
+      if (!employee) {
+        setErrorMessage("従業員IDまたはパスワードが正しくありません。");
+        return;
+      }
+
+      saveEmployeeSession(employee);
+      router.push("/employee");
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("ログインに失敗しました。Firestoreの設定を確認してください。");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function selectRole(nextRole: "employee" | "admin") {
+    setRole(nextRole);
+    setErrorMessage(null);
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] p-4 text-[#030213]">
@@ -23,7 +71,7 @@ export default function LoginPage() {
         <div className="mt-6 grid h-9 grid-cols-2 rounded-lg bg-[#e7e7ec] p-1 text-sm font-semibold">
           <button
             type="button"
-            onClick={() => setRole("employee")}
+            onClick={() => selectRole("employee")}
             className={[
               "rounded-md transition",
               isEmployee ? "bg-white shadow-sm" : "text-[#3d4150]",
@@ -33,7 +81,7 @@ export default function LoginPage() {
           </button>
           <button
             type="button"
-            onClick={() => setRole("admin")}
+            onClick={() => selectRole("admin")}
             className={[
               "rounded-md transition",
               !isEmployee ? "bg-white shadow-sm" : "text-[#3d4150]",
@@ -43,30 +91,64 @@ export default function LoginPage() {
           </button>
         </div>
 
-        <form
-          className="mt-6 space-y-5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            router.push(isEmployee ? "/employee" : "/organization-select");
-          }}
-        >
+        {errorMessage && (
+          <div className="mt-5 rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
+            {errorMessage}
+          </div>
+        )}
+
+        <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
           {isEmployee ? (
-            <TextInput id="employee-id" label="従業員ID" placeholder="従業員IDを入力" />
+            <div>
+              <label htmlFor="employee-id" className="block text-sm font-semibold">
+                従業員ID
+              </label>
+              <input
+                id="employee-id"
+                value={employeeId}
+                onChange={(event) => setEmployeeId(event.target.value)}
+                placeholder="例：E123456"
+                autoComplete="username"
+                className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none transition placeholder:text-[#717182] focus:border-[#030213]"
+              />
+            </div>
           ) : (
-            <TextInput
-              id="admin-email"
-              label="メールアドレス"
-              placeholder="example@company.com"
-              type="email"
-            />
+            <div>
+              <label htmlFor="admin-email" className="block text-sm font-semibold">
+                メールアドレス
+              </label>
+              <input
+                id="admin-email"
+                type="email"
+                value={adminEmail}
+                onChange={(event) => setAdminEmail(event.target.value)}
+                placeholder="example@company.com"
+                autoComplete="email"
+                className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none transition placeholder:text-[#717182] focus:border-[#030213]"
+              />
+            </div>
           )}
-          <TextInput id="password" label="パスワード" placeholder="パスワードを入力" type="password" />
+          <div>
+            <label htmlFor="password" className="block text-sm font-semibold">
+              パスワード
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="パスワードを入力"
+              autoComplete={isEmployee ? "current-password" : "password"}
+              className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none transition placeholder:text-[#717182] focus:border-[#030213]"
+            />
+          </div>
 
           <button
             type="submit"
-            className="h-10 w-full rounded-md bg-[#030213] text-sm font-semibold text-white transition hover:bg-[#171624]"
+            disabled={isSubmitting}
+            className="h-10 w-full rounded-md bg-[#030213] text-sm font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#8e8d95]"
           >
-            ログイン
+            {isSubmitting ? "ログイン中..." : "ログイン"}
           </button>
         </form>
       </section>

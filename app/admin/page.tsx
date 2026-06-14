@@ -6,6 +6,8 @@ import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
+import { subscribeShiftSlots } from "@/lib/shiftSlots";
+import { subscribeEmployees } from "@/lib/people";
 import {
   ArrowLeftIcon,
   BuildingIcon,
@@ -22,14 +24,14 @@ const features = [
   {
     href: "/admin/shift-management",
     title: "シフト管理",
-    description: "シフトの作成・編集・確定を行います",
+    description: "シフトの作成・編集・削除を行います",
     icon: <CalendarIcon />,
     color: "bg-[#2f7df6] text-white",
   },
   {
     href: "/admin/employee-list",
     title: "従業員シフト表",
-    description: "従業員ごとのシフトを確認します",
+    description: "従業員ごとのシフト希望を確認します",
     icon: <UsersIcon />,
     color: "bg-[#08c853] text-white",
   },
@@ -80,10 +82,14 @@ function formatHoursOnly(minutes: number) {
 
 export default function AdminPage() {
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [slotCount, setSlotCount] = useState(0);
+  const [employeeCount, setEmployeeCount] = useState(0);
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+  const [isLoadingSlots, setIsLoadingSlots] = useState(true);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
 
   useEffect(() => {
-    return subscribeShiftRequests(
+    const unsubscribeRequests = subscribeShiftRequests(
       (nextRequests) => {
         setRequests(nextRequests);
         setIsLoadingRequests(false);
@@ -93,6 +99,32 @@ export default function AdminPage() {
         setIsLoadingRequests(false);
       },
     );
+    const unsubscribeSlots = subscribeShiftSlots(
+      (slots) => {
+        setSlotCount(slots.length);
+        setIsLoadingSlots(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsLoadingSlots(false);
+      },
+    );
+    const unsubscribeEmployees = subscribeEmployees(
+      (employees) => {
+        setEmployeeCount(employees.length);
+        setIsLoadingEmployees(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsLoadingEmployees(false);
+      },
+    );
+
+    return () => {
+      unsubscribeRequests();
+      unsubscribeSlots();
+      unsubscribeEmployees();
+    };
   }, []);
 
   const totalWorkMinutes = useMemo(() => {
@@ -112,7 +144,7 @@ export default function AdminPage() {
               className="inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
             >
               <ArrowLeftIcon />
-              組織選択
+              組織選択へ
             </Link>
 
             <div className="flex min-w-0 items-center gap-3">
@@ -120,8 +152,10 @@ export default function AdminPage() {
                 <BuildingIcon />
               </div>
               <div className="min-w-0">
-                <h1 className="truncate text-2xl font-semibold leading-tight">管理者ホーム</h1>
-                <p className="truncate text-sm text-[#717182]">組織未選択</p>
+                <h1 className="truncate text-2xl font-semibold leading-tight">
+                  管理者ホーム
+                </h1>
+                <p className="truncate text-sm text-[#717182]">組織管理</p>
               </div>
             </div>
           </div>
@@ -139,7 +173,9 @@ export default function AdminPage() {
       <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
         <header>
           <h2 className="text-2xl font-semibold">管理者用画面</h2>
-          <p className="mt-3 text-[#475569]">シフト管理や従業員情報の管理を行うことができます</p>
+          <p className="mt-3 text-[#475569]">
+            シフト管理や従業員情報の管理を行うことができます
+          </p>
         </header>
 
         <section className="mt-9 grid gap-6 lg:grid-cols-2">
@@ -161,12 +197,16 @@ export default function AdminPage() {
         <section className="mt-8 grid gap-6 lg:grid-cols-3">
           <Card className="p-6">
             <p className="text-sm text-[#717182]">登録シフト枠数</p>
-            <p className="mt-4 text-3xl font-semibold">0件</p>
+            <p className="mt-4 text-3xl font-semibold">
+              {isLoadingSlots ? "..." : `${slotCount}件`}
+            </p>
             <p className="mt-4 text-sm text-[#475569]">この組織のシフト枠</p>
           </Card>
           <Card className="p-6">
             <p className="text-sm text-[#717182]">登録従業員数</p>
-            <p className="mt-4 text-3xl font-semibold">0人</p>
+            <p className="mt-4 text-3xl font-semibold">
+              {isLoadingEmployees ? "..." : `${employeeCount}人`}
+            </p>
             <p className="mt-4 text-sm text-[#475569]">この組織の従業員</p>
           </Card>
           <Card className="p-6">
