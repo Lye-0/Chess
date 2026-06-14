@@ -1,30 +1,47 @@
 import Link from "next/link";
+import { BadgeIcon, CalendarIcon } from "@/components/icons";
 
 export default function EmployeePage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white px-6 text-neutral-950">
-      <section className="w-full max-w-[420px] border border-neutral-900 px-8 py-10">
-        <div className="mx-auto mb-10 flex size-16 items-center justify-center rounded-full border border-neutral-900 text-lg font-semibold">
-          Chess
+    <main className="min-h-screen bg-slate-100 px-6 py-10 text-slate-950">
+      <section className="mx-auto max-w-5xl">
+        <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex size-16 items-center justify-center rounded-2xl bg-green-50 text-green-600">
+                <BadgeIcon className="size-8" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold">従業員用画面</h1>
+                <p className="mt-2 text-slate-500">
+                  従業員ログイン後に表示する仮画面です
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/login/employee"
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold shadow-sm transition hover:bg-slate-50"
+            >
+              従業員ログインへ
+            </Link>
+          </div>
         </div>
 
-        <h1 className="mb-6 text-xl font-semibold">従業員用画面</h1>
-
-        <div className="space-y-4 text-sm">
-          <p>従業員ログイン後に表示する仮画面です。</p>
-          <p className="border border-neutral-900 px-3 py-2">
+        <article className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="mb-6 flex size-14 items-center justify-center rounded-xl bg-blue-600 text-white">
+            <CalendarIcon className="size-8" />
+          </div>
+          <h2 className="text-2xl font-bold">シフト確認</h2>
+          <p className="mt-3 text-slate-500">
             シフト確認や希望提出の画面は後続で実装します。
           </p>
-        </div>
-
-        <div className="mt-8 flex justify-end">
-          <Link
-            href="/login/employee"
-            className="border border-neutral-900 px-3 py-1 text-sm transition-colors hover:bg-neutral-100"
+          <button
+            type="button"
+            className="mt-8 h-12 w-full rounded-xl border border-slate-200 bg-white text-base font-bold shadow-sm transition hover:bg-slate-50"
           >
-            従業員ログインへ
-          </Link>
-        </div>
+            開く
+          </button>
+        </article>
       </section>
     </main>
   );
