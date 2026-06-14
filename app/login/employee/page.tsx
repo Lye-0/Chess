@@ -1,17 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 export default function EmployeeLoginPage() {
+  const router = useRouter();
   const [organizationId, setOrganizationId] = useState("");
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setMessage("");
     setError("");
 
     if (!organizationId.trim()) {
@@ -24,7 +24,12 @@ export default function EmployeeLoginPage() {
       return;
     }
 
-    setMessage("従業員認証処理は後続で実装します。");
+    const params = new URLSearchParams({
+      organizationId: organizationId.trim(),
+      email: email.trim(),
+    });
+
+    router.push(`/login/employee/verify?${params.toString()}`);
   };
 
   return (
@@ -61,7 +66,6 @@ export default function EmployeeLoginPage() {
             />
           </label>
 
-          {message && <p className="text-sm text-blue-700">{message}</p>}
           {error && <p className="text-sm text-red-700">{error}</p>}
 
           <div className="flex items-center justify-between gap-4 pt-1">
