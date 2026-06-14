@@ -12,6 +12,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { removeShiftRequestsBySlot } from "./shiftRequests";
 
 const organizationId = "nagoya-engineering";
 const shiftSlotsCollection = collection(
@@ -72,5 +73,6 @@ export async function updateShiftSlot(id: string, input: ShiftSlotInput) {
 }
 
 export async function removeShiftSlot(id: string) {
+  await removeShiftRequestsBySlot(id);
   await deleteDoc(doc(shiftSlotsCollection, id));
 }

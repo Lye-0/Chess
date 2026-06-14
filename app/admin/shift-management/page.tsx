@@ -11,6 +11,10 @@ import {
   type ShiftSlotInput,
 } from "@/lib/shiftSlots";
 import {
+  subscribeShiftRequests,
+  type ShiftRequest,
+} from "@/lib/shiftRequests";
+import {
   BackHeader,
   Card,
   PlusIcon,
@@ -85,17 +89,48 @@ function XIcon() {
   );
 }
 
+function WarningIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="#ff003d"
+      strokeWidth="2"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.3 4.7 2.9 18a2 2 0 0 0 1.7 3h14.8a2 2 0 0 0 1.7-3L13.7 4.7a2 2 0 0 0-3.4 0Z" />
+    </svg>
+  );
+}
+
+function SlotRequestStatus({ requestCount }: { requestCount: number }) {
+  return (
+    <p
+      className={[
+        "mt-1 text-sm",
+        requestCount > 0 ? "text-[#1763ff]" : "text-[#ff3b00]",
+      ].join(" ")}
+    >
+      {requestCount > 0 ? `希望者: ${requestCount}人` : "希望者なし"}
+    </p>
+  );
+}
+
 export default function AdminShiftManagementPage() {
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
+  const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ShiftSlot | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ShiftForm>(emptyForm);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    return subscribeShiftSlots(
+    const unsubscribeSlots = subscribeShiftSlots(
       (nextSlots) => {
         setSlots(nextSlots);
         setIsLoading(false);
@@ -107,6 +142,19 @@ export default function AdminShiftManagementPage() {
         setErrorMessage("シフト枠の読み込みに失敗しました。Firebase の接続設定と Firestore Rules を確認してください。");
       },
     );
+    const unsubscribeRequests = subscribeShiftRequests(
+      (nextRequests) => {
+        setRequests(nextRequests);
+      },
+      (error) => {
+        console.error(error);
+      },
+    );
+
+    return () => {
+      unsubscribeSlots();
+      unsubscribeRequests();
+    };
   }, []);
 
   const groupedSlots = useMemo(() => {
@@ -129,6 +177,12 @@ export default function AdminShiftManagementPage() {
     Number(form.capacity) >= 1 &&
     Number(form.capacity) <= 100,
   );
+  const requestCountBySlot = useMemo(() => {
+    return requests.reduce<Record<string, number>>((counts, request) => {
+      counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
+      return counts;
+    }, {});
+  }, [requests]);
 
   function openCreateModal() {
     setEditingId(null);
@@ -181,13 +235,28 @@ export default function AdminShiftManagementPage() {
     }
   }
 
-  async function deleteSlot(slotId: string) {
+  function openDeleteModal(slot: ShiftSlot) {
+    setDeleteTarget(slot);
+  }
+
+  function closeDeleteModal() {
+    if (isDeleting) return;
+    setDeleteTarget(null);
+  }
+
+  async function confirmDeleteSlot() {
+    if (!deleteTarget) return;
+
     try {
+      setIsDeleting(true);
       setErrorMessage(null);
-      await removeShiftSlot(slotId);
+      await removeShiftSlot(deleteTarget.id);
+      setDeleteTarget(null);
     } catch (error) {
       console.error(error);
       setErrorMessage("シフト枠の削除に失敗しました。Firestore への書き込み権限を確認してください。");
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -246,7 +315,7 @@ export default function AdminShiftManagementPage() {
                             </p>
                             <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
                           </div>
-                          <p className="mt-1 text-sm text-[#ff3b00]">希望者なし</p>
+                          <SlotRequestStatus requestCount={requestCountBySlot[slot.id] ?? 0} />
                         </div>
 
                         <div className="flex items-center gap-5 self-end sm:self-auto">
@@ -261,7 +330,7 @@ export default function AdminShiftManagementPage() {
                           <button
                             type="button"
                             aria-label="シフト枠を削除"
-                            onClick={() => deleteSlot(slot.id)}
+                            onClick={() => openDeleteModal(slot)}
                             className="text-[#ff003d] transition hover:text-[#cc0031]"
                           >
                             <TrashIcon />
@@ -373,6 +442,58 @@ export default function AdminShiftManagementPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
+          <section className="w-full max-w-[512px] rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <WarningIcon />
+                <h2 className="text-xl font-semibold">シフト枠の削除</h2>
+              </div>
+              <button
+                type="button"
+                aria-label="閉じる"
+                onClick={closeDeleteModal}
+                className="rounded-md p-1 text-[#596074] transition hover:bg-[#f0f1f4] hover:text-[#030213]"
+              >
+                <XIcon />
+              </button>
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-[#717182]">
+              以下のシフト枠を削除します。この操作は元に戻せません。従業員からの希望も同時に削除されます。
+            </p>
+
+            <div className="mt-6 rounded-lg bg-[#f7f8fb] px-4 py-4">
+              <p className="font-semibold">{getDateLabel(deleteTarget.date)}</p>
+              <p className="mt-2 text-sm text-[#475569]">
+                {deleteTarget.startTime} - {deleteTarget.endTime}
+                <span className="ml-4">募集 {deleteTarget.capacity}人</span>
+              </p>
+            </div>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                disabled={isDeleting}
+                className="h-10 rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteSlot}
+                disabled={isDeleting}
+                className="inline-flex h-10 items-center justify-center gap-3 rounded-md bg-[#db1741] text-sm font-semibold text-white transition hover:bg-[#c51239] disabled:cursor-not-allowed disabled:bg-[#c56c7f]"
+              >
+                <TrashIcon />
+                {isDeleting ? "削除中..." : "削除する"}
+              </button>
+            </div>
+          </section>
         </div>
       )}
     </main>

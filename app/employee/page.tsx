@@ -1,11 +1,14 @@
-import Link from "next/link";
+"use client";
 
-const employee = {
-  name: "田中健一",
-  organization: "名古屋エンジニアリング",
-  department: "開発部",
-  role: "正社員",
-};
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { currentEmployee } from "@/lib/people";
+import {
+  subscribeEmployeeShiftRequests,
+  type ShiftRequest,
+} from "@/lib/shiftRequests";
+
+const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 
 function UserIcon() {
   return (
@@ -71,7 +74,50 @@ function LogoutIcon() {
   );
 }
 
+function formatDateLabel(date: string) {
+  const parsedDate = new Date(`${date}T00:00:00`);
+  const year = parsedDate.getFullYear();
+  const month = parsedDate.getMonth() + 1;
+  const day = parsedDate.getDate();
+  const weekday = weekdays[parsedDate.getDay()];
+
+  return `${year}年${month}月${day}日（${weekday}）`;
+}
+
+function formatDateOnly(date: string) {
+  const parsedDate = new Date(`${date}T00:00:00`);
+
+  return `${parsedDate.getFullYear()}年${parsedDate.getMonth() + 1}月${parsedDate.getDate()}日`;
+}
+
+function sortRequests(requests: ShiftRequest[]) {
+  return [...requests].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.startTime.localeCompare(b.startTime);
+  });
+}
+
 export default function EmployeePage() {
+  const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    return subscribeEmployeeShiftRequests(
+      currentEmployee.id,
+      (nextRequests) => {
+        setRequests(nextRequests);
+        setIsLoading(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsLoading(false);
+      },
+    );
+  }, []);
+
+  const sortedRequests = useMemo(() => sortRequests(requests), [requests]);
+  const nearestRequest = sortedRequests[0];
+
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <header className="border-b border-black/10 bg-white shadow-sm">
@@ -81,9 +127,9 @@ export default function EmployeePage() {
               <UserIcon />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-2xl font-semibold leading-tight">{employee.name}</h1>
+              <h1 className="truncate text-2xl font-semibold leading-tight">{currentEmployee.name}</h1>
               <p className="truncate text-sm text-[#717182]">
-                {employee.organization} - {employee.department}（{employee.role}）
+                {currentEmployee.organization} - {currentEmployee.department}（{currentEmployee.employmentType}）
               </p>
             </div>
           </div>
@@ -120,21 +166,73 @@ export default function EmployeePage() {
             </div>
             <h2 className="mt-2 text-xl font-semibold">直近のシフト</h2>
             <p className="mt-1 text-sm text-[#717182]">今後7日間の確定シフト</p>
-            <div className="flex min-h-24 items-center justify-center pt-4">
-              <p className="text-sm text-[#717182]">直近のシフトはありません</p>
+            <div className="pt-3">
+              {isLoading ? (
+                <p className="text-sm text-[#717182]">読み込んでいます</p>
+              ) : nearestRequest ? (
+                <div className="flex items-center justify-between rounded-lg bg-[#f7f8fb] px-4 py-3">
+                  <div>
+                    <p className="font-semibold">{formatDateLabel(nearestRequest.date)}</p>
+                    <p className="mt-1 text-sm text-[#475569]">
+                      {nearestRequest.startTime} - {nearestRequest.endTime}
+                    </p>
+                  </div>
+                  <span className="rounded-md bg-[#dbeafe] px-3 py-1 text-sm font-semibold text-[#1d4ed8]">
+                    希望済
+                  </span>
+                </div>
+              ) : (
+                <div className="flex min-h-24 items-center justify-center">
+                  <p className="text-sm text-[#717182]">直近のシフトはありません</p>
+                </div>
+              )}
             </div>
           </section>
         </section>
 
-        <section className="mt-6 h-[262px] rounded-xl border border-black/10 bg-white shadow-sm">
+        <section className="mt-6 rounded-xl border border-black/10 bg-white shadow-sm">
           <div className="p-6">
             <h2 className="text-xl font-semibold">シフト希望一覧</h2>
             <p className="mt-1 text-sm text-[#717182]">2026年6月 — 提出済みの希望シフト</p>
           </div>
-          <div className="flex min-h-40 flex-col items-center justify-center px-6 pb-6 text-center text-[#717182]">
-            <p>まだシフト希望を提出していません</p>
-            <p className="mt-1 text-sm">「希望シフト入力」からシフトを提出してください</p>
-          </div>
+          {isLoading ? (
+            <div className="flex min-h-40 items-center justify-center px-6 pb-6 text-center text-[#717182]">
+              <p>読み込んでいます</p>
+            </div>
+          ) : sortedRequests.length === 0 ? (
+            <div className="flex min-h-40 flex-col items-center justify-center px-6 pb-6 text-center text-[#717182]">
+              <p>まだシフト希望を提出していません</p>
+              <p className="mt-1 text-sm">「希望シフト入力」からシフトを提出してください</p>
+            </div>
+          ) : (
+            <div className="space-y-3 px-6 pb-6">
+              {sortedRequests.map((request) => {
+                const parsedDate = new Date(`${request.date}T00:00:00`);
+                return (
+                  <div
+                    key={request.id}
+                    className="flex items-center justify-between rounded-lg border border-black/10 px-6 py-4"
+                  >
+                    <div className="flex items-center gap-8">
+                      <div className="text-center text-sm text-[#030213]">
+                        <p>{weekdays[parsedDate.getDay()]}</p>
+                        <p className="font-semibold">{parsedDate.getDate()}</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold">{formatDateOnly(request.date)}</p>
+                        <p className="mt-1 text-sm text-[#475569]">
+                          {request.startTime} - {request.endTime}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="rounded-md bg-[#dbeafe] px-3 py-1 text-sm font-semibold text-[#1d4ed8]">
+                      希望済
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       </div>
     </main>
