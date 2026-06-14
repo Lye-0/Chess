@@ -1,4 +1,11 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import {
+  subscribeShiftRequests,
+  type ShiftRequest,
+} from "@/lib/shiftRequests";
 import {
   ArrowLeftIcon,
   BuildingIcon,
@@ -42,7 +49,59 @@ const features = [
   },
 ];
 
+function parseTimeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+
+  return hour * 60 + minute;
+}
+
+function calculateWorkMinutes(request: ShiftRequest) {
+  const start = parseTimeToMinutes(request.startTime);
+  const end = parseTimeToMinutes(request.endTime);
+  const diff = end - start;
+
+  return diff >= 0 ? diff : diff + 24 * 60;
+}
+
+function formatHoursOnly(minutes: number) {
+  const roundedHours = Math.round((minutes / 60) * 10) / 10;
+
+  if (Number.isInteger(roundedHours)) {
+    return `${roundedHours.toLocaleString()}h`;
+  }
+
+  return `${roundedHours.toLocaleString(undefined, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}h`;
+}
+
 export default function AdminPage() {
+  const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+
+  useEffect(() => {
+    return subscribeShiftRequests(
+      (nextRequests) => {
+        setRequests(nextRequests);
+        setIsLoadingRequests(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsLoadingRequests(false);
+      },
+    );
+  }, []);
+
+  const totalWorkMinutes = useMemo(() => {
+    return requests.reduce(
+      (total, request) => total + calculateWorkMinutes(request),
+      0,
+    );
+  }, [requests]);
+
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <header className="border-b border-black/10 bg-white shadow-sm">
@@ -112,8 +171,10 @@ export default function AdminPage() {
           </Card>
           <Card className="p-6">
             <p className="text-sm text-[#717182]">今週の稼働時間</p>
-            <p className="mt-4 text-3xl font-semibold">1,245h</p>
-            <p className="mt-4 text-sm text-[#475569]">前週比 +8%</p>
+            <p className="mt-4 text-3xl font-semibold">
+              {isLoadingRequests ? "..." : formatHoursOnly(totalWorkMinutes)}
+            </p>
+            <p className="mt-4 text-sm text-[#475569]">全従業員の希望時間合計</p>
           </Card>
         </section>
       </div>
