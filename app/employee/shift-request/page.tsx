@@ -16,6 +16,7 @@ import {
 } from "@/lib/shiftSlots";
 import {
   createShiftRequests,
+  isShiftStartInFuture,
   subscribeEmployeeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -177,6 +178,7 @@ export default function EmployeeShiftRequestPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState("");
   const [draftSlots, setDraftSlots] = useState<ShiftSlot[]>([]);
+  const [now, setNow] = useState(() => new Date());
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSlotsLoading, setIsSlotsLoading] = useState(true);
@@ -189,6 +191,14 @@ export default function EmployeeShiftRequestPage() {
       router.replace("/login");
     }
   }, [employee, router]);
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => {
+      setNow(new Date());
+    }, 30000);
+
+    return () => window.clearInterval(timerId);
+  }, []);
 
   useEffect(() => {
     if (!employee) return;
@@ -235,19 +245,22 @@ export default function EmployeeShiftRequestPage() {
     () => new Set(draftSlots.map((slot) => slot.id)),
     [draftSlots],
   );
+  const requestableSlots = useMemo(() => {
+    return slots.filter((slot) => isShiftStartInFuture(slot, now));
+  }, [now, slots]);
   const slotsByDate = useMemo(() => {
-    return slots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
+    return requestableSlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
       groups[slot.date] = [...(groups[slot.date] ?? []), slot];
       return groups;
     }, {});
-  }, [slots]);
+  }, [requestableSlots]);
   const selectableDates = useMemo(() => {
     return new Set(
-      slots
+      requestableSlots
         .filter((slot) => !requestedSlotIds.has(slot.id) && !draftSlotIds.has(slot.id))
         .map((slot) => slot.date),
     );
-  }, [draftSlotIds, requestedSlotIds, slots]);
+  }, [draftSlotIds, requestableSlots, requestedSlotIds]);
   const availableSlotsForSelectedDate = useMemo(() => {
     if (!selectedDate) return [];
 
@@ -288,6 +301,12 @@ export default function EmployeeShiftRequestPage() {
 
   function addDraftSlot() {
     if (!selectedSlot) return;
+    if (!isShiftStartInFuture(selectedSlot)) {
+      setSelectedSlotId("");
+      setErrorMessage("開始済みまたは終了済みのシフトには希望を提出できません。");
+      return;
+    }
+
     setDraftSlots((current) => sortSlots([...current, selectedSlot]));
     setSelectedSlotId("");
   }
@@ -299,11 +318,22 @@ export default function EmployeeShiftRequestPage() {
   async function submitRequests() {
     if (!employee || draftSlots.length === 0) return;
 
+    const requestableDraftSlots = draftSlots.filter((slot) =>
+      isShiftStartInFuture(slot),
+    );
+
+    if (requestableDraftSlots.length !== draftSlots.length) {
+      setDraftSlots(requestableDraftSlots);
+      setIsConfirmOpen(false);
+      setErrorMessage("開始済みまたは終了済みのシフトには希望を提出できません。");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
       await createShiftRequests(
-        draftSlots.map((slot) => ({
+        requestableDraftSlots.map((slot) => ({
           employeeId: employee.employeeId,
           employeeName: employee.name,
           employeeEmail: employee.email,

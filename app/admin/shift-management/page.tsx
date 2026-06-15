@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   createShiftSlot,
+  isFourDigitShiftDate,
   removeShiftSlot,
   subscribeShiftSlots,
   updateShiftSlot,
@@ -35,6 +36,16 @@ const emptyForm: ShiftForm = {
   endTime: "",
   capacity: "1",
 };
+
+function normalizeDateInput(value: string) {
+  if (value === "") return value;
+  const [year] = value.split("-");
+
+  if (year.length > 4 || value.length > 10) return null;
+
+  return value;
+}
+
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 
 function getDateLabel(date: string) {
@@ -178,7 +189,7 @@ function AdminShiftManagementContent() {
   }, [slots]);
 
   const canSave = Boolean(
-    form.date &&
+    isFourDigitShiftDate(form.date) &&
     form.startTime &&
     form.endTime &&
     form.startTime < form.endTime &&
@@ -388,8 +399,15 @@ function AdminShiftManagementContent() {
                 <input
                   id="shift-date"
                   type="date"
+                  min="0001-01-01"
+                  max="9999-12-31"
                   value={form.date}
-                  onChange={(event) => setForm({ ...form, date: event.target.value })}
+                  onChange={(event) => {
+                    const nextDate = normalizeDateInput(event.target.value);
+                    if (nextDate === null) return;
+
+                    setForm({ ...form, date: nextDate });
+                  }}
                   className="mt-2 h-10 w-full rounded-md border border-black/20 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
                 />
               </div>

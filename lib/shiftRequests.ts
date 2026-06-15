@@ -38,6 +38,23 @@ export type ShiftRequestInput = Omit<
   "id" | "status" | "submittedDate"
 >;
 
+type ShiftDateTime = {
+  date: string;
+  startTime: string;
+};
+
+export function isShiftStartInFuture(
+  shift: ShiftDateTime,
+  now = new Date(),
+) {
+  const startAt = new Date(`${shift.date}T${shift.startTime}:00`);
+
+  return (
+    !Number.isNaN(startAt.getTime()) &&
+    startAt.getTime() > now.getTime()
+  );
+}
+
 function getTodayString() {
   const today = new Date();
   const year = today.getFullYear();
@@ -102,6 +119,11 @@ export async function createShiftRequests(
 ) {
   const batch = writeBatch(db);
   const submittedDate = getTodayString();
+  const now = new Date();
+
+  if (inputs.some((input) => !isShiftStartInFuture(input, now))) {
+    throw new Error("Started shift slots cannot be requested.");
+  }
 
   inputs.forEach((input) => {
     const requestRef = doc(getShiftRequestsCollection(organizationId));
