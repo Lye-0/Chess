@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { BadgeIcon, BuildingIcon } from "@/components/icons";
 
@@ -5,15 +6,19 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-6 py-10 text-slate-950">
       <section className="w-full max-w-[520px] rounded-2xl border border-slate-200 bg-white px-8 py-10 shadow-sm">
-        <div className="mx-auto mb-8 flex size-20 items-center justify-center rounded-full bg-slate-950 text-sm font-bold text-white shadow-sm">
-          Chess
+        <div className="mx-auto mb-6 flex justify-center">
+          <Image
+            src="/chess-logo.png"
+            alt="Chess シフト管理"
+            width={108}
+            height={108}
+            priority
+            className="h-auto w-24 sm:w-28"
+          />
         </div>
 
-        <div className="mb-10 text-center">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">
-            Chess
-          </p>
-          <h1 className="mt-3 text-3xl font-bold">利用者を選択</h1>
+        <div className="mb-9 text-center">
+          <h1 className="text-3xl font-bold">利用者を選択</h1>
           <p className="mt-3 text-base text-slate-500">
             利用する立場を選択してください
           </p>
