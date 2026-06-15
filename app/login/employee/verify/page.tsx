@@ -1,19 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { BadgeIcon, CheckIcon, KeyIcon } from "@/components/icons";
+import { findEmployeeByEmail, saveEmployeeSession } from "@/lib/people";
 
 function EmployeeVerifyContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const organizationId = searchParams.get("organizationId") ?? "";
   const email = searchParams.get("email") ?? "";
   const [verificationCode, setVerificationCode] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage("");
     setError("");
@@ -23,7 +26,28 @@ function EmployeeVerifyContent() {
       return;
     }
 
-    setMessage("確認コード認証処理は後続で実装します。");
+    if (!organizationId || !email) {
+      setError("従業員確認に必要な情報が不足しています。もう一度入力してください。");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const employee = await findEmployeeByEmail(organizationId, email);
+
+      if (!employee) {
+        setError("従業員情報を確認できませんでした。もう一度入力してください。");
+        return;
+      }
+
+      saveEmployeeSession(employee);
+      router.push("/employee");
+    } catch (verifyError) {
+      console.error(verifyError);
+      setError("確認処理に失敗しました。時間をおいてもう一度お試しください。");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -94,9 +118,10 @@ function EmployeeVerifyContent() {
             </Link>
             <button
               type="submit"
-              className="h-11 min-w-28 rounded-xl bg-green-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-green-700"
+              disabled={isSubmitting}
+              className="h-11 min-w-28 rounded-xl bg-green-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              次へ
+              {isSubmitting ? "確認中" : "次へ"}
             </button>
           </div>
         </form>

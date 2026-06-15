@@ -4,33 +4,53 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { ArrowLeftIcon, BadgeIcon, BuildingIcon, MailIcon } from "@/components/icons";
+import { findEmployeeByEmail } from "@/lib/people";
 
 export default function EmployeeLoginPage() {
   const router = useRouter();
   const [organizationId, setOrganizationId] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
 
-    if (!organizationId.trim()) {
+    const trimmedOrganizationId = organizationId.trim();
+    const trimmedEmail = email.trim();
+
+    if (!trimmedOrganizationId) {
       setError("組織IDを入力してください。");
       return;
     }
 
-    if (!email.trim()) {
+    if (!trimmedEmail) {
       setError("メールアドレスを入力してください。");
       return;
     }
 
-    const params = new URLSearchParams({
-      organizationId: organizationId.trim(),
-      email: email.trim(),
-    });
+    try {
+      setIsSubmitting(true);
+      const employee = await findEmployeeByEmail(trimmedOrganizationId, trimmedEmail);
 
-    router.push(`/login/employee/verify?${params.toString()}`);
+      if (!employee) {
+        setError("入力された組織IDとメールアドレスに一致する従業員が見つかりません。");
+        return;
+      }
+
+      const params = new URLSearchParams({
+        organizationId: trimmedOrganizationId,
+        email: trimmedEmail,
+      });
+
+      router.push(`/login/employee/verify?${params.toString()}`);
+    } catch (loginError) {
+      console.error(loginError);
+      setError("従業員情報の確認に失敗しました。時間をおいてもう一度お試しください。");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -66,6 +86,7 @@ export default function EmployeeLoginPage() {
                 onChange={(event) => setOrganizationId(event.target.value)}
                 required
                 autoComplete="organization"
+                placeholder="組織IDを入力"
                 className="h-full min-w-0 flex-1 bg-transparent outline-none"
               />
             </span>
@@ -81,6 +102,7 @@ export default function EmployeeLoginPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 required
                 autoComplete="email"
+                placeholder="例: tanaka@example.com"
                 className="h-full min-w-0 flex-1 bg-transparent outline-none"
               />
             </span>
@@ -101,9 +123,10 @@ export default function EmployeeLoginPage() {
             </Link>
             <button
               type="submit"
-              className="h-11 min-w-28 rounded-xl bg-green-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-green-700"
+              disabled={isSubmitting}
+              className="h-11 min-w-28 rounded-xl bg-green-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              次へ
+              {isSubmitting ? "確認中" : "次へ"}
             </button>
           </div>
         </form>
