@@ -4,6 +4,7 @@ import {
   getDocs,
   onSnapshot,
   serverTimestamp,
+  updateDoc,
   writeBatch,
   type DocumentData,
   type FirestoreError,
@@ -17,7 +18,7 @@ function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
   return collection(db, "organizations", organizationId, "shiftRequests");
 }
 
-export type ShiftRequestStatus = "希望済";
+export type ShiftRequestStatus = "希望済" | "承認済";
 
 export type ShiftRequest = {
   id: string;
@@ -42,6 +43,10 @@ type ShiftDateTime = {
   date: string;
   startTime: string;
 };
+
+function normalizeShiftRequestStatus(status: unknown): ShiftRequestStatus {
+  return status === "承認済" ? "承認済" : "希望済";
+}
 
 export function isShiftStartInFuture(
   shift: ShiftDateTime,
@@ -79,7 +84,7 @@ function toShiftRequest(
     date: String(data.date ?? ""),
     startTime: String(data.startTime ?? ""),
     endTime: String(data.endTime ?? ""),
-    status: "希望済",
+    status: normalizeShiftRequestStatus(data.status),
     submittedDate: String(data.submittedDate ?? ""),
   };
 }
@@ -136,6 +141,17 @@ export async function createShiftRequests(
   });
 
   await batch.commit();
+}
+
+export async function approveShiftRequest(
+  requestId: string,
+  organizationId = defaultOrganizationId,
+) {
+  await updateDoc(doc(getShiftRequestsCollection(organizationId), requestId), {
+    status: "承認済",
+    approvedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function removeShiftRequestsBySlot(

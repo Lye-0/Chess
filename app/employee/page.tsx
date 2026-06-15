@@ -105,6 +105,23 @@ function sortRequests(requests: ShiftRequest[]) {
   });
 }
 
+function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
+  const approved = status === "承認済";
+
+  return (
+    <span
+      className={[
+        "rounded-md px-3 py-1 text-sm font-semibold",
+        approved
+          ? "bg-[#dcfce7] text-[#15803d]"
+          : "bg-[#dbeafe] text-[#1d4ed8]",
+      ].join(" ")}
+    >
+      {status}
+    </span>
+  );
+}
+
 export default function EmployeePage() {
   const router = useRouter();
   const sessionSnapshot = useSyncExternalStore(
@@ -221,9 +238,7 @@ export default function EmployeePage() {
                       {nearestRequest.startTime} - {nearestRequest.endTime}
                     </p>
                   </div>
-                  <span className="rounded-md bg-[#dbeafe] px-3 py-1 text-sm font-semibold text-[#1d4ed8]">
-                    希望済
-                  </span>
+                  <RequestStatusBadge status={nearestRequest.status} />
                 </div>
               ) : (
                 <div className="flex min-h-24 items-center justify-center">
@@ -272,9 +287,7 @@ export default function EmployeePage() {
                         </p>
                       </div>
                     </div>
-                    <span className="rounded-md bg-[#dbeafe] px-3 py-1 text-sm font-semibold text-[#1d4ed8]">
-                      希望済
-                    </span>
+                    <RequestStatusBadge status={request.status} />
                   </div>
                 );
               })}

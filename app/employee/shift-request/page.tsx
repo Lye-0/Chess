@@ -488,7 +488,9 @@ export default function EmployeeShiftRequestPage() {
                         onClick={addDraftSlot}
                         className={[
                           "mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold text-white",
-                          selectedSlot ? "bg-[#8e8d95]" : "cursor-not-allowed bg-[#b8b7bf]",
+                          selectedSlot
+                            ? "bg-[#030213] hover:bg-[#171624]"
+                            : "cursor-not-allowed bg-[#b8b7bf]",
                         ].join(" ")}
                       >
                         <SendIcon />
@@ -592,7 +594,7 @@ export default function EmployeeShiftRequestPage() {
             </div>
 
             <p className="mt-6 text-sm text-[#717182]">
-              ※ 先着順で確定されます。管理者が確認後、シフトが確定します。
+              ※ 管理者が承認後、シフトが確定します。
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">

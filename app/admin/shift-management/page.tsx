@@ -13,6 +13,7 @@ import {
   type ShiftSlotInput,
 } from "@/lib/shiftSlots";
 import {
+  approveShiftRequest,
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -130,6 +131,23 @@ function SlotRequestStatus({ requestCount }: { requestCount: number }) {
   );
 }
 
+function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
+  const approved = status === "承認済";
+
+  return (
+    <span
+      className={[
+        "rounded-md px-3 py-1 text-xs font-semibold",
+        approved
+          ? "bg-[#dcfce7] text-[#15803d]"
+          : "bg-[#dbeafe] text-[#1d4ed8]",
+      ].join(" ")}
+    >
+      {status}
+    </span>
+  );
+}
+
 function AdminShiftManagementContent() {
   const searchParams = useSearchParams();
   const selectedOrganizationId = searchParams.get("organizationId")?.trim();
@@ -144,6 +162,7 @@ function AdminShiftManagementContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [approvingRequestId, setApprovingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -200,6 +219,12 @@ function AdminShiftManagementContent() {
     return requests.reduce<Record<string, number>>((counts, request) => {
       counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
       return counts;
+    }, {});
+  }, [requests]);
+  const requestsBySlot = useMemo(() => {
+    return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
+      groups[request.slotId] = [...(groups[request.slotId] ?? []), request];
+      return groups;
     }, {});
   }, [requests]);
 
@@ -279,6 +304,21 @@ function AdminShiftManagementContent() {
     }
   }
 
+  async function handleApproveRequest(request: ShiftRequest) {
+    if (request.status === "承認済") return;
+
+    try {
+      setApprovingRequestId(request.id);
+      setErrorMessage(null);
+      await approveShiftRequest(request.id, organizationId);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("シフト希望の承認に失敗しました。Firestore への書き込み権限を確認してください。");
+    } finally {
+      setApprovingRequestId(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <BackHeader
@@ -323,41 +363,88 @@ function AdminShiftManagementContent() {
                 <section key={date} className="rounded-lg border border-black/10 p-4">
                   <h2 className="text-lg font-semibold">{getDateLabel(date)}</h2>
                   <div className="mt-4 space-y-3">
-                    {dateSlots.map((slot) => (
-                      <div
-                        key={slot.id}
-                        className="flex flex-col gap-4 rounded-lg bg-[#f7f8fb] px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div>
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                            <p className="font-semibold">
-                              {slot.startTime} - {slot.endTime}
-                            </p>
-                            <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
-                          </div>
-                          <SlotRequestStatus requestCount={requestCountBySlot[slot.id] ?? 0} />
-                        </div>
+                    {dateSlots.map((slot) => {
+                      const slotRequests = requestsBySlot[slot.id] ?? [];
 
-                        <div className="flex items-center gap-5 self-end sm:self-auto">
-                          <button
-                            type="button"
-                            aria-label="シフト枠を編集"
-                            onClick={() => openEditModal(slot)}
-                            className="text-[#596074] transition hover:text-[#030213]"
-                          >
-                            <PencilIcon />
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="シフト枠を削除"
-                            onClick={() => openDeleteModal(slot)}
-                            className="text-[#ff003d] transition hover:text-[#cc0031]"
-                          >
-                            <TrashIcon />
-                          </button>
+                      return (
+                        <div
+                          key={slot.id}
+                          className="rounded-lg bg-[#f7f8fb] px-4 py-4"
+                        >
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                                <p className="font-semibold">
+                                  {slot.startTime} - {slot.endTime}
+                                </p>
+                                <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
+                              </div>
+                              <SlotRequestStatus requestCount={requestCountBySlot[slot.id] ?? 0} />
+                            </div>
+
+                            <div className="flex items-center gap-5 self-end sm:self-auto">
+                              <button
+                                type="button"
+                                aria-label="シフト枠を編集"
+                                onClick={() => openEditModal(slot)}
+                                className="text-[#596074] transition hover:text-[#030213]"
+                              >
+                                <PencilIcon />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label="シフト枠を削除"
+                                onClick={() => openDeleteModal(slot)}
+                                className="text-[#ff003d] transition hover:text-[#cc0031]"
+                              >
+                                <TrashIcon />
+                              </button>
+                            </div>
+                          </div>
+
+                          {slotRequests.length > 0 && (
+                            <div className="mt-4 space-y-2 border-t border-black/10 pt-3">
+                              {slotRequests.map((request) => {
+                                const approved = request.status === "承認済";
+                                const approving = approvingRequestId === request.id;
+
+                                return (
+                                  <div
+                                    key={request.id}
+                                    className="flex flex-col gap-3 rounded-md bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold">
+                                        {request.employeeName}
+                                      </p>
+                                      <p className="mt-1 truncate text-xs text-[#717182]">
+                                        {request.employeeEmail} / {request.employmentType}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                                      <RequestStatusBadge status={request.status} />
+                                      <button
+                                        type="button"
+                                        disabled={approved || approving}
+                                        onClick={() => handleApproveRequest(request)}
+                                        className={[
+                                          "h-8 rounded-md px-3 text-xs font-semibold transition",
+                                          approved
+                                            ? "cursor-default bg-[#e5e7eb] text-[#64748b]"
+                                            : "bg-[#030213] text-white hover:bg-[#171624]",
+                                        ].join(" ")}
+                                      >
+                                        {approved ? "承認済" : approving ? "承認中..." : "承認"}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
               ))}
