@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { BadgeIcon, CheckIcon, KeyIcon } from "@/components/icons";
+import { findEmployeeByEmail, saveEmployeeSession } from "@/lib/people";
 
 function EmployeeVerifyContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const organizationId = searchParams.get("organizationId") ?? "";
   const email = searchParams.get("email") ?? "";
@@ -13,7 +15,7 @@ function EmployeeVerifyContent() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage("");
     setError("");
@@ -23,7 +25,16 @@ function EmployeeVerifyContent() {
       return;
     }
 
-    setMessage("確認コード認証処理は後続で実装します。");
+    const employee = await findEmployeeByEmail(organizationId, email);
+
+    if (!employee) {
+      setError("従業員情報が見つかりません。組織IDとメールアドレスを確認してください。");
+      return;
+    }
+
+    saveEmployeeSession(employee);
+    setMessage("確認しました。従業員画面へ移動します。");
+    router.push("/employee");
   };
 
   return (

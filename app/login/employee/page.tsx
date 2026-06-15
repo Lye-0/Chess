@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { ArrowLeftIcon, BadgeIcon, BuildingIcon, MailIcon } from "@/components/icons";
+import { findEmployeeByEmail } from "@/lib/people";
 
 export default function EmployeeLoginPage() {
   const router = useRouter();
@@ -11,23 +12,33 @@ export default function EmployeeLoginPage() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
 
-    if (!organizationId.trim()) {
+    const nextOrganizationId = organizationId.trim();
+    const nextEmail = email.trim();
+
+    if (!nextOrganizationId) {
       setError("組織IDを入力してください。");
       return;
     }
 
-    if (!email.trim()) {
+    if (!nextEmail) {
       setError("メールアドレスを入力してください。");
       return;
     }
 
+    const employee = await findEmployeeByEmail(nextOrganizationId, nextEmail);
+
+    if (!employee) {
+      setError("この組織に登録されている従業員が見つかりません。");
+      return;
+    }
+
     const params = new URLSearchParams({
-      organizationId: organizationId.trim(),
-      email: email.trim(),
+      organizationId: nextOrganizationId,
+      email: nextEmail,
     });
 
     router.push(`/login/employee/verify?${params.toString()}`);
