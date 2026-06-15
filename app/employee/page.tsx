@@ -138,6 +138,7 @@ export default function EmployeePage() {
         console.error(error);
         setIsLoading(false);
       },
+      employee.organizationId,
     );
   }, [employee]);
 

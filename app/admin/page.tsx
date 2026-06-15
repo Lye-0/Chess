@@ -1,13 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import { subscribeShiftSlots } from "@/lib/shiftSlots";
-import { subscribeEmployees } from "@/lib/people";
+import {
+  defaultOrganizationId,
+  getOrganizationProfile,
+  subscribeEmployees,
+} from "@/lib/people";
 import {
   ArrowLeftIcon,
   BuildingIcon,
@@ -22,28 +27,28 @@ import {
 
 const features = [
   {
-    href: "/admin/shift-management",
+    path: "/admin/shift-management",
     title: "シフト管理",
     description: "シフトの作成・編集・削除を行います",
     icon: <CalendarIcon />,
     color: "bg-[#2f7df6] text-white",
   },
   {
-    href: "/admin/employee-list",
+    path: "/admin/employee-list",
     title: "従業員シフト表",
     description: "従業員ごとのシフト希望を確認します",
     icon: <UsersIcon />,
     color: "bg-[#08c853] text-white",
   },
   {
-    href: "/admin/timesheet",
+    path: "/admin/timesheet",
     title: "稼働時間",
     description: "従業員の稼働時間を確認します",
     icon: <ClockIcon />,
     color: "bg-[#b347ff] text-white",
   },
   {
-    href: "/admin/employee-registration",
+    path: "/admin/employee-registration",
     title: "従業員登録",
     description: "新しい従業員を登録します",
     icon: <FileTextIcon />,
@@ -80,7 +85,12 @@ function formatHoursOnly(minutes: number) {
   })}h`;
 }
 
-export default function AdminPage() {
+function AdminContent() {
+  const searchParams = useSearchParams();
+  const selectedOrganizationId = searchParams.get("organizationId")?.trim();
+  const organizationId = selectedOrganizationId || defaultOrganizationId;
+  const currentOrganization = getOrganizationProfile(organizationId);
+  const organizationQuery = `?organizationId=${encodeURIComponent(organizationId)}`;
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [slotCount, setSlotCount] = useState(0);
   const [employeeCount, setEmployeeCount] = useState(0);
@@ -98,6 +108,7 @@ export default function AdminPage() {
         console.error(error);
         setIsLoadingRequests(false);
       },
+      organizationId,
     );
     const unsubscribeSlots = subscribeShiftSlots(
       (slots) => {
@@ -108,6 +119,7 @@ export default function AdminPage() {
         console.error(error);
         setIsLoadingSlots(false);
       },
+      organizationId,
     );
     const unsubscribeEmployees = subscribeEmployees(
       (employees) => {
@@ -118,6 +130,7 @@ export default function AdminPage() {
         console.error(error);
         setIsLoadingEmployees(false);
       },
+      organizationId,
     );
 
     return () => {
@@ -125,7 +138,7 @@ export default function AdminPage() {
       unsubscribeSlots();
       unsubscribeEmployees();
     };
-  }, []);
+  }, [organizationId]);
 
   const totalWorkMinutes = useMemo(() => {
     return requests.reduce(
@@ -156,6 +169,15 @@ export default function AdminPage() {
                   管理者ホーム
                 </h1>
                 <p className="truncate text-sm text-[#717182]">組織管理</p>
+                <p className="truncate text-xs text-[#717182]">
+                  {currentOrganization.name}
+                  {currentOrganization.department
+                    ? ` - ${currentOrganization.department}`
+                    : ""}
+                </p>
+                <p className="truncate font-mono text-xs text-[#717182]">
+                  ID: {organizationId}
+                </p>
               </div>
             </div>
           </div>
@@ -180,12 +202,12 @@ export default function AdminPage() {
 
         <section className="mt-9 grid gap-6 lg:grid-cols-2">
           {features.map((feature) => (
-            <Card key={feature.href} className="p-6">
+            <Card key={feature.path} className="p-6">
               <IconBadge className={feature.color}>{feature.icon}</IconBadge>
               <h3 className="mt-3 text-xl font-semibold">{feature.title}</h3>
               <p className="mt-1 text-sm text-[#717182]">{feature.description}</p>
               <Link
-                href={feature.href}
+                href={`${feature.path}${organizationQuery}`}
                 className="mt-7 flex h-10 w-full items-center justify-center rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
               >
                 開く
@@ -219,5 +241,13 @@ export default function AdminPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function AdminPage() {
+  return (
+    <Suspense>
+      <AdminContent />
+    </Suspense>
   );
 }

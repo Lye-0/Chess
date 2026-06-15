@@ -204,6 +204,7 @@ export default function EmployeeShiftRequestPage() {
         setIsSlotsLoading(false);
         setErrorMessage("シフト枠の読み込みに失敗しました。");
       },
+      employee.organizationId,
     );
     const unsubscribeRequests = subscribeEmployeeShiftRequests(
       employee.employeeId,
@@ -217,6 +218,7 @@ export default function EmployeeShiftRequestPage() {
         setIsRequestsLoading(false);
         setErrorMessage("希望シフトの読み込みに失敗しました。");
       },
+      employee.organizationId,
     );
 
     return () => {
@@ -311,6 +313,7 @@ export default function EmployeeShiftRequestPage() {
           startTime: slot.startTime,
           endTime: slot.endTime,
         })),
+        employee.organizationId,
       );
       setDraftSlots([]);
       setIsConfirmOpen(false);

@@ -1,14 +1,25 @@
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import {
   BackHeader,
   Card,
   ChevronDownIcon,
   DownloadIcon,
 } from "../../_components/shift-ui";
+import { defaultOrganizationId } from "@/lib/people";
 
-export default function AdminTimesheetPage() {
+function AdminTimesheetContent() {
+  const searchParams = useSearchParams();
+  const selectedOrganizationId = searchParams.get("organizationId")?.trim();
+  const organizationId = selectedOrganizationId || defaultOrganizationId;
+  const organizationQuery = `?organizationId=${encodeURIComponent(organizationId)}`;
+
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <BackHeader
+        backHref={`/admin${organizationQuery}`}
         right={
           <button
             type="button"
@@ -61,5 +72,13 @@ export default function AdminTimesheetPage() {
         </Card>
       </div>
     </main>
+  );
+}
+
+export default function AdminTimesheetPage() {
+  return (
+    <Suspense>
+      <AdminTimesheetContent />
+    </Suspense>
   );
 }
