@@ -6,9 +6,9 @@ import { FormEvent, useState } from "react";
 import { BuildingIcon, PlusIcon } from "@/components/icons";
 
 const managedOrganizations = [
+  { id: "nagoya-engineering", name: "名古屋エンジニアリング", department: "開発部" },
   { id: "sample-organization-1", name: "株式会社東京テック", department: "総務部" },
   { id: "sample-organization-2", name: "大阪商事株式会社", department: "営業部" },
-  { id: "sample-organization-3", name: "名古屋エンジニアリング", department: "開発部" },
 ];
 
 export default function SelectOrganizationPage() {
@@ -26,7 +26,7 @@ export default function SelectOrganizationPage() {
       return;
     }
 
-    router.push(`/manager?organizationId=${selectedOrganizationId}`);
+    router.push(`/admin?organizationId=${selectedOrganizationId}`);
   };
 
   return (

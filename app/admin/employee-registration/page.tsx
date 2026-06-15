@@ -4,10 +4,8 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import {
   createEmployee,
-  resetEmployeePassword,
   subscribeEmployees,
   type EmployeeProfile,
-  type RegisteredEmployeeResult,
 } from "@/lib/people";
 import {
   BackHeader,
@@ -32,32 +30,12 @@ const emptyForm: EmployeeForm = {
   employmentType: employmentTypes[0],
 };
 
-function XIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-5 w-5"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6 6 18" />
-    </svg>
-  );
-}
-
 export default function AdminEmployeeRegistrationPage() {
   const [form, setForm] = useState<EmployeeForm>(emptyForm);
   const [registeredEmployees, setRegisteredEmployees] = useState<EmployeeProfile[]>([]);
-  const [createdEmployee, setCreatedEmployee] =
-    useState<RegisteredEmployeeResult | null>(null);
-  const [resetResult, setResetResult] =
-    useState<RegisteredEmployeeResult | null>(null);
-  const [resetTarget, setResetTarget] = useState<EmployeeProfile | null>(null);
+  const [createdEmployee, setCreatedEmployee] = useState<EmployeeProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const canSubmit =
     Boolean(form.lastName.trim()) &&
@@ -87,9 +65,8 @@ export default function AdminEmployeeRegistrationPage() {
     try {
       setIsSaving(true);
       setErrorMessage(null);
-      setResetResult(null);
-      const result = await createEmployee(form);
-      setCreatedEmployee(result);
+      const employee = await createEmployee(form);
+      setCreatedEmployee(employee);
       setForm(emptyForm);
     } catch (error) {
       console.error(error);
@@ -100,28 +77,6 @@ export default function AdminEmployeeRegistrationPage() {
       );
     } finally {
       setIsSaving(false);
-    }
-  }
-
-  async function confirmPasswordReset() {
-    if (!resetTarget) return;
-
-    try {
-      setIsResetting(true);
-      setErrorMessage(null);
-      setCreatedEmployee(null);
-      const result = await resetEmployeePassword(resetTarget.employeeId);
-      setResetResult(result);
-      setResetTarget(null);
-    } catch (error) {
-      console.error(error);
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "パスワードの初期化に失敗しました。",
-      );
-    } finally {
-      setIsResetting(false);
     }
   }
 
@@ -141,45 +96,22 @@ export default function AdminEmployeeRegistrationPage() {
               <p className="font-semibold text-[#007a2f]">登録が完了しました</p>
               <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
                 <div>
-                  <p className="text-[#475569]">従業員ID</p>
-                  <p className="mt-1 font-mono text-lg font-semibold">
-                    {createdEmployee.employee.employeeId}
-                  </p>
+                  <p className="text-[#475569]">氏名</p>
+                  <p className="mt-1 font-semibold">{createdEmployee.name}</p>
                 </div>
-                <div>
-                  <p className="text-[#475569]">初期パスワード</p>
-                  <p className="mt-1 font-mono text-lg font-semibold">
-                    {createdEmployee.initialPassword}
-                  </p>
-                </div>
-              </div>
-              <p className="mt-3 text-xs text-[#475569]">
-                このパスワードは登録直後だけ表示します。従業員に共有してください。
-              </p>
-            </div>
-          )}
-
-          {resetResult && (
-            <div className="mt-6 rounded-lg border border-[#b8d4ff] bg-[#eef6ff] p-4">
-              <p className="font-semibold text-[#1763ff]">
-                {resetResult.employee.name}さんのパスワードを初期化しました
-              </p>
-              <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
                 <div>
                   <p className="text-[#475569]">従業員ID</p>
                   <p className="mt-1 font-mono text-lg font-semibold">
-                    {resetResult.employee.employeeId}
+                    {createdEmployee.employeeId}
                   </p>
                 </div>
-                <div>
-                  <p className="text-[#475569]">新しい初期パスワード</p>
-                  <p className="mt-1 font-mono text-lg font-semibold">
-                    {resetResult.initialPassword}
-                  </p>
+                <div className="sm:col-span-2">
+                  <p className="text-[#475569]">メールアドレス</p>
+                  <p className="mt-1">{createdEmployee.email}</p>
                 </div>
               </div>
               <p className="mt-3 text-xs text-[#475569]">
-                以前のパスワードではログインできません。この新しいパスワードを共有してください。
+                従業員は所属組織IDとこのメールアドレスでログインできます。希望シフトは従業員IDに紐づきます。
               </p>
             </div>
           )}
@@ -305,18 +237,9 @@ export default function AdminEmployeeRegistrationPage() {
                         <span className="ml-4">{employee.employmentType}</span>
                       </p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="w-fit rounded-md bg-[#eef2ff] px-3 py-1 font-mono text-sm font-semibold text-[#1d4ed8]">
-                        {employee.employeeId}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setResetTarget(employee)}
-                        className="h-8 rounded-md border border-[#db1741]/30 px-3 text-xs font-semibold text-[#db1741] transition hover:bg-[#fff1f1]"
-                      >
-                        パスワード初期化
-                      </button>
-                    </div>
+                    <span className="w-fit rounded-md bg-[#eef2ff] px-3 py-1 font-mono text-sm font-semibold text-[#1d4ed8]">
+                      {employee.employeeId}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -324,61 +247,6 @@ export default function AdminEmployeeRegistrationPage() {
           )}
         </Card>
       </div>
-
-      {resetTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
-          <section className="w-full max-w-[512px] rounded-xl bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-semibold">パスワード初期化</h2>
-                <p className="mt-1 text-sm leading-relaxed text-[#717182]">
-                  この従業員のログイン用パスワードを新しい初期パスワードに変更します。
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="閉じる"
-                onClick={() => setResetTarget(null)}
-                disabled={isResetting}
-                className="rounded-md p-1 text-[#596074] transition hover:bg-[#f0f1f4] hover:text-[#030213] disabled:cursor-not-allowed"
-              >
-                <XIcon />
-              </button>
-            </div>
-
-            <div className="mt-6 rounded-lg bg-[#f7f8fb] px-4 py-4">
-              <p className="font-semibold">{resetTarget.name}</p>
-              <p className="mt-1 text-sm text-[#475569]">
-                {resetTarget.email}
-                <span className="ml-4 font-mono">{resetTarget.employeeId}</span>
-              </p>
-            </div>
-
-            <p className="mt-4 text-sm text-[#717182]">
-              初期化後、以前のパスワードではログインできなくなります。
-            </p>
-
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setResetTarget(null)}
-                disabled={isResetting}
-                className="h-10 rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed"
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={confirmPasswordReset}
-                disabled={isResetting}
-                className="h-10 rounded-md bg-[#db1741] text-sm font-semibold text-white transition hover:bg-[#c51239] disabled:cursor-not-allowed disabled:bg-[#c56c7f]"
-              >
-                {isResetting ? "初期化中..." : "初期化する"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </main>
   );
 }

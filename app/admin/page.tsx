@@ -140,7 +140,7 @@ export default function AdminPage() {
         <div className="mx-auto flex max-w-[1248px] items-center justify-between px-4 py-4 sm:px-6 lg:px-0">
           <div className="flex min-w-0 items-center gap-6">
             <Link
-              href="/organization-select"
+              href="/manager/select-organization"
               className="inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
             >
               <ArrowLeftIcon />
