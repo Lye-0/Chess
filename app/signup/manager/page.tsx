@@ -7,6 +7,7 @@ import {
   signOut,
 } from "firebase/auth";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { auth } from "@/lib/firebase";
 import { ArrowLeftIcon, BuildingIcon, KeyIcon, MailIcon } from "@/components/icons";
@@ -31,14 +32,13 @@ const getSignupErrorMessage = (error: unknown) => {
 export default function ManagerSignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const router = useRouter();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
-    setMessage("");
     setIsSubmitting(true);
 
     try {
@@ -52,9 +52,7 @@ export default function ManagerSignupPage() {
 
       setEmail("");
       setPassword("");
-      setMessage(
-        "メール確認リンクを送信しました。確認後、ログイン画面からログインしてください。",
-      );
+      router.push("/login/manager?verificationEmailSent=1");
     } catch (signupError) {
       setError(getSignupErrorMessage(signupError));
     } finally {
@@ -116,11 +114,6 @@ export default function ManagerSignupPage() {
             </span>
           </label>
 
-          {message && (
-            <p className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-700">
-              {message}
-            </p>
-          )}
           {error && (
             <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
