@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
@@ -19,14 +20,13 @@ export const organization = {
   department: "開発部",
 };
 
-const employeesCollection = collection(
-  db,
-  "organizations",
-  organization.id,
-  "employees",
-);
+export const defaultOrganizationId = organization.id;
 const employeeSessionKey = "chess-current-employee";
 const employeeSessionEvent = "chess-employee-session-change";
+
+function getEmployeesCollection(organizationId = defaultOrganizationId) {
+  return collection(db, "organizations", organizationId, "employees");
+}
 
 export type EmployeeProfile = {
   id: string;
@@ -127,11 +127,13 @@ async function hashPassword(password: string) {
   ).join("");
 }
 
-async function createUniqueEmployeeId() {
+async function createUniqueEmployeeId(organizationId = defaultOrganizationId) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const randomPart = Math.floor(100000 + Math.random() * 900000);
     const employeeId = `E${randomPart}`;
-    const snapshot = await getDoc(doc(employeesCollection, employeeId));
+    const snapshot = await getDoc(
+      doc(getEmployeesCollection(organizationId), employeeId),
+    );
 
     if (!snapshot.exists()) return employeeId;
   }
@@ -142,9 +144,10 @@ async function createUniqueEmployeeId() {
 export function subscribeEmployees(
   onNext: (employees: EmployeeProfile[]) => void,
   onError?: (error: FirestoreError) => void,
+  organizationId = defaultOrganizationId,
 ): Unsubscribe {
   return onSnapshot(
-    employeesCollection,
+    getEmployeesCollection(organizationId),
     (snapshot) => {
       const nextEmployees = snapshot.docs
         .map(toEmployeeProfile)
@@ -157,6 +160,7 @@ export function subscribeEmployees(
 
 export async function createEmployee(
   input: EmployeeRegistrationInput,
+  organizationId = defaultOrganizationId,
 ): Promise<RegisteredEmployeeResult> {
   const firstName = input.firstName.trim();
   const lastName = input.lastName.trim();
@@ -167,7 +171,7 @@ export async function createEmployee(
     throw new Error("必須項目をすべて入力してください。");
   }
 
-  const employeeId = await createUniqueEmployeeId();
+  const employeeId = await createUniqueEmployeeId(organizationId);
   const initialPassword = createRandomPassword();
   const passwordHash = await hashPassword(initialPassword);
   const employee: EmployeeProfile = {
@@ -187,7 +191,7 @@ export async function createEmployee(
     passwordHash,
   };
 
-  await setDoc(doc(employeesCollection, employeeId), {
+  await setDoc(doc(getEmployeesCollection(organizationId), employeeId), {
     ...document,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -196,9 +200,34 @@ export async function createEmployee(
   return { employee, initialPassword };
 }
 
-export async function loginEmployee(employeeId: string, password: string) {
+export async function findEmployeeByEmail(
+  organizationId: string,
+  email: string,
+): Promise<EmployeeProfile | null> {
+  const trimmedOrganizationId = organizationId.trim();
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (!trimmedOrganizationId || !normalizedEmail) return null;
+
+  const snapshot = await getDocs(getEmployeesCollection(trimmedOrganizationId));
+  const employeeSnapshot = snapshot.docs.find((employeeDoc) => {
+    return String(employeeDoc.data().email ?? "").trim().toLowerCase() === normalizedEmail;
+  });
+
+  return employeeSnapshot ? toEmployeeProfile(employeeSnapshot) : null;
+}
+
+// Temporary employeeId + password login for the hackathon prototype.
+// The final employee entry flow is expected to use organizationId + email + confirmation code.
+export async function loginEmployee(
+  employeeId: string,
+  password: string,
+  organizationId = defaultOrganizationId,
+) {
   const normalizedEmployeeId = normalizeEmployeeId(employeeId);
-  const snapshot = await getDoc(doc(employeesCollection, normalizedEmployeeId));
+  const snapshot = await getDoc(
+    doc(getEmployeesCollection(organizationId), normalizedEmployeeId),
+  );
 
   if (!snapshot.exists()) return null;
 
@@ -214,9 +243,11 @@ export async function changeEmployeePassword(
   employeeId: string,
   currentPassword: string,
   newPassword: string,
+  organizationId = defaultOrganizationId,
 ) {
   const normalizedEmployeeId = normalizeEmployeeId(employeeId);
-  const snapshot = await getDoc(doc(employeesCollection, normalizedEmployeeId));
+  const employeeRef = doc(getEmployeesCollection(organizationId), normalizedEmployeeId);
+  const snapshot = await getDoc(employeeRef);
 
   if (!snapshot.exists()) return false;
   if (newPassword.length < 8) {
@@ -228,7 +259,7 @@ export async function changeEmployeePassword(
 
   if (data.passwordHash !== currentPasswordHash) return false;
 
-  await updateDoc(doc(employeesCollection, normalizedEmployeeId), {
+  await updateDoc(employeeRef, {
     passwordHash: await hashPassword(newPassword),
     updatedAt: serverTimestamp(),
     passwordChangedAt: serverTimestamp(),
@@ -239,9 +270,10 @@ export async function changeEmployeePassword(
 
 export async function resetEmployeePassword(
   employeeId: string,
+  organizationId = defaultOrganizationId,
 ): Promise<RegisteredEmployeeResult> {
   const normalizedEmployeeId = normalizeEmployeeId(employeeId);
-  const employeeRef = doc(employeesCollection, normalizedEmployeeId);
+  const employeeRef = doc(getEmployeesCollection(organizationId), normalizedEmployeeId);
   const snapshot = await getDoc(employeeRef);
 
   if (!snapshot.exists()) {
