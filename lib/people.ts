@@ -6,7 +6,6 @@ import {
   onSnapshot,
   serverTimestamp,
   setDoc,
-  updateDoc,
   type DocumentData,
   type FirestoreError,
   type QueryDocumentSnapshot,
@@ -28,6 +27,10 @@ function getEmployeesCollection(organizationId = defaultOrganizationId) {
   return collection(db, "organizations", organizationId, "employees");
 }
 
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
 export type EmployeeProfile = {
   id: string;
   employeeId: string;
@@ -40,20 +43,11 @@ export type EmployeeProfile = {
   department: string;
 };
 
-type EmployeeDocument = EmployeeProfile & {
-  passwordHash: string;
-};
-
 export type EmployeeRegistrationInput = {
   firstName: string;
   lastName: string;
   email: string;
   employmentType: string;
-};
-
-export type RegisteredEmployeeResult = {
-  employee: EmployeeProfile;
-  initialPassword: string;
 };
 
 export const fallbackEmployee: EmployeeProfile = {
@@ -75,70 +69,22 @@ function toEmployeeProfile(
   snapshot: QueryDocumentSnapshot<DocumentData>,
 ): EmployeeProfile {
   const data = snapshot.data();
-  const employeeId = String(data.employeeId ?? snapshot.id);
+  const email = String(data.email ?? "");
   const firstName = String(data.firstName ?? "");
   const lastName = String(data.lastName ?? "");
   const name = String(data.name ?? `${lastName}${firstName}`);
 
   return {
-    id: employeeId,
-    employeeId,
+    id: String(data.employeeId ?? data.id ?? snapshot.id),
+    employeeId: String(data.employeeId ?? data.id ?? snapshot.id),
     firstName,
     lastName,
     name,
-    email: String(data.email ?? ""),
+    email,
     employmentType: String(data.employmentType ?? ""),
     organization: String(data.organization ?? organization.name),
     department: String(data.department ?? organization.department),
   };
-}
-
-function normalizeEmployeeId(employeeId: string) {
-  return employeeId.trim().toUpperCase();
-}
-
-function createRandomPassword() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const values = new Uint32Array(8);
-
-  if (globalThis.crypto?.getRandomValues) {
-    globalThis.crypto.getRandomValues(values);
-  } else {
-    values.forEach((_, index) => {
-      values[index] = Math.floor(Math.random() * alphabet.length);
-    });
-  }
-
-  return Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
-}
-
-async function hashPassword(password: string) {
-  if (!globalThis.crypto?.subtle) {
-    throw new Error("このブラウザではパスワードのハッシュ化に対応していません。");
-  }
-
-  const buffer = await globalThis.crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(password),
-  );
-
-  return Array.from(new Uint8Array(buffer), (value) =>
-    value.toString(16).padStart(2, "0"),
-  ).join("");
-}
-
-async function createUniqueEmployeeId(organizationId = defaultOrganizationId) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const randomPart = Math.floor(100000 + Math.random() * 900000);
-    const employeeId = `E${randomPart}`;
-    const snapshot = await getDoc(
-      doc(getEmployeesCollection(organizationId), employeeId),
-    );
-
-    if (!snapshot.exists()) return employeeId;
-  }
-
-  throw new Error("従業員IDを生成できませんでした。もう一度登録してください。");
 }
 
 export function subscribeEmployees(
@@ -158,22 +104,39 @@ export function subscribeEmployees(
   );
 }
 
+async function createUniqueEmployeeId(organizationId = defaultOrganizationId) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const randomPart = Math.floor(100000 + Math.random() * 900000);
+    const employeeId = `E${randomPart}`;
+    const snapshot = await getDoc(
+      doc(getEmployeesCollection(organizationId), employeeId),
+    );
+
+    if (!snapshot.exists()) return employeeId;
+  }
+
+  throw new Error("従業員IDを生成できませんでした。もう一度登録してください。");
+}
+
 export async function createEmployee(
   input: EmployeeRegistrationInput,
   organizationId = defaultOrganizationId,
-): Promise<RegisteredEmployeeResult> {
+): Promise<EmployeeProfile> {
   const firstName = input.firstName.trim();
   const lastName = input.lastName.trim();
-  const email = input.email.trim();
+  const email = normalizeEmail(input.email);
   const employmentType = input.employmentType.trim();
 
   if (!firstName || !lastName || !email || !employmentType) {
     throw new Error("必須項目をすべて入力してください。");
   }
 
+  const existingEmployee = await findEmployeeByEmail(organizationId, email);
+  if (existingEmployee) {
+    throw new Error("このメールアドレスは既に登録されています。");
+  }
+
   const employeeId = await createUniqueEmployeeId(organizationId);
-  const initialPassword = createRandomPassword();
-  const passwordHash = await hashPassword(initialPassword);
   const employee: EmployeeProfile = {
     id: employeeId,
     employeeId,
@@ -186,18 +149,13 @@ export async function createEmployee(
     department: organization.department,
   };
 
-  const document: EmployeeDocument = {
-    ...employee,
-    passwordHash,
-  };
-
   await setDoc(doc(getEmployeesCollection(organizationId), employeeId), {
-    ...document,
+    ...employee,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 
-  return { employee, initialPassword };
+  return employee;
 }
 
 export async function findEmployeeByEmail(
@@ -205,93 +163,16 @@ export async function findEmployeeByEmail(
   email: string,
 ): Promise<EmployeeProfile | null> {
   const trimmedOrganizationId = organizationId.trim();
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = normalizeEmail(email);
 
   if (!trimmedOrganizationId || !normalizedEmail) return null;
 
   const snapshot = await getDocs(getEmployeesCollection(trimmedOrganizationId));
   const employeeSnapshot = snapshot.docs.find((employeeDoc) => {
-    return String(employeeDoc.data().email ?? "").trim().toLowerCase() === normalizedEmail;
+    return normalizeEmail(String(employeeDoc.data().email ?? "")) === normalizedEmail;
   });
 
   return employeeSnapshot ? toEmployeeProfile(employeeSnapshot) : null;
-}
-
-// Temporary employeeId + password login for the hackathon prototype.
-// The final employee entry flow is expected to use organizationId + email + confirmation code.
-export async function loginEmployee(
-  employeeId: string,
-  password: string,
-  organizationId = defaultOrganizationId,
-) {
-  const normalizedEmployeeId = normalizeEmployeeId(employeeId);
-  const snapshot = await getDoc(
-    doc(getEmployeesCollection(organizationId), normalizedEmployeeId),
-  );
-
-  if (!snapshot.exists()) return null;
-
-  const data = snapshot.data() as EmployeeDocument;
-  const passwordHash = await hashPassword(password);
-
-  if (data.passwordHash !== passwordHash) return null;
-
-  return toEmployeeProfile(snapshot);
-}
-
-export async function changeEmployeePassword(
-  employeeId: string,
-  currentPassword: string,
-  newPassword: string,
-  organizationId = defaultOrganizationId,
-) {
-  const normalizedEmployeeId = normalizeEmployeeId(employeeId);
-  const employeeRef = doc(getEmployeesCollection(organizationId), normalizedEmployeeId);
-  const snapshot = await getDoc(employeeRef);
-
-  if (!snapshot.exists()) return false;
-  if (newPassword.length < 8) {
-    throw new Error("パスワードは8文字以上で設定してください。");
-  }
-
-  const data = snapshot.data() as EmployeeDocument;
-  const currentPasswordHash = await hashPassword(currentPassword);
-
-  if (data.passwordHash !== currentPasswordHash) return false;
-
-  await updateDoc(employeeRef, {
-    passwordHash: await hashPassword(newPassword),
-    updatedAt: serverTimestamp(),
-    passwordChangedAt: serverTimestamp(),
-  });
-
-  return true;
-}
-
-export async function resetEmployeePassword(
-  employeeId: string,
-  organizationId = defaultOrganizationId,
-): Promise<RegisteredEmployeeResult> {
-  const normalizedEmployeeId = normalizeEmployeeId(employeeId);
-  const employeeRef = doc(getEmployeesCollection(organizationId), normalizedEmployeeId);
-  const snapshot = await getDoc(employeeRef);
-
-  if (!snapshot.exists()) {
-    throw new Error("従業員が見つかりません。");
-  }
-
-  const initialPassword = createRandomPassword();
-
-  await updateDoc(employeeRef, {
-    passwordHash: await hashPassword(initialPassword),
-    updatedAt: serverTimestamp(),
-    passwordResetAt: serverTimestamp(),
-  });
-
-  return {
-    employee: toEmployeeProfile(snapshot),
-    initialPassword,
-  };
 }
 
 export function saveEmployeeSession(employee: EmployeeProfile) {
@@ -310,7 +191,7 @@ function parseEmployeeSession(rawEmployee: string | null) {
 
   try {
     const employee = JSON.parse(rawEmployee) as EmployeeProfile;
-    if (!employee.employeeId || !employee.name) return null;
+    if (!employee.id || !employee.name || !employee.email) return null;
     return employee;
   } catch {
     return null;
