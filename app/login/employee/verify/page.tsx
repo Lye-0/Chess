@@ -14,6 +14,7 @@ function EmployeeVerifyContent() {
   const [verificationCode, setVerificationCode] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -25,16 +26,28 @@ function EmployeeVerifyContent() {
       return;
     }
 
-    const employee = await findEmployeeByEmail(organizationId, email);
-
-    if (!employee) {
-      setError("従業員情報が見つかりません。組織IDとメールアドレスを確認してください。");
+    if (!organizationId || !email) {
+      setError("従業員確認に必要な情報が不足しています。もう一度入力してください。");
       return;
     }
 
-    saveEmployeeSession(employee);
-    setMessage("確認しました。従業員画面へ移動します。");
-    router.push("/employee");
+    try {
+      setIsSubmitting(true);
+      const employee = await findEmployeeByEmail(organizationId, email);
+
+      if (!employee) {
+        setError("従業員情報を確認できませんでした。もう一度入力してください。");
+        return;
+      }
+
+      saveEmployeeSession(employee);
+      router.push("/employee");
+    } catch (verifyError) {
+      console.error(verifyError);
+      setError("確認処理に失敗しました。時間をおいてもう一度お試しください。");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -105,9 +118,10 @@ function EmployeeVerifyContent() {
             </Link>
             <button
               type="submit"
-              className="h-11 min-w-28 rounded-xl bg-green-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-green-700"
+              disabled={isSubmitting}
+              className="h-11 min-w-28 rounded-xl bg-green-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              次へ
+              {isSubmitting ? "確認中" : "次へ"}
             </button>
           </div>
         </form>
