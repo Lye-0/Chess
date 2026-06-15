@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useState } from "react";
 import {
   getIdTokenResult,
   signInWithEmailAndPassword,
@@ -11,13 +11,25 @@ import {
 import { auth } from "@/lib/firebase";
 import { ArrowLeftIcon, BuildingIcon, KeyIcon, MailIcon } from "@/components/icons";
 
-export default function ManagerLoginPage() {
+const verificationEmailSentMessage =
+  "確認メールを送信しました。メール内のリンクを開いてからログインしてください。";
+
+
+function ManagerLoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+
+  const verificationEmailSent =
+    searchParams.get("verificationEmailSent") === "1";
+  const displayMessage = verificationEmailSent
+    ? verificationEmailSentMessage
+    : message;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -106,9 +118,9 @@ export default function ManagerLoginPage() {
             </span>
           </label>
 
-          {message && (
+          {displayMessage && (
             <p className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-700">
-              {message}
+              {displayMessage}
             </p>
           )}
           {error && (
@@ -135,5 +147,13 @@ export default function ManagerLoginPage() {
         </form>
       </section>
     </main>
+  );
+}
+
+export default function ManagerLoginPage() {
+  return (
+    <Suspense>
+      <ManagerLoginContent />
+    </Suspense>
   );
 }
