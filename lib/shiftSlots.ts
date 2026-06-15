@@ -13,14 +13,11 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { removeShiftRequestsBySlot } from "./shiftRequests";
+import { defaultOrganizationId } from "./people";
 
-const organizationId = "nagoya-engineering";
-const shiftSlotsCollection = collection(
-  db,
-  "organizations",
-  organizationId,
-  "shiftSlots",
-);
+function getShiftSlotsCollection(organizationId = defaultOrganizationId) {
+  return collection(db, "organizations", organizationId, "shiftSlots");
+}
 
 export type ShiftSlot = {
   id: string;
@@ -47,9 +44,10 @@ function toShiftSlot(snapshot: QueryDocumentSnapshot<DocumentData>): ShiftSlot {
 export function subscribeShiftSlots(
   onNext: (slots: ShiftSlot[]) => void,
   onError?: (error: FirestoreError) => void,
+  organizationId = defaultOrganizationId,
 ): Unsubscribe {
   return onSnapshot(
-    shiftSlotsCollection,
+    getShiftSlotsCollection(organizationId),
     (snapshot) => {
       onNext(snapshot.docs.map(toShiftSlot));
     },
@@ -57,22 +55,32 @@ export function subscribeShiftSlots(
   );
 }
 
-export async function createShiftSlot(input: ShiftSlotInput) {
-  await addDoc(shiftSlotsCollection, {
+export async function createShiftSlot(
+  input: ShiftSlotInput,
+  organizationId = defaultOrganizationId,
+) {
+  await addDoc(getShiftSlotsCollection(organizationId), {
     ...input,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 }
 
-export async function updateShiftSlot(id: string, input: ShiftSlotInput) {
-  await updateDoc(doc(shiftSlotsCollection, id), {
+export async function updateShiftSlot(
+  id: string,
+  input: ShiftSlotInput,
+  organizationId = defaultOrganizationId,
+) {
+  await updateDoc(doc(getShiftSlotsCollection(organizationId), id), {
     ...input,
     updatedAt: serverTimestamp(),
   });
 }
 
-export async function removeShiftSlot(id: string) {
-  await removeShiftRequestsBySlot(id);
-  await deleteDoc(doc(shiftSlotsCollection, id));
+export async function removeShiftSlot(
+  id: string,
+  organizationId = defaultOrganizationId,
+) {
+  await removeShiftRequestsBySlot(id, organizationId);
+  await deleteDoc(doc(getShiftSlotsCollection(organizationId), id));
 }

@@ -13,13 +13,24 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 
-export const organization = {
-  id: "nagoya-engineering",
-  name: "名古屋エンジニアリング",
-  department: "開発部",
-};
+export const managedOrganizations = [
+  { id: "nagoya-engineering", name: "名古屋エンジニアリング", department: "開発部" },
+];
 
+export const organization = managedOrganizations[0];
 export const defaultOrganizationId = organization.id;
+
+export function getOrganizationProfile(organizationId = defaultOrganizationId) {
+  return (
+    managedOrganizations.find(
+      (managedOrganization) => managedOrganization.id === organizationId,
+    ) ?? {
+      id: organizationId,
+      name: organizationId,
+      department: "",
+    }
+  );
+}
 const employeeSessionKey = "chess-current-employee";
 const employeeSessionEvent = "chess-employee-session-change";
 
@@ -33,6 +44,7 @@ function normalizeEmail(email: string) {
 
 export type EmployeeProfile = {
   id: string;
+  organizationId: string;
   employeeId: string;
   firstName: string;
   lastName: string;
@@ -52,6 +64,7 @@ export type EmployeeRegistrationInput = {
 
 export const fallbackEmployee: EmployeeProfile = {
   id: "E000001",
+  organizationId: defaultOrganizationId,
   employeeId: "E000001",
   firstName: "健一",
   lastName: "田中",
@@ -67,8 +80,10 @@ export const currentEmployee = fallbackEmployee;
 
 function toEmployeeProfile(
   snapshot: QueryDocumentSnapshot<DocumentData>,
+  organizationId = defaultOrganizationId,
 ): EmployeeProfile {
   const data = snapshot.data();
+  const currentOrganization = getOrganizationProfile(organizationId);
   const email = String(data.email ?? "");
   const firstName = String(data.firstName ?? "");
   const lastName = String(data.lastName ?? "");
@@ -76,14 +91,15 @@ function toEmployeeProfile(
 
   return {
     id: String(data.employeeId ?? data.id ?? snapshot.id),
+    organizationId,
     employeeId: String(data.employeeId ?? data.id ?? snapshot.id),
     firstName,
     lastName,
     name,
     email,
     employmentType: String(data.employmentType ?? ""),
-    organization: String(data.organization ?? organization.name),
-    department: String(data.department ?? organization.department),
+    organization: String(data.organization ?? currentOrganization.name),
+    department: String(data.department ?? currentOrganization.department),
   };
 }
 
@@ -96,7 +112,9 @@ export function subscribeEmployees(
     getEmployeesCollection(organizationId),
     (snapshot) => {
       const nextEmployees = snapshot.docs
-        .map(toEmployeeProfile)
+        .map((employeeSnapshot) =>
+          toEmployeeProfile(employeeSnapshot, organizationId),
+        )
         .sort((a, b) => a.employeeId.localeCompare(b.employeeId));
       onNext(nextEmployees);
     },
@@ -126,6 +144,7 @@ export async function createEmployee(
   const lastName = input.lastName.trim();
   const email = normalizeEmail(input.email);
   const employmentType = input.employmentType.trim();
+  const currentOrganization = getOrganizationProfile(organizationId);
 
   if (!firstName || !lastName || !email || !employmentType) {
     throw new Error("必須項目をすべて入力してください。");
@@ -139,14 +158,15 @@ export async function createEmployee(
   const employeeId = await createUniqueEmployeeId(organizationId);
   const employee: EmployeeProfile = {
     id: employeeId,
+    organizationId,
     employeeId,
     firstName,
     lastName,
     name: `${lastName}${firstName}`,
     email,
     employmentType,
-    organization: organization.name,
-    department: organization.department,
+    organization: currentOrganization.name,
+    department: currentOrganization.department,
   };
 
   await setDoc(doc(getEmployeesCollection(organizationId), employeeId), {
@@ -172,7 +192,9 @@ export async function findEmployeeByEmail(
     return normalizeEmail(String(employeeDoc.data().email ?? "")) === normalizedEmail;
   });
 
-  return employeeSnapshot ? toEmployeeProfile(employeeSnapshot) : null;
+  return employeeSnapshot
+    ? toEmployeeProfile(employeeSnapshot, trimmedOrganizationId)
+    : null;
 }
 
 export function saveEmployeeSession(employee: EmployeeProfile) {
@@ -190,9 +212,23 @@ function parseEmployeeSession(rawEmployee: string | null) {
   if (!rawEmployee) return null;
 
   try {
-    const employee = JSON.parse(rawEmployee) as EmployeeProfile;
+    const employee = JSON.parse(rawEmployee) as Partial<EmployeeProfile>;
     if (!employee.id || !employee.name || !employee.email) return null;
-    return employee;
+
+    const employeeId = String(employee.employeeId ?? employee.id);
+
+    return {
+      id: String(employee.id),
+      organizationId: String(employee.organizationId ?? defaultOrganizationId),
+      employeeId,
+      firstName: String(employee.firstName ?? ""),
+      lastName: String(employee.lastName ?? ""),
+      name: String(employee.name),
+      email: String(employee.email),
+      employmentType: String(employee.employmentType ?? ""),
+      organization: String(employee.organization ?? organization.name),
+      department: String(employee.department ?? organization.department),
+    };
   } catch {
     return null;
   }

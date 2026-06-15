@@ -1,9 +1,11 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import {
   createEmployee,
+  defaultOrganizationId,
   subscribeEmployees,
   type EmployeeProfile,
 } from "@/lib/people";
@@ -30,7 +32,11 @@ const emptyForm: EmployeeForm = {
   employmentType: employmentTypes[0],
 };
 
-export default function AdminEmployeeRegistrationPage() {
+function AdminEmployeeRegistrationContent() {
+  const searchParams = useSearchParams();
+  const selectedOrganizationId = searchParams.get("organizationId")?.trim();
+  const organizationId = selectedOrganizationId || defaultOrganizationId;
+  const organizationQuery = `?organizationId=${encodeURIComponent(organizationId)}`;
   const [form, setForm] = useState<EmployeeForm>(emptyForm);
   const [registeredEmployees, setRegisteredEmployees] = useState<EmployeeProfile[]>([]);
   const [createdEmployee, setCreatedEmployee] = useState<EmployeeProfile | null>(null);
@@ -55,8 +61,9 @@ export default function AdminEmployeeRegistrationPage() {
         setIsLoading(false);
         setErrorMessage("従業員一覧の読み込みに失敗しました。Firestoreの設定を確認してください。");
       },
+      organizationId,
     );
-  }, []);
+  }, [organizationId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -65,7 +72,7 @@ export default function AdminEmployeeRegistrationPage() {
     try {
       setIsSaving(true);
       setErrorMessage(null);
-      const employee = await createEmployee(form);
+      const employee = await createEmployee(form, organizationId);
       setCreatedEmployee(employee);
       setForm(emptyForm);
     } catch (error) {
@@ -82,7 +89,7 @@ export default function AdminEmployeeRegistrationPage() {
 
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
-      <BackHeader />
+      <BackHeader backHref={`/admin${organizationQuery}`} />
 
       <div className="mx-auto max-w-[864px] px-4 py-8 sm:px-6 lg:px-0">
         <Card className="p-6">
@@ -248,5 +255,13 @@ export default function AdminEmployeeRegistrationPage() {
         </Card>
       </div>
     </main>
+  );
+}
+
+export default function AdminEmployeeRegistrationPage() {
+  return (
+    <Suspense>
+      <AdminEmployeeRegistrationContent />
+    </Suspense>
   );
 }

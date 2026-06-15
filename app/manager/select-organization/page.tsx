@@ -4,12 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { BuildingIcon, PlusIcon } from "@/components/icons";
-
-const managedOrganizations = [
-  { id: "nagoya-engineering", name: "名古屋エンジニアリング", department: "開発部" },
-  { id: "sample-organization-1", name: "株式会社東京テック", department: "総務部" },
-  { id: "sample-organization-2", name: "大阪商事株式会社", department: "営業部" },
-];
+import { managedOrganizations } from "@/lib/people";
 
 export default function SelectOrganizationPage() {
   const router = useRouter();
@@ -26,7 +21,7 @@ export default function SelectOrganizationPage() {
       return;
     }
 
-    router.push(`/admin?organizationId=${selectedOrganizationId}`);
+    router.push(`/admin?organizationId=${encodeURIComponent(selectedOrganizationId)}`);
   };
 
   return (

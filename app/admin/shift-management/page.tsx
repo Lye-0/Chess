@@ -1,7 +1,8 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   createShiftSlot,
   removeShiftSlot,
@@ -14,6 +15,7 @@ import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
+import { defaultOrganizationId } from "@/lib/people";
 import {
   BackHeader,
   Card,
@@ -117,7 +119,11 @@ function SlotRequestStatus({ requestCount }: { requestCount: number }) {
   );
 }
 
-export default function AdminShiftManagementPage() {
+function AdminShiftManagementContent() {
+  const searchParams = useSearchParams();
+  const selectedOrganizationId = searchParams.get("organizationId")?.trim();
+  const organizationId = selectedOrganizationId || defaultOrganizationId;
+  const organizationQuery = `?organizationId=${encodeURIComponent(organizationId)}`;
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -141,6 +147,7 @@ export default function AdminShiftManagementPage() {
         setIsLoading(false);
         setErrorMessage("シフト枠の読み込みに失敗しました。Firebase の接続設定と Firestore Rules を確認してください。");
       },
+      organizationId,
     );
     const unsubscribeRequests = subscribeShiftRequests(
       (nextRequests) => {
@@ -149,13 +156,14 @@ export default function AdminShiftManagementPage() {
       (error) => {
         console.error(error);
       },
+      organizationId,
     );
 
     return () => {
       unsubscribeSlots();
       unsubscribeRequests();
     };
-  }, []);
+  }, [organizationId]);
 
   const groupedSlots = useMemo(() => {
     const sortedSlots = [...slots].sort((a, b) => {
@@ -222,9 +230,9 @@ export default function AdminShiftManagementPage() {
       setIsSaving(true);
       setErrorMessage(null);
       if (editingId) {
-        await updateShiftSlot(editingId, nextSlot);
+        await updateShiftSlot(editingId, nextSlot, organizationId);
       } else {
-        await createShiftSlot(nextSlot);
+        await createShiftSlot(nextSlot, organizationId);
       }
       closeModal();
     } catch (error) {
@@ -250,7 +258,7 @@ export default function AdminShiftManagementPage() {
     try {
       setIsDeleting(true);
       setErrorMessage(null);
-      await removeShiftSlot(deleteTarget.id);
+      await removeShiftSlot(deleteTarget.id, organizationId);
       setDeleteTarget(null);
     } catch (error) {
       console.error(error);
@@ -263,6 +271,7 @@ export default function AdminShiftManagementPage() {
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <BackHeader
+        backHref={`/admin${organizationQuery}`}
         right={
           <button
             type="button"
@@ -497,5 +506,13 @@ export default function AdminShiftManagementPage() {
         </div>
       )}
     </main>
+  );
+}
+
+export default function AdminShiftManagementPage() {
+  return (
+    <Suspense>
+      <AdminShiftManagementContent />
+    </Suspense>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import {
-  organization,
+  defaultOrganizationId,
+  getOrganizationProfile,
   subscribeEmployees,
   type EmployeeProfile,
 } from "@/lib/people";
@@ -64,7 +66,12 @@ function formatWorkHours(minutes: number) {
   return `${hours}時間${remainingMinutes}分`;
 }
 
-export default function AdminEmployeeListPage() {
+function AdminEmployeeListContent() {
+  const searchParams = useSearchParams();
+  const selectedOrganizationId = searchParams.get("organizationId")?.trim();
+  const organizationId = selectedOrganizationId || defaultOrganizationId;
+  const organizationQuery = `?organizationId=${encodeURIComponent(organizationId)}`;
+  const currentOrganization = getOrganizationProfile(organizationId);
   const [registeredEmployees, setRegisteredEmployees] = useState<EmployeeProfile[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
@@ -93,6 +100,7 @@ export default function AdminEmployeeListPage() {
         setIsEmployeesLoading(false);
         setErrorMessage("従業員一覧の読み込みに失敗しました。");
       },
+      organizationId,
     );
     const unsubscribeRequests = subscribeShiftRequests(
       (nextRequests) => {
@@ -104,13 +112,14 @@ export default function AdminEmployeeListPage() {
         setIsRequestsLoading(false);
         setErrorMessage("シフト希望の読み込みに失敗しました。");
       },
+      organizationId,
     );
 
     return () => {
       unsubscribeEmployees();
       unsubscribeRequests();
     };
-  }, []);
+  }, [organizationId]);
 
   const requestsByEmployee = useMemo(() => {
     return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
@@ -147,13 +156,16 @@ export default function AdminEmployeeListPage() {
 
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
-      <BackHeader />
+      <BackHeader backHref={`/admin${organizationQuery}`} />
 
       <div className="mx-auto grid max-w-[1248px] gap-6 px-4 py-8 sm:px-6 lg:grid-cols-2 lg:px-0">
         <Card className="min-h-[252px] p-6">
           <h1 className="text-xl font-semibold">従業員シフト表</h1>
           <p className="mt-1 text-sm text-[#717182]">
-            {organization.name} {organization.department}（{registeredEmployees.length}名）
+            {currentOrganization.name}
+            {currentOrganization.department
+              ? ` ${currentOrganization.department}`
+              : ""}（{registeredEmployees.length}名）
           </p>
 
           <div className="relative mt-5">
@@ -309,5 +321,13 @@ export default function AdminEmployeeListPage() {
         </Card>
       </div>
     </main>
+  );
+}
+
+export default function AdminEmployeeListPage() {
+  return (
+    <Suspense>
+      <AdminEmployeeListContent />
+    </Suspense>
   );
 }

@@ -11,14 +11,11 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { defaultOrganizationId } from "./people";
 
-const organizationId = "nagoya-engineering";
-const shiftRequestsCollection = collection(
-  db,
-  "organizations",
-  organizationId,
-  "shiftRequests",
-);
+function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
+  return collection(db, "organizations", organizationId, "shiftRequests");
+}
 
 export type ShiftRequestStatus = "希望済";
 
@@ -73,9 +70,10 @@ function toShiftRequest(
 export function subscribeShiftRequests(
   onNext: (requests: ShiftRequest[]) => void,
   onError?: (error: FirestoreError) => void,
+  organizationId = defaultOrganizationId,
 ): Unsubscribe {
   return onSnapshot(
-    shiftRequestsCollection,
+    getShiftRequestsCollection(organizationId),
     (snapshot) => {
       onNext(snapshot.docs.map(toShiftRequest));
     },
@@ -87,21 +85,26 @@ export function subscribeEmployeeShiftRequests(
   employeeId: string,
   onNext: (requests: ShiftRequest[]) => void,
   onError?: (error: FirestoreError) => void,
+  organizationId = defaultOrganizationId,
 ): Unsubscribe {
   return subscribeShiftRequests(
     (requests) => {
       onNext(requests.filter((request) => request.employeeId === employeeId));
     },
     onError,
+    organizationId,
   );
 }
 
-export async function createShiftRequests(inputs: ShiftRequestInput[]) {
+export async function createShiftRequests(
+  inputs: ShiftRequestInput[],
+  organizationId = defaultOrganizationId,
+) {
   const batch = writeBatch(db);
   const submittedDate = getTodayString();
 
   inputs.forEach((input) => {
-    const requestRef = doc(shiftRequestsCollection);
+    const requestRef = doc(getShiftRequestsCollection(organizationId));
     batch.set(requestRef, {
       ...input,
       status: "希望済",
@@ -113,14 +116,19 @@ export async function createShiftRequests(inputs: ShiftRequestInput[]) {
   await batch.commit();
 }
 
-export async function removeShiftRequestsBySlot(slotId: string) {
-  const snapshot = await getDocs(shiftRequestsCollection);
+export async function removeShiftRequestsBySlot(
+  slotId: string,
+  organizationId = defaultOrganizationId,
+) {
+  const snapshot = await getDocs(getShiftRequestsCollection(organizationId));
   const batch = writeBatch(db);
   let deleteCount = 0;
 
   snapshot.docs.forEach((requestSnapshot) => {
     if (requestSnapshot.data().slotId === slotId) {
-      batch.delete(doc(shiftRequestsCollection, requestSnapshot.id));
+      batch.delete(
+        doc(getShiftRequestsCollection(organizationId), requestSnapshot.id),
+      );
       deleteCount += 1;
     }
   });
