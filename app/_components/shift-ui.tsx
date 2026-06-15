@@ -8,12 +8,6 @@ export const employee = {
   role: "正社員",
 };
 
-export const adminOrganizations = [
-  { company: "株式会社東京テック", department: "総務部" },
-  { company: "大阪商事株式会社", department: "営業部" },
-  { company: "名古屋エンジニアリング", department: "開発部" },
-];
-
 type IconProps = {
   className?: string;
 };

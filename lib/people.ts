@@ -15,8 +15,6 @@ import { db } from "./firebase";
 
 export const managedOrganizations = [
   { id: "nagoya-engineering", name: "名古屋エンジニアリング", department: "開発部" },
-  { id: "sample-organization-1", name: "株式会社東京テック", department: "総務部" },
-  { id: "sample-organization-2", name: "大阪商事株式会社", department: "営業部" },
 ];
 
 export const organization = managedOrganizations[0];
