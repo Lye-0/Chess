@@ -169,7 +169,7 @@ function ShiftRequestGroup({
   emptyText: string;
 }) {
   return (
-    <section>
+    <section className="rounded-md border border-black/10 bg-white px-4 py-4">
       <div className="flex items-end justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold">{title}</h3>
@@ -351,7 +351,7 @@ export default function EmployeePage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-8 px-6 pb-6">
+            <div className="grid gap-6 px-6 pb-6 lg:grid-cols-2">
               <ShiftRequestGroup
                 title="承認待ち"
                 description="管理者の承認を待っている希望シフト"
