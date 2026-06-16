@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   createShiftSlot,
+  isFourDigitShiftDate,
   removeShiftSlot,
   subscribeShiftSlots,
   updateShiftSlot,
@@ -12,6 +13,7 @@ import {
   type ShiftSlotInput,
 } from "@/lib/shiftSlots";
 import {
+  approveShiftRequest,
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -35,6 +37,16 @@ const emptyForm: ShiftForm = {
   endTime: "",
   capacity: "1",
 };
+
+function normalizeDateInput(value: string) {
+  if (value === "") return value;
+  const [year] = value.split("-");
+
+  if (year.length > 4 || value.length > 10) return null;
+
+  return value;
+}
+
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 
 function getDateLabel(date: string) {
@@ -119,6 +131,88 @@ function SlotRequestStatus({ requestCount }: { requestCount: number }) {
   );
 }
 
+function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
+  const approved = status === "承認済";
+
+  return (
+    <span
+      className={[
+        "rounded-md px-3 py-1 text-xs font-semibold",
+        approved
+          ? "bg-[#dcfce7] text-[#15803d]"
+          : "bg-[#dbeafe] text-[#1d4ed8]",
+      ].join(" ")}
+    >
+      {status}
+    </span>
+  );
+}
+
+function ShiftRequestGroup({
+  title,
+  requests,
+  emptyText,
+  approvingRequestId,
+  onApprove,
+}: {
+  title: string;
+  requests: ShiftRequest[];
+  emptyText: string;
+  approvingRequestId: string | null;
+  onApprove: (request: ShiftRequest) => void;
+}) {
+  return (
+    <section className="rounded-md border border-black/10 bg-white px-3 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <span className="rounded-full bg-[#eef2f7] px-2.5 py-0.5 text-xs font-semibold text-[#475569]">
+          {requests.length}人
+        </span>
+      </div>
+
+      {requests.length === 0 ? (
+        <p className="mt-3 text-xs text-[#717182]">{emptyText}</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {requests.map((request) => {
+            const approved = request.status === "承認済";
+            const approving = approvingRequestId === request.id;
+
+            return (
+              <div
+                key={request.id}
+                className="flex flex-col gap-3 rounded-md bg-[#f7f8fb] px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">
+                    {request.employeeName}
+                  </p>
+                  <p className="mt-1 truncate text-xs text-[#717182]">
+                    {request.employeeEmail} / {request.employmentType}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <RequestStatusBadge status={request.status} />
+                  {!approved && (
+                    <button
+                      type="button"
+                      disabled={approving}
+                      onClick={() => onApprove(request)}
+                      className="h-8 rounded-md bg-[#030213] px-3 text-xs font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#8e8d95]"
+                    >
+                      {approving ? "承認中..." : "承認"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AdminShiftManagementContent() {
   const searchParams = useSearchParams();
   const selectedOrganizationId = searchParams.get("organizationId")?.trim();
@@ -133,6 +227,7 @@ function AdminShiftManagementContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [approvingRequestId, setApprovingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -178,7 +273,7 @@ function AdminShiftManagementContent() {
   }, [slots]);
 
   const canSave = Boolean(
-    form.date &&
+    isFourDigitShiftDate(form.date) &&
     form.startTime &&
     form.endTime &&
     form.startTime < form.endTime &&
@@ -189,6 +284,12 @@ function AdminShiftManagementContent() {
     return requests.reduce<Record<string, number>>((counts, request) => {
       counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
       return counts;
+    }, {});
+  }, [requests]);
+  const requestsBySlot = useMemo(() => {
+    return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
+      groups[request.slotId] = [...(groups[request.slotId] ?? []), request];
+      return groups;
     }, {});
   }, [requests]);
 
@@ -268,6 +369,21 @@ function AdminShiftManagementContent() {
     }
   }
 
+  async function handleApproveRequest(request: ShiftRequest) {
+    if (request.status === "承認済") return;
+
+    try {
+      setApprovingRequestId(request.id);
+      setErrorMessage(null);
+      await approveShiftRequest(request.id, organizationId);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("シフト希望の承認に失敗しました。Firestore への書き込み権限を確認してください。");
+    } finally {
+      setApprovingRequestId(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <BackHeader
@@ -312,41 +428,72 @@ function AdminShiftManagementContent() {
                 <section key={date} className="rounded-lg border border-black/10 p-4">
                   <h2 className="text-lg font-semibold">{getDateLabel(date)}</h2>
                   <div className="mt-4 space-y-3">
-                    {dateSlots.map((slot) => (
-                      <div
-                        key={slot.id}
-                        className="flex flex-col gap-4 rounded-lg bg-[#f7f8fb] px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div>
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                            <p className="font-semibold">
-                              {slot.startTime} - {slot.endTime}
-                            </p>
-                            <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
-                          </div>
-                          <SlotRequestStatus requestCount={requestCountBySlot[slot.id] ?? 0} />
-                        </div>
+                    {dateSlots.map((slot) => {
+                      const slotRequests = requestsBySlot[slot.id] ?? [];
+                      const approvedRequests = slotRequests.filter(
+                        (request) => request.status === "承認済",
+                      );
+                      const pendingRequests = slotRequests.filter(
+                        (request) => request.status !== "承認済",
+                      );
 
-                        <div className="flex items-center gap-5 self-end sm:self-auto">
-                          <button
-                            type="button"
-                            aria-label="シフト枠を編集"
-                            onClick={() => openEditModal(slot)}
-                            className="text-[#596074] transition hover:text-[#030213]"
-                          >
-                            <PencilIcon />
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="シフト枠を削除"
-                            onClick={() => openDeleteModal(slot)}
-                            className="text-[#ff003d] transition hover:text-[#cc0031]"
-                          >
-                            <TrashIcon />
-                          </button>
+                      return (
+                        <div
+                          key={slot.id}
+                          className="rounded-lg bg-[#f7f8fb] px-4 py-4"
+                        >
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                                <p className="font-semibold">
+                                  {slot.startTime} - {slot.endTime}
+                                </p>
+                                <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
+                              </div>
+                              <SlotRequestStatus requestCount={requestCountBySlot[slot.id] ?? 0} />
+                            </div>
+
+                            <div className="flex items-center gap-5 self-end sm:self-auto">
+                              <button
+                                type="button"
+                                aria-label="シフト枠を編集"
+                                onClick={() => openEditModal(slot)}
+                                className="text-[#596074] transition hover:text-[#030213]"
+                              >
+                                <PencilIcon />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label="シフト枠を削除"
+                                onClick={() => openDeleteModal(slot)}
+                                className="text-[#ff003d] transition hover:text-[#cc0031]"
+                              >
+                                <TrashIcon />
+                              </button>
+                            </div>
+                          </div>
+
+                          {slotRequests.length > 0 && (
+                            <div className="mt-4 grid gap-3 border-t border-black/10 pt-3 lg:grid-cols-2">
+                              <ShiftRequestGroup
+                                title="承認待ち"
+                                requests={pendingRequests}
+                                emptyText="承認待ちの希望はありません"
+                                approvingRequestId={approvingRequestId}
+                                onApprove={handleApproveRequest}
+                              />
+                              <ShiftRequestGroup
+                                title="承認済み"
+                                requests={approvedRequests}
+                                emptyText="承認済みの希望はありません"
+                                approvingRequestId={approvingRequestId}
+                                onApprove={handleApproveRequest}
+                              />
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
               ))}
@@ -388,8 +535,15 @@ function AdminShiftManagementContent() {
                 <input
                   id="shift-date"
                   type="date"
+                  min="0001-01-01"
+                  max="9999-12-31"
                   value={form.date}
-                  onChange={(event) => setForm({ ...form, date: event.target.value })}
+                  onChange={(event) => {
+                    const nextDate = normalizeDateInput(event.target.value);
+                    if (nextDate === null) return;
+
+                    setForm({ ...form, date: nextDate });
+                  }}
                   className="mt-2 h-10 w-full rounded-md border border-black/20 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
                 />
               </div>

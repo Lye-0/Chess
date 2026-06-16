@@ -4,6 +4,7 @@ import {
   getDocs,
   onSnapshot,
   serverTimestamp,
+  updateDoc,
   writeBatch,
   type DocumentData,
   type FirestoreError,
@@ -17,7 +18,7 @@ function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
   return collection(db, "organizations", organizationId, "shiftRequests");
 }
 
-export type ShiftRequestStatus = "希望済";
+export type ShiftRequestStatus = "希望済" | "承認済";
 
 export type ShiftRequest = {
   id: string;
@@ -37,6 +38,27 @@ export type ShiftRequestInput = Omit<
   ShiftRequest,
   "id" | "status" | "submittedDate"
 >;
+
+type ShiftDateTime = {
+  date: string;
+  startTime: string;
+};
+
+function normalizeShiftRequestStatus(status: unknown): ShiftRequestStatus {
+  return status === "承認済" ? "承認済" : "希望済";
+}
+
+export function isShiftStartInFuture(
+  shift: ShiftDateTime,
+  now = new Date(),
+) {
+  const startAt = new Date(`${shift.date}T${shift.startTime}:00`);
+
+  return (
+    !Number.isNaN(startAt.getTime()) &&
+    startAt.getTime() > now.getTime()
+  );
+}
 
 function getTodayString() {
   const today = new Date();
@@ -62,7 +84,7 @@ function toShiftRequest(
     date: String(data.date ?? ""),
     startTime: String(data.startTime ?? ""),
     endTime: String(data.endTime ?? ""),
-    status: "希望済",
+    status: normalizeShiftRequestStatus(data.status),
     submittedDate: String(data.submittedDate ?? ""),
   };
 }
@@ -102,6 +124,11 @@ export async function createShiftRequests(
 ) {
   const batch = writeBatch(db);
   const submittedDate = getTodayString();
+  const now = new Date();
+
+  if (inputs.some((input) => !isShiftStartInFuture(input, now))) {
+    throw new Error("Started shift slots cannot be requested.");
+  }
 
   inputs.forEach((input) => {
     const requestRef = doc(getShiftRequestsCollection(organizationId));
@@ -114,6 +141,17 @@ export async function createShiftRequests(
   });
 
   await batch.commit();
+}
+
+export async function approveShiftRequest(
+  requestId: string,
+  organizationId = defaultOrganizationId,
+) {
+  await updateDoc(doc(getShiftRequestsCollection(organizationId), requestId), {
+    status: "承認済",
+    approvedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function removeShiftRequestsBySlot(

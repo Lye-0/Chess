@@ -29,6 +29,31 @@ export type ShiftSlot = {
 
 export type ShiftSlotInput = Omit<ShiftSlot, "id">;
 
+const fourDigitDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isFourDigitShiftDate(date: string) {
+  if (!fourDigitDatePattern.test(date)) return false;
+
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  const day = Number(date.slice(8, 10));
+  const parsedDate = new Date(`${date}T00:00:00`);
+
+  return (
+    year >= 1 &&
+    !Number.isNaN(parsedDate.getTime()) &&
+    parsedDate.getFullYear() === year &&
+    parsedDate.getMonth() + 1 === month &&
+    parsedDate.getDate() === day
+  );
+}
+
+function assertValidShiftSlotInput(input: ShiftSlotInput) {
+  if (!isFourDigitShiftDate(input.date)) {
+    throw new Error("Shift slot date must use a valid four-digit year.");
+  }
+}
+
 function toShiftSlot(snapshot: QueryDocumentSnapshot<DocumentData>): ShiftSlot {
   const data = snapshot.data();
 
@@ -59,6 +84,8 @@ export async function createShiftSlot(
   input: ShiftSlotInput,
   organizationId = defaultOrganizationId,
 ) {
+  assertValidShiftSlotInput(input);
+
   await addDoc(getShiftSlotsCollection(organizationId), {
     ...input,
     createdAt: serverTimestamp(),
@@ -71,6 +98,8 @@ export async function updateShiftSlot(
   input: ShiftSlotInput,
   organizationId = defaultOrganizationId,
 ) {
+  assertValidShiftSlotInput(input);
+
   await updateDoc(doc(getShiftSlotsCollection(organizationId), id), {
     ...input,
     updatedAt: serverTimestamp(),
