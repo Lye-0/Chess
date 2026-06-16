@@ -148,6 +148,71 @@ function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
   );
 }
 
+function ShiftRequestGroup({
+  title,
+  requests,
+  emptyText,
+  approvingRequestId,
+  onApprove,
+}: {
+  title: string;
+  requests: ShiftRequest[];
+  emptyText: string;
+  approvingRequestId: string | null;
+  onApprove: (request: ShiftRequest) => void;
+}) {
+  return (
+    <section className="rounded-md border border-black/10 bg-white px-3 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <span className="rounded-full bg-[#eef2f7] px-2.5 py-0.5 text-xs font-semibold text-[#475569]">
+          {requests.length}人
+        </span>
+      </div>
+
+      {requests.length === 0 ? (
+        <p className="mt-3 text-xs text-[#717182]">{emptyText}</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {requests.map((request) => {
+            const approved = request.status === "承認済";
+            const approving = approvingRequestId === request.id;
+
+            return (
+              <div
+                key={request.id}
+                className="flex flex-col gap-3 rounded-md bg-[#f7f8fb] px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">
+                    {request.employeeName}
+                  </p>
+                  <p className="mt-1 truncate text-xs text-[#717182]">
+                    {request.employeeEmail} / {request.employmentType}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <RequestStatusBadge status={request.status} />
+                  {!approved && (
+                    <button
+                      type="button"
+                      disabled={approving}
+                      onClick={() => onApprove(request)}
+                      className="h-8 rounded-md bg-[#030213] px-3 text-xs font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#8e8d95]"
+                    >
+                      {approving ? "承認中..." : "承認"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AdminShiftManagementContent() {
   const searchParams = useSearchParams();
   const selectedOrganizationId = searchParams.get("organizationId")?.trim();
@@ -365,6 +430,12 @@ function AdminShiftManagementContent() {
                   <div className="mt-4 space-y-3">
                     {dateSlots.map((slot) => {
                       const slotRequests = requestsBySlot[slot.id] ?? [];
+                      const approvedRequests = slotRequests.filter(
+                        (request) => request.status === "承認済",
+                      );
+                      const pendingRequests = slotRequests.filter(
+                        (request) => request.status !== "承認済",
+                      );
 
                       return (
                         <div
@@ -403,43 +474,21 @@ function AdminShiftManagementContent() {
                           </div>
 
                           {slotRequests.length > 0 && (
-                            <div className="mt-4 space-y-2 border-t border-black/10 pt-3">
-                              {slotRequests.map((request) => {
-                                const approved = request.status === "承認済";
-                                const approving = approvingRequestId === request.id;
-
-                                return (
-                                  <div
-                                    key={request.id}
-                                    className="flex flex-col gap-3 rounded-md bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
-                                  >
-                                    <div className="min-w-0">
-                                      <p className="truncate text-sm font-semibold">
-                                        {request.employeeName}
-                                      </p>
-                                      <p className="mt-1 truncate text-xs text-[#717182]">
-                                        {request.employeeEmail} / {request.employmentType}
-                                      </p>
-                                    </div>
-                                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                                      <RequestStatusBadge status={request.status} />
-                                      <button
-                                        type="button"
-                                        disabled={approved || approving}
-                                        onClick={() => handleApproveRequest(request)}
-                                        className={[
-                                          "h-8 rounded-md px-3 text-xs font-semibold transition",
-                                          approved
-                                            ? "cursor-default bg-[#e5e7eb] text-[#64748b]"
-                                            : "bg-[#030213] text-white hover:bg-[#171624]",
-                                        ].join(" ")}
-                                      >
-                                        {approved ? "承認済" : approving ? "承認中..." : "承認"}
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                            <div className="mt-4 grid gap-3 border-t border-black/10 pt-3 lg:grid-cols-2">
+                              <ShiftRequestGroup
+                                title="承認待ち"
+                                requests={pendingRequests}
+                                emptyText="承認待ちの希望はありません"
+                                approvingRequestId={approvingRequestId}
+                                onApprove={handleApproveRequest}
+                              />
+                              <ShiftRequestGroup
+                                title="承認済み"
+                                requests={approvedRequests}
+                                emptyText="承認済みの希望はありません"
+                                approvingRequestId={approvingRequestId}
+                                onApprove={handleApproveRequest}
+                              />
                             </div>
                           )}
                         </div>
