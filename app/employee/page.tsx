@@ -105,6 +105,19 @@ function sortRequests(requests: ShiftRequest[]) {
   });
 }
 
+function getRequestStartAt(request: ShiftRequest) {
+  return new Date(`${request.date}T${request.startTime}:00`);
+}
+
+function isWithinNextDays(request: ShiftRequest, days: number) {
+  const startAt = getRequestStartAt(request);
+  const now = new Date();
+  const limit = new Date(now);
+  limit.setDate(now.getDate() + days);
+
+  return startAt >= now && startAt <= limit;
+}
+
 function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
   const approved = status === "承認済";
 
@@ -119,6 +132,66 @@ function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
     >
       {status}
     </span>
+  );
+}
+
+function ShiftRequestRow({ request }: { request: ShiftRequest }) {
+  const parsedDate = new Date(`${request.date}T00:00:00`);
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-black/10 px-6 py-4">
+      <div className="flex items-center gap-8">
+        <div className="text-center text-sm text-[#030213]">
+          <p>{weekdays[parsedDate.getDay()]}</p>
+          <p className="font-semibold">{parsedDate.getDate()}</p>
+        </div>
+        <div>
+          <p className="font-semibold">{formatDateOnly(request.date)}</p>
+          <p className="mt-1 text-sm text-[#475569]">
+            {request.startTime} - {request.endTime}
+          </p>
+        </div>
+      </div>
+      <RequestStatusBadge status={request.status} />
+    </div>
+  );
+}
+
+function ShiftRequestGroup({
+  title,
+  description,
+  requests,
+  emptyText,
+}: {
+  title: string;
+  description: string;
+  requests: ShiftRequest[];
+  emptyText: string;
+}) {
+  return (
+    <section>
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold">{title}</h3>
+          <p className="mt-1 text-sm text-[#717182]">{description}</p>
+        </div>
+        <span className="rounded-full bg-[#eef2f7] px-3 py-1 text-sm font-semibold text-[#475569]">
+          {requests.length}件
+        </span>
+      </div>
+
+      {requests.length === 0 ? (
+        <div className="mt-3 flex min-h-24 items-center justify-center rounded-lg border border-dashed border-black/10 text-sm text-[#717182]">
+          {emptyText}
+        </div>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {requests.map((request) => (
+            <ShiftRequestRow key={request.id} request={request} />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -160,7 +233,18 @@ export default function EmployeePage() {
   }, [employee]);
 
   const sortedRequests = useMemo(() => sortRequests(requests), [requests]);
-  const nearestRequest = sortedRequests[0];
+  const pendingRequests = useMemo(
+    () => sortedRequests.filter((request) => request.status !== "承認済"),
+    [sortedRequests],
+  );
+  const approvedRequests = useMemo(
+    () => sortedRequests.filter((request) => request.status === "承認済"),
+    [sortedRequests],
+  );
+  const nearestRequest = useMemo(
+    () => approvedRequests.find((request) => isWithinNextDays(request, 7)),
+    [approvedRequests],
+  );
 
   function handleLogout() {
     clearEmployeeSession();
@@ -267,30 +351,19 @@ export default function EmployeePage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-3 px-6 pb-6">
-              {sortedRequests.map((request) => {
-                const parsedDate = new Date(`${request.date}T00:00:00`);
-                return (
-                  <div
-                    key={request.id}
-                    className="flex items-center justify-between rounded-lg border border-black/10 px-6 py-4"
-                  >
-                    <div className="flex items-center gap-8">
-                      <div className="text-center text-sm text-[#030213]">
-                        <p>{weekdays[parsedDate.getDay()]}</p>
-                        <p className="font-semibold">{parsedDate.getDate()}</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold">{formatDateOnly(request.date)}</p>
-                        <p className="mt-1 text-sm text-[#475569]">
-                          {request.startTime} - {request.endTime}
-                        </p>
-                      </div>
-                    </div>
-                    <RequestStatusBadge status={request.status} />
-                  </div>
-                );
-              })}
+            <div className="space-y-8 px-6 pb-6">
+              <ShiftRequestGroup
+                title="承認待ち"
+                description="管理者の承認を待っている希望シフト"
+                requests={pendingRequests}
+                emptyText="承認待ちのシフト希望はありません"
+              />
+              <ShiftRequestGroup
+                title="承認済み"
+                description="管理者が承認した確定シフト"
+                requests={approvedRequests}
+                emptyText="承認済みのシフトはありません"
+              />
             </div>
           )}
         </section>
