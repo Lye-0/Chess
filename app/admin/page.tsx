@@ -42,8 +42,8 @@ const features = [
   },
   {
     path: "/admin/timesheet",
-    title: "稼働時間",
-    description: "従業員の稼働時間を確認します",
+    title: "勤務時間",
+    description: "従業員の勤務時間を確認します",
     icon: <ClockIcon />,
     color: "bg-[#b347ff] text-white",
   },
@@ -232,7 +232,7 @@ function AdminContent() {
             <p className="mt-4 text-sm text-[#475569]">この組織の従業員</p>
           </Card>
           <Card className="p-6">
-            <p className="text-sm text-[#717182]">今週の稼働時間</p>
+            <p className="text-sm text-[#717182]">今週の勤務時間</p>
             <p className="mt-4 text-3xl font-semibold">
               {isLoadingRequests ? "..." : formatHoursOnly(totalWorkMinutes)}
             </p>

@@ -14,6 +14,7 @@ import {
 } from "@/lib/shiftSlots";
 import {
   approveShiftRequest,
+  removeShiftRequest,
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -153,13 +154,17 @@ function ShiftRequestGroup({
   requests,
   emptyText,
   approvingRequestId,
+  deletingRequestId,
   onApprove,
+  onRemove,
 }: {
   title: string;
   requests: ShiftRequest[];
   emptyText: string;
   approvingRequestId: string | null;
+  deletingRequestId: string | null;
   onApprove: (request: ShiftRequest) => void;
+  onRemove: (request: ShiftRequest) => void;
 }) {
   return (
     <section className="rounded-md border border-black/10 bg-white px-3 py-3">
@@ -177,6 +182,7 @@ function ShiftRequestGroup({
           {requests.map((request) => {
             const approved = request.status === "承認済";
             const approving = approvingRequestId === request.id;
+            const deleting = deletingRequestId === request.id;
 
             return (
               <div
@@ -196,13 +202,22 @@ function ShiftRequestGroup({
                   {!approved && (
                     <button
                       type="button"
-                      disabled={approving}
+                      disabled={approving || deleting}
                       onClick={() => onApprove(request)}
                       className="h-8 rounded-md bg-[#030213] px-3 text-xs font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#8e8d95]"
                     >
                       {approving ? "承認中..." : "承認"}
                     </button>
                   )}
+                  <button
+                    type="button"
+                    aria-label={`${request.employeeName}のシフト希望を削除`}
+                    disabled={deleting}
+                    onClick={() => onRemove(request)}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-[#ff003d] transition hover:bg-[#ffe8ee] hover:text-[#cc0031] disabled:cursor-not-allowed disabled:text-[#c56c7f]"
+                  >
+                    <TrashIcon />
+                  </button>
                 </div>
               </div>
             );
@@ -228,6 +243,7 @@ function AdminShiftManagementContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [approvingRequestId, setApprovingRequestId] = useState<string | null>(null);
+  const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -272,20 +288,29 @@ function AdminShiftManagementContent() {
     }, {});
   }, [slots]);
 
-  const canSave = Boolean(
-    isFourDigitShiftDate(form.date) &&
-    form.startTime &&
-    form.endTime &&
-    form.startTime < form.endTime &&
-    Number(form.capacity) >= 1 &&
-    Number(form.capacity) <= 100,
-  );
   const requestCountBySlot = useMemo(() => {
     return requests.reduce<Record<string, number>>((counts, request) => {
       counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
       return counts;
     }, {});
   }, [requests]);
+  const editingSlot = useMemo(
+    () => slots.find((slot) => slot.id === editingId) ?? null,
+    [editingId, slots],
+  );
+  const isEditingRequestedSlot = Boolean(
+    editingId && (requestCountBySlot[editingId] ?? 0) > 0,
+  );
+  const canSave = Boolean(
+    (isEditingRequestedSlot && editingSlot
+      ? true
+      : isFourDigitShiftDate(form.date) &&
+        form.startTime &&
+        form.endTime &&
+        form.startTime < form.endTime) &&
+      Number(form.capacity) >= 1 &&
+      Number(form.capacity) <= 100,
+  );
   const requestsBySlot = useMemo(() => {
     return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
       groups[request.slotId] = [...(groups[request.slotId] ?? []), request];
@@ -321,9 +346,11 @@ function AdminShiftManagementContent() {
     if (!canSave) return;
 
     const nextSlot: ShiftSlotInput = {
-      date: form.date,
-      startTime: form.startTime,
-      endTime: form.endTime,
+      date: isEditingRequestedSlot && editingSlot ? editingSlot.date : form.date,
+      startTime:
+        isEditingRequestedSlot && editingSlot ? editingSlot.startTime : form.startTime,
+      endTime:
+        isEditingRequestedSlot && editingSlot ? editingSlot.endTime : form.endTime,
       capacity: Number(form.capacity),
     };
 
@@ -381,6 +408,24 @@ function AdminShiftManagementContent() {
       setErrorMessage("シフト希望の承認に失敗しました。Firestore への書き込み権限を確認してください。");
     } finally {
       setApprovingRequestId(null);
+    }
+  }
+
+  async function handleRemoveRequest(request: ShiftRequest) {
+    const confirmed = window.confirm(
+      `${request.employeeName}さんのシフト希望を削除します。よろしいですか？`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingRequestId(request.id);
+      setErrorMessage(null);
+      await removeShiftRequest(request.id, organizationId);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("シフト希望の削除に失敗しました。Firestore への書き込み権限を確認してください。");
+    } finally {
+      setDeletingRequestId(null);
     }
   }
 
@@ -480,14 +525,18 @@ function AdminShiftManagementContent() {
                                 requests={pendingRequests}
                                 emptyText="承認待ちの希望はありません"
                                 approvingRequestId={approvingRequestId}
+                                deletingRequestId={deletingRequestId}
                                 onApprove={handleApproveRequest}
+                                onRemove={handleRemoveRequest}
                               />
                               <ShiftRequestGroup
                                 title="承認済み"
                                 requests={approvedRequests}
                                 emptyText="承認済みの希望はありません"
                                 approvingRequestId={approvingRequestId}
+                                deletingRequestId={deletingRequestId}
                                 onApprove={handleApproveRequest}
+                                onRemove={handleRemoveRequest}
                               />
                             </div>
                           )}
@@ -516,6 +565,11 @@ function AdminShiftManagementContent() {
                 <p className="mt-1 text-sm text-[#717182]">
                   従業員が希望できるシフト枠を設定します
                 </p>
+                {isEditingRequestedSlot && (
+                  <p className="mt-3 rounded-md bg-[#fff7ed] px-3 py-2 text-sm text-[#c2410c]">
+                    希望者がいるため、日付・開始時刻・終了時刻は変更できません。募集人数のみ変更できます。
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -538,13 +592,14 @@ function AdminShiftManagementContent() {
                   min="0001-01-01"
                   max="9999-12-31"
                   value={form.date}
+                  disabled={isEditingRequestedSlot}
                   onChange={(event) => {
                     const nextDate = normalizeDateInput(event.target.value);
                     if (nextDate === null) return;
 
                     setForm({ ...form, date: nextDate });
                   }}
-                  className="mt-2 h-10 w-full rounded-md border border-black/20 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                  className="mt-2 h-10 w-full rounded-md border border-black/20 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#f0f1f4] disabled:text-[#717182]"
                 />
               </div>
 
@@ -557,8 +612,9 @@ function AdminShiftManagementContent() {
                     id="shift-start"
                     type="time"
                     value={form.startTime}
+                    disabled={isEditingRequestedSlot}
                     onChange={(event) => setForm({ ...form, startTime: event.target.value })}
-                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#f0f1f4] disabled:text-[#717182]"
                   />
                 </div>
 
@@ -570,8 +626,9 @@ function AdminShiftManagementContent() {
                     id="shift-end"
                     type="time"
                     value={form.endTime}
+                    disabled={isEditingRequestedSlot}
                     onChange={(event) => setForm({ ...form, endTime: event.target.value })}
-                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#f0f1f4] disabled:text-[#717182]"
                   />
                 </div>
               </div>

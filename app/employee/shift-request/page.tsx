@@ -17,7 +17,7 @@ import {
 import {
   createShiftRequests,
   isShiftStartInFuture,
-  subscribeEmployeeShiftRequests,
+  subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 
@@ -174,6 +174,7 @@ export default function EmployeeShiftRequestPage() {
   );
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [allRequests, setAllRequests] = useState<ShiftRequest[]>([]);
   const [displayMonth, setDisplayMonth] = useState(() => getMonthStart(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState("");
@@ -216,10 +217,12 @@ export default function EmployeeShiftRequestPage() {
       },
       employee.organizationId,
     );
-    const unsubscribeRequests = subscribeEmployeeShiftRequests(
-      employee.employeeId,
+    const unsubscribeRequests = subscribeShiftRequests(
       (nextRequests) => {
-        setRequests(nextRequests);
+        setAllRequests(nextRequests);
+        setRequests(
+          nextRequests.filter((request) => request.employeeId === employee.employeeId),
+        );
         setIsRequestsLoading(false);
         setErrorMessage(null);
       },
@@ -245,9 +248,19 @@ export default function EmployeeShiftRequestPage() {
     () => new Set(draftSlots.map((slot) => slot.id)),
     [draftSlots],
   );
+  const requestCountBySlot = useMemo(() => {
+    return allRequests.reduce<Record<string, number>>((counts, request) => {
+      counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
+      return counts;
+    }, {});
+  }, [allRequests]);
   const requestableSlots = useMemo(() => {
-    return slots.filter((slot) => isShiftStartInFuture(slot, now));
-  }, [now, slots]);
+    return slots.filter(
+      (slot) =>
+        isShiftStartInFuture(slot, now) &&
+        (requestCountBySlot[slot.id] ?? 0) < slot.capacity,
+    );
+  }, [now, requestCountBySlot, slots]);
   const slotsByDate = useMemo(() => {
     return requestableSlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
       groups[slot.date] = [...(groups[slot.date] ?? []), slot];
@@ -306,6 +319,11 @@ export default function EmployeeShiftRequestPage() {
       setErrorMessage("開始済みまたは終了済みのシフトには希望を提出できません。");
       return;
     }
+    if ((requestCountBySlot[selectedSlot.id] ?? 0) >= selectedSlot.capacity) {
+      setSelectedSlotId("");
+      setErrorMessage("募集人数に達したシフトには希望を提出できません。");
+      return;
+    }
 
     setDraftSlots((current) => sortSlots([...current, selectedSlot]));
     setSelectedSlotId("");
@@ -326,6 +344,15 @@ export default function EmployeeShiftRequestPage() {
       setDraftSlots(requestableDraftSlots);
       setIsConfirmOpen(false);
       setErrorMessage("開始済みまたは終了済みのシフトには希望を提出できません。");
+      return;
+    }
+    if (
+      requestableDraftSlots.some(
+        (slot) => (requestCountBySlot[slot.id] ?? 0) >= slot.capacity,
+      )
+    ) {
+      setIsConfirmOpen(false);
+      setErrorMessage("募集人数に達したシフトには希望を提出できません。");
       return;
     }
 
@@ -349,7 +376,11 @@ export default function EmployeeShiftRequestPage() {
       setIsConfirmOpen(false);
     } catch (error) {
       console.error(error);
-      setErrorMessage("希望シフトの送信に失敗しました。Firestore Rulesを確認してください。");
+      setErrorMessage(
+        error instanceof Error && error.message === "Shift slot capacity exceeded."
+          ? "募集人数に達したシフトには希望を提出できません。"
+          : "希望シフトの送信に失敗しました。Firestore Rulesを確認してください。",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -478,7 +509,8 @@ export default function EmployeeShiftRequestPage() {
                         </option>
                         {availableSlotsForSelectedDate.map((slot) => (
                           <option key={slot.id} value={slot.id}>
-                            {slot.startTime} - {slot.endTime}（募集 {slot.capacity}人）
+                            {slot.startTime} - {slot.endTime}（募集 {slot.capacity}人 / 希望{" "}
+                            {requestCountBySlot[slot.id] ?? 0}人）
                           </option>
                         ))}
                       </select>
@@ -499,7 +531,7 @@ export default function EmployeeShiftRequestPage() {
                     </>
                   ) : (
                     <p className="mt-2 text-sm text-[#717182]">
-                      この日の選択可能なシフト枠はありません（既に希望済みか枠なし）
+                      この日の選択可能なシフト枠はありません（既に希望済み・満員・枠なし）
                     </p>
                   )}
                 </div>

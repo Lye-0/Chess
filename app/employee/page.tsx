@@ -118,6 +118,50 @@ function isWithinNextDays(request: ShiftRequest, days: number) {
   return startAt >= now && startAt <= limit;
 }
 
+function parseTimeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+
+  return hour * 60 + minute;
+}
+
+function calculateWorkMinutes(request: ShiftRequest) {
+  const start = parseTimeToMinutes(request.startTime);
+  const end = parseTimeToMinutes(request.endTime);
+  const diff = end - start;
+
+  return diff >= 0 ? diff : diff + 24 * 60;
+}
+
+function formatWorkHours(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (remainingMinutes === 0) return `${hours}時間`;
+
+  return `${hours}時間${remainingMinutes}分`;
+}
+
+function sumWorkMinutes(requests: ShiftRequest[]) {
+  return requests.reduce((total, request) => total + calculateWorkMinutes(request), 0);
+}
+
+function isRequestInMonth(request: ShiftRequest, date: Date) {
+  const startAt = getRequestStartAt(request);
+
+  return (
+    startAt.getFullYear() === date.getFullYear() &&
+    startAt.getMonth() === date.getMonth()
+  );
+}
+
+function isRequestInYear(request: ShiftRequest, year: number) {
+  const startAt = getRequestStartAt(request);
+
+  return startAt.getFullYear() === year;
+}
+
 function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
   const approved = status === "承認済";
 
@@ -132,6 +176,24 @@ function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
     >
       {status}
     </span>
+  );
+}
+
+function WorkHoursCard({
+  title,
+  description,
+  minutes,
+}: {
+  title: string;
+  description: string;
+  minutes: number;
+}) {
+  return (
+    <section className="rounded-xl border border-black/10 bg-white p-6 shadow-sm">
+      <p className="text-sm text-[#717182]">{title}</p>
+      <p className="mt-4 text-3xl font-semibold">{formatWorkHours(minutes)}</p>
+      <p className="mt-3 text-sm text-[#717182]">{description}</p>
+    </section>
   );
 }
 
@@ -245,6 +307,19 @@ export default function EmployeePage() {
     () => approvedRequests.find((request) => isWithinNextDays(request, 7)),
     [approvedRequests],
   );
+  const currentDate = useMemo(() => new Date(), []);
+  const currentYear = currentDate.getFullYear();
+  const monthlyWorkMinutes = useMemo(
+    () =>
+      sumWorkMinutes(
+        approvedRequests.filter((request) => isRequestInMonth(request, currentDate)),
+      ),
+    [approvedRequests, currentDate],
+  );
+  const yearlyWorkMinutes = useMemo(
+    () => sumWorkMinutes(approvedRequests.filter((request) => isRequestInYear(request, currentYear))),
+    [approvedRequests, currentYear],
+  );
 
   function handleLogout() {
     clearEmployeeSession();
@@ -332,6 +407,19 @@ export default function EmployeePage() {
             </div>
           </section>
 
+        </section>
+
+        <section className="mt-6 grid gap-6 lg:grid-cols-2">
+          <WorkHoursCard
+            title="今月の勤務時間"
+            description={`${currentYear}年${currentDate.getMonth() + 1}月の承認済みシフト`}
+            minutes={monthlyWorkMinutes}
+          />
+          <WorkHoursCard
+            title="年間の勤務時間"
+            description={`${currentYear}年1月1日〜12月31日の承認済みシフト`}
+            minutes={yearlyWorkMinutes}
+          />
         </section>
 
         <section className="mt-6 rounded-xl border border-black/10 bg-white shadow-sm">
