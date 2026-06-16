@@ -31,6 +31,21 @@ export function getOrganizationProfile(organizationId = defaultOrganizationId) {
     }
   );
 }
+
+async function loadOrganizationProfile(organizationId = defaultOrganizationId) {
+  const fallbackOrganization = getOrganizationProfile(organizationId);
+  const snapshot = await getDoc(doc(db, "organizations", organizationId));
+
+  if (!snapshot.exists()) return fallbackOrganization;
+
+  const data = snapshot.data();
+  return {
+    id: organizationId,
+    name: String(data.name ?? fallbackOrganization.name),
+    department: String(data.department ?? fallbackOrganization.department),
+  };
+}
+
 const employeeSessionKey = "chess-current-employee";
 const employeeSessionEvent = "chess-employee-session-change";
 
@@ -144,7 +159,7 @@ export async function createEmployee(
   const lastName = input.lastName.trim();
   const email = normalizeEmail(input.email);
   const employmentType = input.employmentType.trim();
-  const currentOrganization = getOrganizationProfile(organizationId);
+  const currentOrganization = await loadOrganizationProfile(organizationId);
 
   if (!firstName || !lastName || !email || !employmentType) {
     throw new Error("必須項目をすべて入力してください。");

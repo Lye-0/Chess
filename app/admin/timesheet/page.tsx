@@ -1,6 +1,5 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import {
   BackHeader,
@@ -8,13 +7,22 @@ import {
   ChevronDownIcon,
   DownloadIcon,
 } from "../../_components/shift-ui";
-import { defaultOrganizationId } from "@/lib/people";
+import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 
 function AdminTimesheetContent() {
-  const searchParams = useSearchParams();
-  const selectedOrganizationId = searchParams.get("organizationId")?.trim();
-  const organizationId = selectedOrganizationId || defaultOrganizationId;
-  const organizationQuery = `?organizationId=${encodeURIComponent(organizationId)}`;
+  const {
+    organizationQuery,
+    organization,
+    isCheckingOrganization,
+  } = useManagerOrganizationAccess();
+
+  if (isCheckingOrganization || !organization) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] text-[#717182]">
+        <p>管理できる組織を確認しています</p>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">

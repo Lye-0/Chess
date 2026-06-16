@@ -1,14 +1,13 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import {
   createEmployee,
-  defaultOrganizationId,
   subscribeEmployees,
   type EmployeeProfile,
 } from "@/lib/people";
+import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   BackHeader,
   Card,
@@ -33,10 +32,12 @@ const emptyForm: EmployeeForm = {
 };
 
 function AdminEmployeeRegistrationContent() {
-  const searchParams = useSearchParams();
-  const selectedOrganizationId = searchParams.get("organizationId")?.trim();
-  const organizationId = selectedOrganizationId || defaultOrganizationId;
-  const organizationQuery = `?organizationId=${encodeURIComponent(organizationId)}`;
+  const {
+    organizationId,
+    organizationQuery,
+    organization: currentOrganization,
+    isCheckingOrganization,
+  } = useManagerOrganizationAccess();
   const [form, setForm] = useState<EmployeeForm>(emptyForm);
   const [registeredEmployees, setRegisteredEmployees] = useState<EmployeeProfile[]>([]);
   const [createdEmployee, setCreatedEmployee] = useState<EmployeeProfile | null>(null);
@@ -50,6 +51,8 @@ function AdminEmployeeRegistrationContent() {
     !isSaving;
 
   useEffect(() => {
+    if (!currentOrganization) return;
+
     return subscribeEmployees(
       (employees) => {
         setRegisteredEmployees(employees);
@@ -63,7 +66,7 @@ function AdminEmployeeRegistrationContent() {
       },
       organizationId,
     );
-  }, [organizationId]);
+  }, [currentOrganization, organizationId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -85,6 +88,14 @@ function AdminEmployeeRegistrationContent() {
     } finally {
       setIsSaving(false);
     }
+  }
+
+  if (isCheckingOrganization || !currentOrganization) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] text-[#717182]">
+        <p>管理できる組織を確認しています</p>
+      </main>
+    );
   }
 
   return (
