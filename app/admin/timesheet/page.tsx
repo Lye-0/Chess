@@ -1,9 +1,7 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import {
-  defaultOrganizationId,
   subscribeEmployees,
   type EmployeeProfile,
 } from "@/lib/people";
@@ -11,6 +9,7 @@ import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
+import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   BackHeader,
   Card,
@@ -86,10 +85,12 @@ type EmployeeWorkSummary = {
 };
 
 function AdminTimesheetContent() {
-  const searchParams = useSearchParams();
-  const selectedOrganizationId = searchParams.get("organizationId")?.trim();
-  const organizationId = selectedOrganizationId || defaultOrganizationId;
-  const organizationQuery = `?organizationId=${encodeURIComponent(organizationId)}`;
+  const {
+    organizationId,
+    organizationQuery,
+    organization,
+    isCheckingOrganization,
+  } = useManagerOrganizationAccess();
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(() => getMonthValue());
@@ -108,6 +109,8 @@ function AdminTimesheetContent() {
   }, []);
 
   useEffect(() => {
+    if (!organization) return;
+
     const unsubscribeEmployees = subscribeEmployees(
       (nextEmployees) => {
         setEmployees(nextEmployees);
@@ -139,7 +142,7 @@ function AdminTimesheetContent() {
       unsubscribeEmployees();
       unsubscribeRequests();
     };
-  }, [organizationId]);
+  }, [organization, organizationId]);
 
   const monthOptions = useMemo(() => {
     const months = new Set<string>([getMonthValue()]);
@@ -197,6 +200,14 @@ function AdminTimesheetContent() {
   );
   const averageWorkMinutes =
     employees.length > 0 ? Math.round(totalWorkMinutes / employees.length) : 0;
+
+  if (isCheckingOrganization || !organization) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] text-[#717182]">
+        <p>管理できる組織を確認しています</p>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">

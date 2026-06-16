@@ -1,7 +1,6 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   createShiftSlot,
@@ -18,7 +17,7 @@ import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
-import { defaultOrganizationId } from "@/lib/people";
+import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   BackHeader,
   Card,
@@ -229,10 +228,12 @@ function ShiftRequestGroup({
 }
 
 function AdminShiftManagementContent() {
-  const searchParams = useSearchParams();
-  const selectedOrganizationId = searchParams.get("organizationId")?.trim();
-  const organizationId = selectedOrganizationId || defaultOrganizationId;
-  const organizationQuery = `?organizationId=${encodeURIComponent(organizationId)}`;
+  const {
+    organizationId,
+    organizationQuery,
+    organization: currentOrganization,
+    isCheckingOrganization,
+  } = useManagerOrganizationAccess();
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -247,6 +248,8 @@ function AdminShiftManagementContent() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!currentOrganization) return;
+
     const unsubscribeSlots = subscribeShiftSlots(
       (nextSlots) => {
         setSlots(nextSlots);
@@ -274,7 +277,7 @@ function AdminShiftManagementContent() {
       unsubscribeSlots();
       unsubscribeRequests();
     };
-  }, [organizationId]);
+  }, [currentOrganization, organizationId]);
 
   const groupedSlots = useMemo(() => {
     const sortedSlots = [...slots].sort((a, b) => {
@@ -427,6 +430,14 @@ function AdminShiftManagementContent() {
     } finally {
       setDeletingRequestId(null);
     }
+  }
+
+  if (isCheckingOrganization || !currentOrganization) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] text-[#717182]">
+        <p>管理できる組織を確認しています</p>
+      </main>
+    );
   }
 
   return (

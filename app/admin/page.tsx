@@ -1,18 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import { subscribeShiftSlots } from "@/lib/shiftSlots";
-import {
-  defaultOrganizationId,
-  getOrganizationProfile,
-  subscribeEmployees,
-} from "@/lib/people";
+import { subscribeEmployees } from "@/lib/people";
+import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   ArrowLeftIcon,
   BuildingIcon,
@@ -86,11 +82,12 @@ function formatHoursOnly(minutes: number) {
 }
 
 function AdminContent() {
-  const searchParams = useSearchParams();
-  const selectedOrganizationId = searchParams.get("organizationId")?.trim();
-  const organizationId = selectedOrganizationId || defaultOrganizationId;
-  const currentOrganization = getOrganizationProfile(organizationId);
-  const organizationQuery = `?organizationId=${encodeURIComponent(organizationId)}`;
+  const {
+    organizationId,
+    organizationQuery,
+    organization: currentOrganization,
+    isCheckingOrganization,
+  } = useManagerOrganizationAccess();
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [slotCount, setSlotCount] = useState(0);
   const [employeeCount, setEmployeeCount] = useState(0);
@@ -99,6 +96,8 @@ function AdminContent() {
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
 
   useEffect(() => {
+    if (!currentOrganization) return;
+
     const unsubscribeRequests = subscribeShiftRequests(
       (nextRequests) => {
         setRequests(nextRequests);
@@ -138,7 +137,7 @@ function AdminContent() {
       unsubscribeSlots();
       unsubscribeEmployees();
     };
-  }, [organizationId]);
+  }, [currentOrganization, organizationId]);
 
   const totalWorkMinutes = useMemo(() => {
     return requests.reduce(
@@ -146,6 +145,14 @@ function AdminContent() {
       0,
     );
   }, [requests]);
+
+  if (isCheckingOrganization || !currentOrganization) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] text-[#717182]">
+        <p>管理できる組織を確認しています</p>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
