@@ -17,6 +17,13 @@ import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
+import {
+  calculateShiftPayroll,
+  defaultPayrollSettings,
+  formatCurrency,
+  subscribePayrollSettings,
+  type PayrollSettings,
+} from "@/lib/payroll";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   BackHeader,
@@ -154,6 +161,7 @@ function ShiftRequestGroup({
   emptyText,
   approvingRequestId,
   deletingRequestId,
+  payrollSettings,
   onApprove,
   onRemove,
 }: {
@@ -162,6 +170,7 @@ function ShiftRequestGroup({
   emptyText: string;
   approvingRequestId: string | null;
   deletingRequestId: string | null;
+  payrollSettings: PayrollSettings;
   onApprove: (request: ShiftRequest) => void;
   onRemove: (request: ShiftRequest) => void;
 }) {
@@ -182,6 +191,7 @@ function ShiftRequestGroup({
             const approved = request.status === "承認済";
             const approving = approvingRequestId === request.id;
             const deleting = deletingRequestId === request.id;
+            const payroll = calculateShiftPayroll(request, payrollSettings);
 
             return (
               <div
@@ -194,6 +204,9 @@ function ShiftRequestGroup({
                   </p>
                   <p className="mt-1 truncate text-xs text-[#717182]">
                     {request.employeeEmail} / {request.employmentType}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-[#00a63e]">
+                    {formatCurrency(payroll.totalPay)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -236,6 +249,9 @@ function AdminShiftManagementContent() {
   } = useManagerOrganizationAccess();
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
+    defaultPayrollSettings,
+  );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ShiftSlot | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -272,10 +288,20 @@ function AdminShiftManagementContent() {
       },
       organizationId,
     );
+    const unsubscribePayroll = subscribePayrollSettings(
+      (settings) => {
+        setPayrollSettings(settings);
+      },
+      (error) => {
+        console.error(error);
+      },
+      organizationId,
+    );
 
     return () => {
       unsubscribeSlots();
       unsubscribeRequests();
+      unsubscribePayroll();
     };
   }, [currentOrganization, organizationId]);
 
@@ -537,6 +563,7 @@ function AdminShiftManagementContent() {
                                 emptyText="承認待ちの希望はありません"
                                 approvingRequestId={approvingRequestId}
                                 deletingRequestId={deletingRequestId}
+                                payrollSettings={payrollSettings}
                                 onApprove={handleApproveRequest}
                                 onRemove={handleRemoveRequest}
                               />
@@ -546,6 +573,7 @@ function AdminShiftManagementContent() {
                                 emptyText="承認済みの希望はありません"
                                 approvingRequestId={approvingRequestId}
                                 deletingRequestId={deletingRequestId}
+                                payrollSettings={payrollSettings}
                                 onApprove={handleApproveRequest}
                                 onRemove={handleRemoveRequest}
                               />

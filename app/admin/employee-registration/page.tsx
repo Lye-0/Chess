@@ -7,6 +7,7 @@ import {
   subscribeEmployees,
   type EmployeeProfile,
 } from "@/lib/people";
+import { employmentTypes } from "@/lib/payroll";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   BackHeader,
@@ -14,8 +15,6 @@ import {
   ChevronDownIcon,
   UserPlusIcon,
 } from "../../_components/shift-ui";
-
-const employmentTypes = ["正社員", "パート", "アルバイト", "契約社員"];
 
 type EmployeeForm = {
   lastName: string;

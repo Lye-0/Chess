@@ -11,6 +11,14 @@ import {
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import {
+  calculateShiftPayroll,
+  defaultPayrollSettings,
+  formatCurrency,
+  sumShiftPay,
+  subscribePayrollSettings,
+  type PayrollSettings,
+} from "@/lib/payroll";
+import {
   BackHeader,
   Card,
   SearchIcon,
@@ -73,12 +81,16 @@ function AdminEmployeeListContent() {
   } = useManagerOrganizationAccess();
   const [registeredEmployees, setRegisteredEmployees] = useState<EmployeeProfile[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
+    defaultPayrollSettings,
+  );
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isEmployeesLoading, setIsEmployeesLoading] = useState(true);
   const [isRequestsLoading, setIsRequestsLoading] = useState(true);
+  const [isPayrollLoading, setIsPayrollLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const isLoading = isEmployeesLoading || isRequestsLoading;
+  const isLoading = isEmployeesLoading || isRequestsLoading || isPayrollLoading;
 
   useEffect(() => {
     if (!currentOrganization) return;
@@ -115,10 +127,23 @@ function AdminEmployeeListContent() {
       },
       organizationId,
     );
+    const unsubscribePayroll = subscribePayrollSettings(
+      (settings) => {
+        setPayrollSettings(settings);
+        setIsPayrollLoading(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsPayrollLoading(false);
+        setErrorMessage("給与設定の読み込みに失敗しました。");
+      },
+      organizationId,
+    );
 
     return () => {
       unsubscribeEmployees();
       unsubscribeRequests();
+      unsubscribePayroll();
     };
   }, [currentOrganization, organizationId]);
 
@@ -153,6 +178,10 @@ function AdminEmployeeListContent() {
   const totalWorkMinutes = selectedRequests.reduce(
     (total, request) => total + calculateWorkMinutes(request),
     0,
+  );
+  const totalPay = useMemo(
+    () => sumShiftPay(selectedRequests, payrollSettings),
+    [payrollSettings, selectedRequests],
   );
 
   if (isCheckingOrganization || !currentOrganization) {
@@ -291,23 +320,41 @@ function AdminEmployeeListContent() {
                 </div>
               ) : (
                 <div className="mt-4 space-y-3">
-                  {selectedRequests.map((request) => (
-                    <div key={request.id} className="rounded-lg bg-[#f7f8fb] p-4">
-                      <p className="font-semibold">{formatDateLabel(request.date)}</p>
-                      <p className="mt-1 text-sm text-[#475569]">
-                        {request.startTime} - {request.endTime}
-                      </p>
-                      <p className="mt-2 text-xs text-[#717182]">
-                        提出: {formatSubmittedDate(request.submittedDate)}
-                      </p>
-                    </div>
-                  ))}
+                  {selectedRequests.map((request) => {
+                    const payroll = calculateShiftPayroll(request, payrollSettings);
+
+                    return (
+                      <div key={request.id} className="rounded-lg bg-[#f7f8fb] p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="font-semibold">
+                              {formatDateLabel(request.date)}
+                            </p>
+                            <p className="mt-1 text-sm text-[#475569]">
+                              {request.startTime} - {request.endTime}
+                            </p>
+                            <p className="mt-2 text-xs text-[#717182]">
+                              提出: {formatSubmittedDate(request.submittedDate)}
+                            </p>
+                          </div>
+                          <div className="text-left sm:text-right">
+                            <p className="text-sm font-semibold text-[#00a63e]">
+                              {formatCurrency(payroll.totalPay)}
+                            </p>
+                            <p className="mt-1 text-xs text-[#717182]">
+                              {request.status}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
               <div className="my-6 h-px bg-black/10" />
 
-              <section className="grid gap-4 sm:grid-cols-2">
+              <section className="grid gap-4 sm:grid-cols-3">
                 <div className="rounded-lg bg-[#eaf3ff] p-5 text-center">
                   <p className="text-2xl font-semibold text-[#1763ff]">
                     {selectedRequests.length}
@@ -319,6 +366,12 @@ function AdminEmployeeListContent() {
                     {formatWorkHours(totalWorkMinutes)}
                   </p>
                   <p className="mt-1 text-sm text-[#00a63e]">希望合計時間</p>
+                </div>
+                <div className="rounded-lg bg-[#fff7ed] p-5 text-center">
+                  <p className="text-2xl font-semibold text-[#c2410c]">
+                    {formatCurrency(totalPay)}
+                  </p>
+                  <p className="mt-1 text-sm text-[#c2410c]">給与合計</p>
                 </div>
               </section>
             </>
