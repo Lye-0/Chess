@@ -272,20 +272,29 @@ function AdminShiftManagementContent() {
     }, {});
   }, [slots]);
 
-  const canSave = Boolean(
-    isFourDigitShiftDate(form.date) &&
-    form.startTime &&
-    form.endTime &&
-    form.startTime < form.endTime &&
-    Number(form.capacity) >= 1 &&
-    Number(form.capacity) <= 100,
-  );
   const requestCountBySlot = useMemo(() => {
     return requests.reduce<Record<string, number>>((counts, request) => {
       counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
       return counts;
     }, {});
   }, [requests]);
+  const editingSlot = useMemo(
+    () => slots.find((slot) => slot.id === editingId) ?? null,
+    [editingId, slots],
+  );
+  const isEditingRequestedSlot = Boolean(
+    editingId && (requestCountBySlot[editingId] ?? 0) > 0,
+  );
+  const canSave = Boolean(
+    (isEditingRequestedSlot && editingSlot
+      ? true
+      : isFourDigitShiftDate(form.date) &&
+        form.startTime &&
+        form.endTime &&
+        form.startTime < form.endTime) &&
+      Number(form.capacity) >= 1 &&
+      Number(form.capacity) <= 100,
+  );
   const requestsBySlot = useMemo(() => {
     return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
       groups[request.slotId] = [...(groups[request.slotId] ?? []), request];
@@ -321,9 +330,11 @@ function AdminShiftManagementContent() {
     if (!canSave) return;
 
     const nextSlot: ShiftSlotInput = {
-      date: form.date,
-      startTime: form.startTime,
-      endTime: form.endTime,
+      date: isEditingRequestedSlot && editingSlot ? editingSlot.date : form.date,
+      startTime:
+        isEditingRequestedSlot && editingSlot ? editingSlot.startTime : form.startTime,
+      endTime:
+        isEditingRequestedSlot && editingSlot ? editingSlot.endTime : form.endTime,
       capacity: Number(form.capacity),
     };
 
@@ -516,6 +527,11 @@ function AdminShiftManagementContent() {
                 <p className="mt-1 text-sm text-[#717182]">
                   従業員が希望できるシフト枠を設定します
                 </p>
+                {isEditingRequestedSlot && (
+                  <p className="mt-3 rounded-md bg-[#fff7ed] px-3 py-2 text-sm text-[#c2410c]">
+                    希望者がいるため、日付・開始時刻・終了時刻は変更できません。募集人数のみ変更できます。
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -538,13 +554,14 @@ function AdminShiftManagementContent() {
                   min="0001-01-01"
                   max="9999-12-31"
                   value={form.date}
+                  disabled={isEditingRequestedSlot}
                   onChange={(event) => {
                     const nextDate = normalizeDateInput(event.target.value);
                     if (nextDate === null) return;
 
                     setForm({ ...form, date: nextDate });
                   }}
-                  className="mt-2 h-10 w-full rounded-md border border-black/20 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                  className="mt-2 h-10 w-full rounded-md border border-black/20 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#f0f1f4] disabled:text-[#717182]"
                 />
               </div>
 
@@ -557,8 +574,9 @@ function AdminShiftManagementContent() {
                     id="shift-start"
                     type="time"
                     value={form.startTime}
+                    disabled={isEditingRequestedSlot}
                     onChange={(event) => setForm({ ...form, startTime: event.target.value })}
-                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#f0f1f4] disabled:text-[#717182]"
                   />
                 </div>
 
@@ -570,8 +588,9 @@ function AdminShiftManagementContent() {
                     id="shift-end"
                     type="time"
                     value={form.endTime}
+                    disabled={isEditingRequestedSlot}
                     onChange={(event) => setForm({ ...form, endTime: event.target.value })}
-                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#f0f1f4] disabled:text-[#717182]"
                   />
                 </div>
               </div>
