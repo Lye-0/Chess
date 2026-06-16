@@ -1,6 +1,8 @@
 import {
   collection,
+  deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   serverTimestamp,
@@ -16,6 +18,10 @@ import { defaultOrganizationId } from "./people";
 
 function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
   return collection(db, "organizations", organizationId, "shiftRequests");
+}
+
+function getShiftSlotDocument(slotId: string, organizationId = defaultOrganizationId) {
+  return doc(db, "organizations", organizationId, "shiftSlots", slotId);
 }
 
 export type ShiftRequestStatus = "希望済" | "承認済";
@@ -125,10 +131,49 @@ export async function createShiftRequests(
   const batch = writeBatch(db);
   const submittedDate = getTodayString();
   const now = new Date();
+  const incomingCountBySlot = inputs.reduce<Record<string, number>>(
+    (counts, input) => {
+      counts[input.slotId] = (counts[input.slotId] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
 
   if (inputs.some((input) => !isShiftStartInFuture(input, now))) {
     throw new Error("Started shift slots cannot be requested.");
   }
+
+  const currentRequestsSnapshot = await getDocs(
+    getShiftRequestsCollection(organizationId),
+  );
+  const currentCountBySlot = currentRequestsSnapshot.docs.reduce<Record<string, number>>(
+    (counts, requestSnapshot) => {
+      const slotId = String(requestSnapshot.data().slotId ?? "");
+      if (slotId) counts[slotId] = (counts[slotId] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
+
+  await Promise.all(
+    Object.entries(incomingCountBySlot).map(async ([slotId, incomingCount]) => {
+      const slotSnapshot = await getDoc(getShiftSlotDocument(slotId, organizationId));
+
+      if (!slotSnapshot.exists()) {
+        throw new Error("Shift slot is not available.");
+      }
+
+      const capacity = Number(slotSnapshot.data().capacity ?? 0);
+
+      if (
+        !Number.isFinite(capacity) ||
+        capacity < 1 ||
+        (currentCountBySlot[slotId] ?? 0) + incomingCount > capacity
+      ) {
+        throw new Error("Shift slot capacity exceeded.");
+      }
+    }),
+  );
 
   inputs.forEach((input) => {
     const requestRef = doc(getShiftRequestsCollection(organizationId));
@@ -141,6 +186,13 @@ export async function createShiftRequests(
   });
 
   await batch.commit();
+}
+
+export async function removeShiftRequest(
+  requestId: string,
+  organizationId = defaultOrganizationId,
+) {
+  await deleteDoc(doc(getShiftRequestsCollection(organizationId), requestId));
 }
 
 export async function approveShiftRequest(

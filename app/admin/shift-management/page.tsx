@@ -14,6 +14,7 @@ import {
 } from "@/lib/shiftSlots";
 import {
   approveShiftRequest,
+  removeShiftRequest,
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -153,13 +154,17 @@ function ShiftRequestGroup({
   requests,
   emptyText,
   approvingRequestId,
+  deletingRequestId,
   onApprove,
+  onRemove,
 }: {
   title: string;
   requests: ShiftRequest[];
   emptyText: string;
   approvingRequestId: string | null;
+  deletingRequestId: string | null;
   onApprove: (request: ShiftRequest) => void;
+  onRemove: (request: ShiftRequest) => void;
 }) {
   return (
     <section className="rounded-md border border-black/10 bg-white px-3 py-3">
@@ -177,6 +182,7 @@ function ShiftRequestGroup({
           {requests.map((request) => {
             const approved = request.status === "承認済";
             const approving = approvingRequestId === request.id;
+            const deleting = deletingRequestId === request.id;
 
             return (
               <div
@@ -196,13 +202,22 @@ function ShiftRequestGroup({
                   {!approved && (
                     <button
                       type="button"
-                      disabled={approving}
+                      disabled={approving || deleting}
                       onClick={() => onApprove(request)}
                       className="h-8 rounded-md bg-[#030213] px-3 text-xs font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#8e8d95]"
                     >
                       {approving ? "承認中..." : "承認"}
                     </button>
                   )}
+                  <button
+                    type="button"
+                    aria-label={`${request.employeeName}のシフト希望を削除`}
+                    disabled={deleting}
+                    onClick={() => onRemove(request)}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-[#ff003d] transition hover:bg-[#ffe8ee] hover:text-[#cc0031] disabled:cursor-not-allowed disabled:text-[#c56c7f]"
+                  >
+                    <TrashIcon />
+                  </button>
                 </div>
               </div>
             );
@@ -228,6 +243,7 @@ function AdminShiftManagementContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [approvingRequestId, setApprovingRequestId] = useState<string | null>(null);
+  const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -395,6 +411,24 @@ function AdminShiftManagementContent() {
     }
   }
 
+  async function handleRemoveRequest(request: ShiftRequest) {
+    const confirmed = window.confirm(
+      `${request.employeeName}さんのシフト希望を削除します。よろしいですか？`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingRequestId(request.id);
+      setErrorMessage(null);
+      await removeShiftRequest(request.id, organizationId);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("シフト希望の削除に失敗しました。Firestore への書き込み権限を確認してください。");
+    } finally {
+      setDeletingRequestId(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <BackHeader
@@ -491,14 +525,18 @@ function AdminShiftManagementContent() {
                                 requests={pendingRequests}
                                 emptyText="承認待ちの希望はありません"
                                 approvingRequestId={approvingRequestId}
+                                deletingRequestId={deletingRequestId}
                                 onApprove={handleApproveRequest}
+                                onRemove={handleRemoveRequest}
                               />
                               <ShiftRequestGroup
                                 title="承認済み"
                                 requests={approvedRequests}
                                 emptyText="承認済みの希望はありません"
                                 approvingRequestId={approvingRequestId}
+                                deletingRequestId={deletingRequestId}
                                 onApprove={handleApproveRequest}
+                                onRemove={handleRemoveRequest}
                               />
                             </div>
                           )}
