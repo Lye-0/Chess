@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { BadgeIcon, CheckIcon, KeyIcon } from "@/components/icons";
-import { findEmployeeByEmail, saveEmployeeSession } from "@/lib/people";
+import { findEmployeeByEmail, getEmployeePageQuery, saveEmployeeSession } from "@/lib/people";
 
 function EmployeeVerifyContent() {
   const router = useRouter();
@@ -41,7 +41,7 @@ function EmployeeVerifyContent() {
       }
 
       saveEmployeeSession(employee);
-      router.push("/employee");
+      router.push(`/employee${getEmployeePageQuery(employee)}`);
     } catch (verifyError) {
       console.error(verifyError);
       setError("確認処理に失敗しました。時間をおいてもう一度お試しください。");

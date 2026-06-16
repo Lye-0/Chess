@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   clearEmployeeSession,
+  findEmployeeById,
+  getEmployeePageQuery,
   getEmployeeSessionServerSnapshot,
   getEmployeeSessionSnapshot,
   loadEmployeeSession,
   parseEmployeeSessionSnapshot,
   subscribeEmployeeSession,
+  type EmployeeProfile,
 } from "@/lib/people";
 import {
   subscribeEmployeeShiftRequests,
@@ -257,25 +260,63 @@ function ShiftRequestGroup({
   );
 }
 
-export default function EmployeePage() {
+function EmployeePageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const routeOrganizationId = searchParams.get("organizationId")?.trim() ?? "";
+  const routeEmployeeId = searchParams.get("employeeId")?.trim() ?? "";
+  const hasRouteEmployee = Boolean(routeOrganizationId && routeEmployeeId);
+  const [routeEmployee, setRouteEmployee] = useState<EmployeeProfile | null>(null);
   const sessionSnapshot = useSyncExternalStore(
     subscribeEmployeeSession,
     getEmployeeSessionSnapshot,
     getEmployeeSessionServerSnapshot,
   );
-  const employee = useMemo(
+  const sessionEmployee = useMemo(
     () => parseEmployeeSessionSnapshot(sessionSnapshot),
     [sessionSnapshot],
   );
+  const routeEmployeeMatches = Boolean(
+    routeEmployee &&
+      routeEmployee.organizationId === routeOrganizationId &&
+      routeEmployee.employeeId === routeEmployeeId,
+  );
+  const employee = hasRouteEmployee
+    ? routeEmployeeMatches
+      ? routeEmployee
+      : null
+    : sessionEmployee;
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!employee && !loadEmployeeSession()) {
+    let active = true;
+
+    if (!hasRouteEmployee) return;
+
+    findEmployeeById(routeOrganizationId, routeEmployeeId)
+      .then((nextEmployee) => {
+        if (!active) return;
+        setRouteEmployee(nextEmployee);
+        if (!nextEmployee) router.replace("/login");
+      })
+      .catch((error) => {
+        console.error(error);
+        if (active) router.replace("/login");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [hasRouteEmployee, routeEmployeeId, routeOrganizationId, router]);
+
+  useEffect(() => {
+    if (hasRouteEmployee) return;
+
+    if (!sessionEmployee && !loadEmployeeSession()) {
       router.replace("/login");
     }
-  }, [employee, router]);
+  }, [hasRouteEmployee, router, sessionEmployee]);
 
   useEffect(() => {
     if (!employee) return;
@@ -319,6 +360,11 @@ export default function EmployeePage() {
   const yearlyWorkMinutes = useMemo(
     () => sumWorkMinutes(approvedRequests.filter((request) => isRequestInYear(request, currentYear))),
     [approvedRequests, currentYear],
+  );
+
+  const employeeQuery = useMemo(
+    () => (employee ? getEmployeePageQuery(employee) : ""),
+    [employee],
   );
 
   function handleLogout() {
@@ -367,7 +413,7 @@ export default function EmployeePage() {
       <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
         <section className="grid gap-6 lg:grid-cols-2">
           <Link
-            href="/employee/shift-request"
+            href={`/employee/shift-request${employeeQuery}`}
             className="h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm transition hover:shadow-md"
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#ececf0] text-[#030213]">
@@ -457,5 +503,12 @@ export default function EmployeePage() {
         </section>
       </div>
     </main>
+  );
+}
+export default function EmployeePage() {
+  return (
+    <Suspense>
+      <EmployeePageContent />
+    </Suspense>
   );
 }

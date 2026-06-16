@@ -7,6 +7,7 @@ import {
   serverTimestamp,
   setDoc,
   type DocumentData,
+  type DocumentSnapshot,
   type FirestoreError,
   type QueryDocumentSnapshot,
   type Unsubscribe,
@@ -38,7 +39,7 @@ async function loadOrganizationProfile(organizationId = defaultOrganizationId) {
 
   if (!snapshot.exists()) return fallbackOrganization;
 
-  const data = snapshot.data();
+  const data = snapshot.data() ?? {};
   return {
     id: organizationId,
     name: String(data.name ?? fallbackOrganization.name),
@@ -94,10 +95,10 @@ export const employees: EmployeeProfile[] = [fallbackEmployee];
 export const currentEmployee = fallbackEmployee;
 
 function toEmployeeProfile(
-  snapshot: QueryDocumentSnapshot<DocumentData>,
+  snapshot: QueryDocumentSnapshot<DocumentData> | DocumentSnapshot<DocumentData>,
   organizationId = defaultOrganizationId,
 ): EmployeeProfile {
-  const data = snapshot.data();
+  const data = snapshot.data() ?? {};
   const currentOrganization = getOrganizationProfile(organizationId);
   const email = String(data.email ?? "");
   const firstName = String(data.firstName ?? "");
@@ -212,6 +213,34 @@ export async function findEmployeeByEmail(
     : null;
 }
 
+export async function findEmployeeById(
+  organizationId: string,
+  employeeId: string,
+): Promise<EmployeeProfile | null> {
+  const trimmedOrganizationId = organizationId.trim();
+  const trimmedEmployeeId = employeeId.trim();
+
+  if (!trimmedOrganizationId || !trimmedEmployeeId) return null;
+
+  const snapshot = await getDoc(
+    doc(getEmployeesCollection(trimmedOrganizationId), trimmedEmployeeId),
+  );
+
+  return snapshot.exists()
+    ? toEmployeeProfile(snapshot, trimmedOrganizationId)
+    : null;
+}
+
+export function getEmployeePageQuery(
+  employee: Pick<EmployeeProfile, "organizationId" | "employeeId">,
+) {
+  const params = new URLSearchParams({
+    organizationId: employee.organizationId,
+    employeeId: employee.employeeId,
+  });
+
+  return `?${params.toString()}`;
+}
 export function saveEmployeeSession(employee: EmployeeProfile) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(employeeSessionKey, JSON.stringify(employee));
