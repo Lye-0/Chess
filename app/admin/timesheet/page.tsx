@@ -216,7 +216,7 @@ function AdminTimesheetContent() {
       <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
         <section className="grid gap-6 lg:grid-cols-3">
           <Card className="p-6">
-            <p className="text-sm text-[#717182]">総稼働時間</p>
+            <p className="text-sm text-[#717182]">総勤務時間</p>
             <p className="mt-4 text-3xl font-semibold">
               {isLoading ? "..." : formatHoursOnly(totalWorkMinutes)}
             </p>
@@ -225,7 +225,7 @@ function AdminTimesheetContent() {
             </p>
           </Card>
           <Card className="p-6">
-            <p className="text-sm text-[#717182]">平均稼働時間</p>
+            <p className="text-sm text-[#717182]">平均勤務時間</p>
             <p className="mt-4 text-3xl font-semibold">
               {isLoading ? "..." : formatHoursOnly(averageWorkMinutes)}
             </p>
@@ -243,9 +243,9 @@ function AdminTimesheetContent() {
         <Card className="mt-6 min-h-[196px] p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-xl font-semibold">稼働時間管理</h1>
+              <h1 className="text-xl font-semibold">勤務時間管理</h1>
               <p className="mt-1 text-sm text-[#717182]">
-                {employeeSummaries.length}名の従業員別稼働時間
+                {employeeSummaries.length}名の従業員別勤務時間
               </p>
             </div>
 
