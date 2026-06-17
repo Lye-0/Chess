@@ -165,12 +165,16 @@ function AdminEmployeeRegistrationContent() {
   }
 
   function openEditModal(employee: EmployeeProfile) {
+    const editableEmploymentType = employmentTypes.includes(employee.employmentType)
+      ? employee.employmentType
+      : employmentTypes[0];
+
     setEditingEmployee(employee);
     setEditForm({
       lastName: employee.lastName,
       firstName: employee.firstName,
       email: employee.email,
-      employmentType: employee.employmentType || employmentTypes[0],
+      employmentType: editableEmploymentType,
     });
     setErrorMessage(null);
     setSuccessMessage(null);
