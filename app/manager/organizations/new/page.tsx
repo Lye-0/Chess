@@ -118,7 +118,7 @@ export default function NewOrganizationPage() {
           </label>
 
           <p className="rounded-xl bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-500">
-            組織IDは自動発行されます。従業員ログインに使う組織IDは、作成後の管理者ホームに表示されます。
+            組織IDは6桁の数字で自動発行されます。従業員ログインに使う組織IDは、作成後の管理者ホームに表示されます。
           </p>
 
           {error && (
