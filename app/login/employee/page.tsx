@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { ArrowLeftIcon, BadgeIcon, BuildingIcon, MailIcon } from "@/components/icons";
-import { findEmployeeByEmail } from "@/lib/people";
+import { findEmployeeByEmail, getEmployeePageQuery, saveEmployeeSession } from "@/lib/people";
 
 function normalizeOrganizationId(value: string) {
   return value.replace(/\D/g, "").slice(0, 6);
@@ -43,12 +43,8 @@ export default function EmployeeLoginPage() {
         return;
       }
 
-      const params = new URLSearchParams({
-        organizationId: trimmedOrganizationId,
-        email: trimmedEmail,
-      });
-
-      router.push(`/login/employee/verify?${params.toString()}`);
+      saveEmployeeSession(employee);
+      router.push(`/employee${getEmployeePageQuery(employee)}`);
     } catch (loginError) {
       console.error(loginError);
       setError("従業員情報の確認に失敗しました。時間をおいてもう一度お試しください。");
@@ -135,7 +131,7 @@ export default function EmployeeLoginPage() {
               disabled={isSubmitting}
               className="h-11 min-w-28 rounded-xl bg-green-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {isSubmitting ? "確認中" : "次へ"}
+              {isSubmitting ? "確認中" : "従業員ページへ"}
             </button>
           </div>
         </form>
