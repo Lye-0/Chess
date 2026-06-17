@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { auth } from "@/lib/firebase";
+import { deleteManagerOrganization } from "@/lib/managerOrganizations";
 import {
   subscribeShiftRequests,
   type ShiftRequest,
@@ -82,6 +85,7 @@ function formatHoursOnly(minutes: number) {
 }
 
 function AdminContent() {
+  const router = useRouter();
   const {
     organizationId,
     organizationQuery,
@@ -94,6 +98,8 @@ function AdminContent() {
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
   const [isLoadingSlots, setIsLoadingSlots] = useState(true);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
+  const [isDeletingOrganization, setIsDeletingOrganization] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
 
   useEffect(() => {
     if (!currentOrganization) return;
@@ -145,6 +151,37 @@ function AdminContent() {
       0,
     );
   }, [requests]);
+
+  async function handleDeleteOrganization() {
+    if (!currentOrganization) return;
+
+    const confirmed = window.confirm(
+      `${currentOrganization.name}を削除します。従業員・シフト枠・シフト希望も削除されます。よろしいですか？`,
+    );
+    if (!confirmed) return;
+
+    const user = auth.currentUser;
+    if (!user) {
+      setDeleteErrorMessage("管理者ログインが必要です。");
+      return;
+    }
+
+    try {
+      setIsDeletingOrganization(true);
+      setDeleteErrorMessage("");
+      await deleteManagerOrganization(user.uid, organizationId);
+      router.push("/manager/select-organization");
+    } catch (error) {
+      console.error(error);
+      setDeleteErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "会社の削除に失敗しました。",
+      );
+    } finally {
+      setIsDeletingOrganization(false);
+    }
+  }
 
   if (isCheckingOrganization || !currentOrganization) {
     return (
@@ -245,6 +282,22 @@ function AdminContent() {
             </p>
             <p className="mt-4 text-sm text-[#475569]">全従業員の希望時間合計</p>
           </Card>
+        </section>
+
+        <section className="mt-8 border-t border-black/10 pt-6">
+          {deleteErrorMessage && (
+            <p className="mb-3 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-semibold text-[#be123c]">
+              {deleteErrorMessage}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={isDeletingOrganization}
+            onClick={handleDeleteOrganization}
+            className="inline-flex h-10 items-center justify-center rounded-md border border-[#ffccd6] bg-white px-4 text-sm font-semibold text-[#ff003d] transition hover:bg-[#ffe8ee] disabled:cursor-not-allowed disabled:border-[#f3c7d0] disabled:text-[#c56c7f]"
+          >
+            {isDeletingOrganization ? "会社を削除中..." : "会社を削除"}
+          </button>
         </section>
       </div>
     </main>
