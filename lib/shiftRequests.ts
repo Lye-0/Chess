@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   deleteDoc,
   doc,
   getDocs,
@@ -181,6 +182,17 @@ export async function approveShiftRequests(
   if (uniqueRequestIds.length === 0) return;
 
   await batch.commit();
+}
+
+export async function resetShiftRequestApproval(
+  requestId: string,
+  organizationId = defaultOrganizationId,
+) {
+  await updateDoc(doc(getShiftRequestsCollection(organizationId), requestId), {
+    status: "希望済",
+    approvedAt: deleteField(),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function removeShiftRequestsBySlot(

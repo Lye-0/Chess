@@ -15,6 +15,7 @@ import {
   approveShiftRequest,
   approveShiftRequests,
   removeShiftRequest,
+  resetShiftRequestApproval,
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -515,7 +516,11 @@ function ShiftRequestGroup({
                   )}
                   <button
                     type="button"
-                    aria-label={`${request.employeeName}のシフト希望を削除`}
+                    aria-label={
+                      approved
+                        ? `${request.employeeName}の承認を取り消す`
+                        : `${request.employeeName}のシフト希望を削除`
+                    }
                     disabled={deleting}
                     onClick={() => onRemove(request)}
                     className="flex h-8 w-8 items-center justify-center rounded-md text-[#ff003d] transition hover:bg-[#ffe8ee] hover:text-[#cc0031] disabled:cursor-not-allowed disabled:text-[#c56c7f]"
@@ -771,18 +776,29 @@ function AdminShiftManagementContent() {
   }
 
   async function handleRemoveRequest(request: ShiftRequest) {
+    const isApproved = request.status === "承認済";
     const confirmed = window.confirm(
-      `${request.employeeName}さんのシフト希望を削除します。よろしいですか？`,
+      isApproved
+        ? `${request.employeeName}さんの承認を取り消し、承認待ちに戻します。よろしいですか？`
+        : `${request.employeeName}さんのシフト希望を削除します。よろしいですか？`,
     );
     if (!confirmed) return;
 
     try {
       setDeletingRequestId(request.id);
       setErrorMessage(null);
-      await removeShiftRequest(request.id, organizationId);
+      if (isApproved) {
+        await resetShiftRequestApproval(request.id, organizationId);
+      } else {
+        await removeShiftRequest(request.id, organizationId);
+      }
     } catch (error) {
       console.error(error);
-      setErrorMessage("シフト希望の削除に失敗しました。Firestore への書き込み権限を確認してください。");
+      setErrorMessage(
+        isApproved
+          ? "承認の取り消しに失敗しました。Firestore への書き込み権限を確認してください。"
+          : "シフト希望の削除に失敗しました。Firestore への書き込み権限を確認してください。",
+      );
     } finally {
       setDeletingRequestId(null);
     }
