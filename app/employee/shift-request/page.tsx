@@ -164,6 +164,13 @@ function sortSlots(slots: ShiftSlot[]) {
   });
 }
 
+function getDisplayedRequestCount(
+  slot: ShiftSlot,
+  requestCountBySlot: Record<string, number>,
+) {
+  return Math.max(slot.requestCount, requestCountBySlot[slot.id] ?? 0);
+}
+
 function EmployeeShiftRequestContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -535,7 +542,7 @@ function EmployeeShiftRequestContent() {
                         {availableSlotsForSelectedDate.map((slot) => (
                           <option key={slot.id} value={slot.id}>
                             {slot.startTime} - {slot.endTime}（募集 {slot.capacity}人 / 希望{" "}
-                            {requestCountBySlot[slot.id] ?? 0}人）
+                            {getDisplayedRequestCount(slot, requestCountBySlot)}人）
                           </option>
                         ))}
                       </select>

@@ -25,9 +25,10 @@ export type ShiftSlot = {
   startTime: string;
   endTime: string;
   capacity: number;
+  requestCount: number;
 };
 
-export type ShiftSlotInput = Omit<ShiftSlot, "id">;
+export type ShiftSlotInput = Omit<ShiftSlot, "id" | "requestCount">;
 
 const fourDigitDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -56,6 +57,7 @@ function assertValidShiftSlotInput(input: ShiftSlotInput) {
 
 function toShiftSlot(snapshot: QueryDocumentSnapshot<DocumentData>): ShiftSlot {
   const data = snapshot.data();
+  const requestCount = Number(data.requestCount ?? 0);
 
   return {
     id: snapshot.id,
@@ -63,6 +65,8 @@ function toShiftSlot(snapshot: QueryDocumentSnapshot<DocumentData>): ShiftSlot {
     startTime: String(data.startTime ?? ""),
     endTime: String(data.endTime ?? ""),
     capacity: Number(data.capacity ?? 0),
+    requestCount:
+      Number.isFinite(requestCount) && requestCount > 0 ? requestCount : 0,
   };
 }
 
@@ -88,6 +92,7 @@ export async function createShiftSlot(
 
   await addDoc(getShiftSlotsCollection(organizationId), {
     ...input,
+    requestCount: 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

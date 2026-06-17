@@ -166,6 +166,13 @@ function SlotRequestStatus({ requestCount }: { requestCount: number }) {
   );
 }
 
+function getDisplayedRequestCount(
+  slot: ShiftSlot,
+  requestCountBySlot: Record<string, number>,
+) {
+  return Math.max(slot.requestCount, requestCountBySlot[slot.id] ?? 0);
+}
+
 function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
   const approved = status === "承認済";
 
@@ -639,7 +646,7 @@ function AdminShiftManagementContent() {
     [editingId, slots],
   );
   const isEditingRequestedSlot = Boolean(
-    editingId && (requestCountBySlot[editingId] ?? 0) > 0,
+    editingSlot && getDisplayedRequestCount(editingSlot, requestCountBySlot) > 0,
   );
   const canSave = Boolean(
     (isEditingRequestedSlot && editingSlot
@@ -858,6 +865,10 @@ function AdminShiftManagementContent() {
                   <div className="mt-4 space-y-3">
                     {dateSlots.map((slot) => {
                       const slotRequests = requestsBySlot[slot.id] ?? [];
+                      const displayedRequestCount = getDisplayedRequestCount(
+                        slot,
+                        requestCountBySlot,
+                      );
                       const approvedRequests = slotRequests.filter(
                         (request) => request.status === "承認済",
                       );
@@ -887,7 +898,7 @@ function AdminShiftManagementContent() {
                                 </p>
                                 <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
                               </div>
-                              <SlotRequestStatus requestCount={requestCountBySlot[slot.id] ?? 0} />
+                              <SlotRequestStatus requestCount={displayedRequestCount} />
                             </div>
 
                             <div className="flex items-center gap-5 self-end sm:self-auto">

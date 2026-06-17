@@ -1,8 +1,8 @@
 import {
   collection,
   deleteField,
-  deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   serverTimestamp,
@@ -18,6 +18,10 @@ import { defaultOrganizationId } from "./people";
 
 function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
   return collection(db, "organizations", organizationId, "shiftRequests");
+}
+
+function getShiftSlotDocument(slotId: string, organizationId = defaultOrganizationId) {
+  return doc(db, "organizations", organizationId, "shiftSlots", slotId);
 }
 
 export type ShiftRequestStatus = "希望済" | "承認済";
@@ -124,6 +128,8 @@ export async function createShiftRequests(
   inputs: ShiftRequestInput[],
   organizationId = defaultOrganizationId,
 ) {
+  if (inputs.length === 0) return;
+
   const batch = writeBatch(db);
   const submittedDate = getTodayString();
   const now = new Date();
@@ -131,6 +137,25 @@ export async function createShiftRequests(
   if (inputs.some((input) => !isShiftStartInFuture(input, now))) {
     throw new Error("Started shift slots cannot be requested.");
   }
+
+  const incomingCountBySlot = inputs.reduce<Record<string, number>>(
+    (counts, input) => {
+      counts[input.slotId] = (counts[input.slotId] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
+  const currentRequestsSnapshot = await getDocs(
+    getShiftRequestsCollection(organizationId),
+  );
+  const currentCountBySlot = currentRequestsSnapshot.docs.reduce<Record<string, number>>(
+    (counts, requestSnapshot) => {
+      const slotId = String(requestSnapshot.data().slotId ?? "");
+      if (slotId) counts[slotId] = (counts[slotId] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
 
   inputs.forEach((input) => {
     const requestRef = doc(getShiftRequestsCollection(organizationId));
@@ -142,6 +167,13 @@ export async function createShiftRequests(
     });
   });
 
+  Object.entries(incomingCountBySlot).forEach(([slotId, incomingCount]) => {
+    batch.update(getShiftSlotDocument(slotId, organizationId), {
+      requestCount: (currentCountBySlot[slotId] ?? 0) + incomingCount,
+      updatedAt: serverTimestamp(),
+    });
+  });
+
   await batch.commit();
 }
 
@@ -149,7 +181,37 @@ export async function removeShiftRequest(
   requestId: string,
   organizationId = defaultOrganizationId,
 ) {
-  await deleteDoc(doc(getShiftRequestsCollection(organizationId), requestId));
+  const requestRef = doc(getShiftRequestsCollection(organizationId), requestId);
+  const requestSnapshot = await getDoc(requestRef);
+
+  if (!requestSnapshot.exists()) return;
+
+  const slotId = String(requestSnapshot.data().slotId ?? "");
+  const batch = writeBatch(db);
+
+  batch.delete(requestRef);
+
+  if (slotId) {
+    const slotRef = getShiftSlotDocument(slotId, organizationId);
+    const slotSnapshot = await getDoc(slotRef);
+
+    if (slotSnapshot.exists()) {
+      const currentRequestsSnapshot = await getDocs(
+        getShiftRequestsCollection(organizationId),
+      );
+      const currentCount = currentRequestsSnapshot.docs.filter(
+        (currentRequestSnapshot) =>
+          currentRequestSnapshot.data().slotId === slotId,
+      ).length;
+
+      batch.update(slotRef, {
+        requestCount: Math.max(0, currentCount - 1),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  }
+
+  await batch.commit();
 }
 
 export async function approveShiftRequest(
