@@ -6,6 +6,7 @@ import {
   onSnapshot,
   serverTimestamp,
   setDoc,
+  writeBatch,
   type DocumentData,
   type FirestoreError,
   type QueryDocumentSnapshot,
@@ -51,6 +52,10 @@ const employeeSessionEvent = "chess-employee-session-change";
 
 function getEmployeesCollection(organizationId = defaultOrganizationId) {
   return collection(db, "organizations", organizationId, "employees");
+}
+
+function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
+  return collection(db, "organizations", organizationId, "shiftRequests");
 }
 
 function normalizeEmail(email: string) {
@@ -191,6 +196,98 @@ export async function createEmployee(
   });
 
   return employee;
+}
+
+export async function updateEmployee(
+  employeeId: string,
+  input: EmployeeRegistrationInput,
+  organizationId = defaultOrganizationId,
+): Promise<EmployeeProfile> {
+  const trimmedEmployeeId = employeeId.trim();
+  const firstName = input.firstName.trim();
+  const lastName = input.lastName.trim();
+  const email = normalizeEmail(input.email);
+  const employmentType = input.employmentType.trim();
+  const currentOrganization = await loadOrganizationProfile(organizationId);
+
+  if (!trimmedEmployeeId || !firstName || !lastName || !email || !employmentType) {
+    throw new Error("必須項目をすべて入力してください。");
+  }
+
+  const employeeRef = doc(getEmployeesCollection(organizationId), trimmedEmployeeId);
+  const employeeSnapshot = await getDoc(employeeRef);
+
+  if (!employeeSnapshot.exists()) {
+    throw new Error("更新対象の従業員が見つかりません。");
+  }
+
+  const existingEmployee = await findEmployeeByEmail(organizationId, email);
+  if (existingEmployee && existingEmployee.employeeId !== trimmedEmployeeId) {
+    throw new Error("このメールアドレスは既に登録されています。");
+  }
+
+  const employee: EmployeeProfile = {
+    id: trimmedEmployeeId,
+    organizationId,
+    employeeId: trimmedEmployeeId,
+    firstName,
+    lastName,
+    name: `${lastName}${firstName}`,
+    email,
+    employmentType,
+    organization: currentOrganization.name,
+    department: currentOrganization.department,
+  };
+  const requestSnapshot = await getDocs(getShiftRequestsCollection(organizationId));
+  const batch = writeBatch(db);
+
+  batch.set(
+    employeeRef,
+    {
+      ...employee,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  requestSnapshot.docs.forEach((requestDocument) => {
+    if (requestDocument.data().employeeId !== trimmedEmployeeId) return;
+
+    batch.update(doc(getShiftRequestsCollection(organizationId), requestDocument.id), {
+      employeeName: employee.name,
+      employeeEmail: employee.email,
+      employmentType: employee.employmentType,
+      updatedAt: serverTimestamp(),
+    });
+  });
+
+  await batch.commit();
+
+  return employee;
+}
+
+export async function deleteEmployee(
+  employeeId: string,
+  organizationId = defaultOrganizationId,
+) {
+  const trimmedEmployeeId = employeeId.trim();
+
+  if (!trimmedEmployeeId) {
+    throw new Error("削除対象の従業員が見つかりません。");
+  }
+
+  const requestSnapshot = await getDocs(getShiftRequestsCollection(organizationId));
+  const batch = writeBatch(db);
+
+  batch.delete(doc(getEmployeesCollection(organizationId), trimmedEmployeeId));
+
+  requestSnapshot.docs.forEach((requestDocument) => {
+    if (requestDocument.data().employeeId !== trimmedEmployeeId) return;
+
+    batch.delete(doc(getShiftRequestsCollection(organizationId), requestDocument.id));
+  });
+
+  await batch.commit();
 }
 
 export async function findEmployeeByEmail(
