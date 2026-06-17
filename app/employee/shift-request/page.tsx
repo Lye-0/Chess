@@ -14,6 +14,7 @@ import {
   type EmployeeProfile,
 } from "@/lib/people";
 import {
+  formatShiftTimeRange,
   subscribeShiftSlots,
   type ShiftSlot,
 } from "@/lib/shiftSlots";
@@ -541,7 +542,7 @@ function EmployeeShiftRequestContent() {
                         </option>
                         {availableSlotsForSelectedDate.map((slot) => (
                           <option key={slot.id} value={slot.id}>
-                            {slot.startTime} - {slot.endTime}（募集 {slot.capacity}人 / 希望{" "}
+                            {formatShiftTimeRange(slot.startTime, slot.endTime)}（募集 {slot.capacity}人 / 希望{" "}
                             {getDisplayedRequestCount(slot, requestCountBySlot)}人）
                           </option>
                         ))}
@@ -590,7 +591,7 @@ function EmployeeShiftRequestContent() {
                         <div>
                           <p className="font-semibold">{formatDateLabel(slot.date)}</p>
                           <p className="mt-1 text-sm text-[#717182]">
-                            {slot.startTime} - {slot.endTime}
+                            {formatShiftTimeRange(slot.startTime, slot.endTime)}
                           </p>
                         </div>
                         <button
@@ -651,7 +652,7 @@ function EmployeeShiftRequestContent() {
                 >
                   <p className="font-semibold">{formatDateLabel(slot.date)}</p>
                   <p className="text-sm text-[#475569]">
-                    {slot.startTime} - {slot.endTime}
+                    {formatShiftTimeRange(slot.startTime, slot.endTime)}
                   </p>
                 </div>
               ))}

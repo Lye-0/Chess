@@ -10,6 +10,7 @@ import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
+import { formatShiftTimeRange } from "@/lib/shiftSlots";
 import {
   calculateShiftPayroll,
   defaultPayrollSettings,
@@ -331,7 +332,10 @@ function AdminEmployeeListContent() {
                               {formatDateLabel(request.date)}
                             </p>
                             <p className="mt-1 text-sm text-[#475569]">
-                              {request.startTime} - {request.endTime}
+                              {formatShiftTimeRange(
+                                request.startTime,
+                                request.endTime,
+                              )}
                             </p>
                             <p className="mt-2 text-xs text-[#717182]">
                               提出: {formatSubmittedDate(request.submittedDate)}

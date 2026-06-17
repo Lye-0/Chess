@@ -4,7 +4,10 @@ import type { FormEvent } from "react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   createShiftSlot,
+  formatShiftTimeRange,
   isFourDigitShiftDate,
+  isOvernightShiftTime,
+  isValidShiftTimeRange,
   removeShiftSlot,
   subscribeShiftSlots,
   updateShiftSlot,
@@ -670,11 +673,9 @@ function AdminShiftManagementContent() {
   );
   const canSave = Boolean(
     (isEditingRequestedSlot && editingSlot
-      ? true
-      : isFourDigitShiftDate(form.date) &&
-        form.startTime &&
-        form.endTime &&
-        form.startTime < form.endTime) &&
+        ? true
+        : isFourDigitShiftDate(form.date) &&
+        isValidShiftTimeRange(form.startTime, form.endTime)) &&
       Number(form.capacity) >= 1 &&
       Number(form.capacity) <= 100,
   );
@@ -941,7 +942,10 @@ function AdminShiftManagementContent() {
                             <div>
                               <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                                 <p className="font-semibold">
-                                  {slot.startTime} - {slot.endTime}
+                                  {formatShiftTimeRange(
+                                    slot.startTime,
+                                    slot.endTime,
+                                  )}
                                 </p>
                                 <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
                               </div>
@@ -1104,6 +1108,25 @@ function AdminShiftManagementContent() {
                 </div>
               </div>
 
+              {!isEditingRequestedSlot && form.startTime && form.endTime && (
+                <p
+                  className={[
+                    "rounded-md px-3 py-2 text-sm",
+                    form.startTime === form.endTime
+                      ? "bg-[#fff1f1] text-[#b00020]"
+                      : isOvernightShiftTime(form.startTime, form.endTime)
+                        ? "bg-[#eff6ff] text-[#1d4ed8]"
+                        : "bg-[#f7f8fb] text-[#475569]",
+                  ].join(" ")}
+                >
+                  {form.startTime === form.endTime
+                    ? "開始時刻と終了時刻は別の時刻にしてください。"
+                    : isOvernightShiftTime(form.startTime, form.endTime)
+                      ? "終了時刻は翌日の時刻として保存されます。"
+                      : "同じ日のシフトとして保存されます。"}
+                </p>
+              )}
+
               <div>
                 <label htmlFor="shift-capacity" className="block text-sm font-semibold">
                   募集人数（1〜100人）
@@ -1237,7 +1260,10 @@ function AdminShiftManagementContent() {
             <div className="mt-6 rounded-lg bg-[#f7f8fb] px-4 py-4">
               <p className="font-semibold">{getDateLabel(deleteTarget.date)}</p>
               <p className="mt-2 text-sm text-[#475569]">
-                {deleteTarget.startTime} - {deleteTarget.endTime}
+                {formatShiftTimeRange(
+                  deleteTarget.startTime,
+                  deleteTarget.endTime,
+                )}
                 <span className="ml-4">募集 {deleteTarget.capacity}人</span>
               </p>
             </div>
