@@ -28,10 +28,19 @@ function getManagerOrganizationsCollection(managerUid: string) {
   return collection(db, "managers", managerUid, "organizations");
 }
 
-function createOrganizationId() {
-  const timePart = Date.now().toString(36);
-  const randomPart = Math.random().toString(36).slice(2, 8);
-  return `org-${timePart}-${randomPart}`;
+function createOrganizationIdCandidate() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+async function createUniqueOrganizationId() {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const organizationId = createOrganizationIdCandidate();
+    const snapshot = await getDoc(doc(db, "organizations", organizationId));
+
+    if (!snapshot.exists()) return organizationId;
+  }
+
+  throw new Error("組織IDを生成できませんでした。もう一度登録してください。");
 }
 
 function toManagerOrganization(
@@ -102,7 +111,7 @@ export async function createManagerOrganization(
     throw new Error("組織名を入力してください。");
   }
 
-  const organizationId = createOrganizationId();
+  const organizationId = await createUniqueOrganizationId();
   const organization: ManagerOrganization = {
     id: organizationId,
     name,

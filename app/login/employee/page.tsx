@@ -6,6 +6,10 @@ import { FormEvent, useState } from "react";
 import { ArrowLeftIcon, BadgeIcon, BuildingIcon, MailIcon } from "@/components/icons";
 import { findEmployeeByEmail } from "@/lib/people";
 
+function normalizeOrganizationId(value: string) {
+  return value.replace(/\D/g, "").slice(0, 6);
+}
+
 export default function EmployeeLoginPage() {
   const router = useRouter();
   const [organizationId, setOrganizationId] = useState("");
@@ -20,8 +24,8 @@ export default function EmployeeLoginPage() {
     const trimmedOrganizationId = organizationId.trim();
     const trimmedEmail = email.trim();
 
-    if (!trimmedOrganizationId) {
-      setError("組織IDを入力してください。");
+    if (!/^\d{6}$/.test(trimmedOrganizationId)) {
+      setError("組織IDは6桁の数字で入力してください。");
       return;
     }
 
@@ -83,10 +87,15 @@ export default function EmployeeLoginPage() {
               <input
                 type="text"
                 value={organizationId}
-                onChange={(event) => setOrganizationId(event.target.value)}
+                onChange={(event) =>
+                  setOrganizationId(normalizeOrganizationId(event.target.value))
+                }
                 required
+                inputMode="numeric"
+                maxLength={6}
+                pattern="\d{6}"
                 autoComplete="organization"
-                placeholder="組織IDを入力"
+                placeholder="例: 123456"
                 className="h-full min-w-0 flex-1 bg-transparent outline-none"
               />
             </span>
