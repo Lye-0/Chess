@@ -13,7 +13,9 @@ import {
 } from "@/lib/shiftSlots";
 import {
   approveShiftRequest,
+  approveShiftRequests,
   removeShiftRequest,
+  resetShiftRequestApproval,
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -24,6 +26,10 @@ import {
   subscribePayrollSettings,
   type PayrollSettings,
 } from "@/lib/payroll";
+import {
+  subscribeOrganizationCompatibilityScores,
+  type CompatibilityScoreMap,
+} from "@/lib/compatibilities";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   BackHeader,
@@ -36,6 +42,28 @@ type ShiftForm = {
   startTime: string;
   endTime: string;
   capacity: string;
+};
+
+type CompatibilityLevel = "注意なし" | "注意あり" | "強い注意";
+
+type PairCompatibility = {
+  firstEmployeeId: string;
+  firstEmployeeName: string;
+  secondEmployeeId: string;
+  secondEmployeeName: string;
+  score: number;
+  level: CompatibilityLevel;
+};
+
+type SlotCompatibilitySummary = {
+  totalScore: number;
+  level: CompatibilityLevel;
+  pairs: PairCompatibility[];
+};
+
+type RecommendedCombination = {
+  requests: ShiftRequest[];
+  score: number;
 };
 
 const emptyForm: ShiftForm = {
@@ -138,6 +166,13 @@ function SlotRequestStatus({ requestCount }: { requestCount: number }) {
   );
 }
 
+function getDisplayedRequestCount(
+  slot: ShiftSlot,
+  requestCountBySlot: Record<string, number>,
+) {
+  return Math.max(slot.requestCount, requestCountBySlot[slot.id] ?? 0);
+}
+
 function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
   const approved = status === "承認済";
 
@@ -155,6 +190,280 @@ function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
   );
 }
 
+function getCompatibilityLevel(score: number): CompatibilityLevel {
+  if (score <= -8) return "強い注意";
+  if (score <= -4) return "注意あり";
+  return "注意なし";
+}
+
+function getCompatibilityScore(
+  scores: CompatibilityScoreMap,
+  fromEmployeeId: string,
+  toEmployeeId: string,
+) {
+  return scores[fromEmployeeId]?.[toEmployeeId] ?? 0;
+}
+
+function getSlotCompatibilitySummary(
+  requests: ShiftRequest[],
+  scores: CompatibilityScoreMap,
+): SlotCompatibilitySummary | null {
+  if (requests.length < 2) return null;
+
+  const pairs: PairCompatibility[] = [];
+
+  for (let firstIndex = 0; firstIndex < requests.length; firstIndex += 1) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < requests.length;
+      secondIndex += 1
+    ) {
+      const firstRequest = requests[firstIndex];
+      const secondRequest = requests[secondIndex];
+      const score =
+        getCompatibilityScore(
+          scores,
+          firstRequest.employeeId,
+          secondRequest.employeeId,
+        ) +
+        getCompatibilityScore(
+          scores,
+          secondRequest.employeeId,
+          firstRequest.employeeId,
+        );
+
+      pairs.push({
+        firstEmployeeId: firstRequest.employeeId,
+        firstEmployeeName: firstRequest.employeeName,
+        secondEmployeeId: secondRequest.employeeId,
+        secondEmployeeName: secondRequest.employeeName,
+        score,
+        level: getCompatibilityLevel(score),
+      });
+    }
+  }
+
+  const totalScore = pairs.reduce((total, pair) => total + pair.score, 0);
+  const hasStrongWarning = pairs.some((pair) => pair.level === "強い注意");
+  const hasWarning = pairs.some((pair) => pair.level === "注意あり");
+
+  return {
+    totalScore,
+    level: hasStrongWarning ? "強い注意" : hasWarning ? "注意あり" : "注意なし",
+    pairs,
+  };
+}
+
+function getCombinationScore(
+  requests: ShiftRequest[],
+  scores: CompatibilityScoreMap,
+) {
+  let score = 0;
+
+  for (let firstIndex = 0; firstIndex < requests.length; firstIndex += 1) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < requests.length;
+      secondIndex += 1
+    ) {
+      const firstRequest = requests[firstIndex];
+      const secondRequest = requests[secondIndex];
+      score +=
+        getCompatibilityScore(
+          scores,
+          firstRequest.employeeId,
+          secondRequest.employeeId,
+        ) +
+        getCompatibilityScore(
+          scores,
+          secondRequest.employeeId,
+          firstRequest.employeeId,
+        );
+    }
+  }
+
+  return score;
+}
+
+function getRecommendedCombination({
+  requests,
+  capacity,
+  scores,
+}: {
+  requests: ShiftRequest[];
+  capacity: number;
+  scores: CompatibilityScoreMap;
+}): RecommendedCombination | null {
+  const targetCount = Math.min(Math.max(1, capacity), requests.length);
+  if (requests.length === 0 || targetCount === 0) return null;
+
+  let bestCombination: ShiftRequest[] = [];
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  function walk(startIndex: number, combination: ShiftRequest[]) {
+    if (combination.length === targetCount) {
+      const score = getCombinationScore(combination, scores);
+      if (score > bestScore) {
+        bestScore = score;
+        bestCombination = combination;
+      }
+      return;
+    }
+
+    const remainingSlots = targetCount - combination.length;
+    const lastStartIndex = requests.length - remainingSlots;
+
+    for (let index = startIndex; index <= lastStartIndex; index += 1) {
+      walk(index + 1, [...combination, requests[index]]);
+    }
+  }
+
+  walk(0, []);
+
+  return {
+    requests: bestCombination,
+    score: bestScore === Number.NEGATIVE_INFINITY ? 0 : bestScore,
+  };
+}
+
+function formatCompatibilityScore(score: number) {
+  if (score > 0) return `+${score}`;
+  return String(score);
+}
+
+function compatibilityLevelClass(level: CompatibilityLevel) {
+  if (level === "強い注意") {
+    return "border-[#fecdd3] bg-[#fff1f2] text-[#be123c]";
+  }
+  if (level === "注意あり") {
+    return "border-[#fed7aa] bg-[#fff7ed] text-[#c2410c]";
+  }
+  return "border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]";
+}
+
+function SlotCompatibilityPanel({
+  summary,
+}: {
+  summary: SlotCompatibilitySummary | null;
+}) {
+  if (!summary) return null;
+
+  return (
+    <section
+      className={[
+        "mt-4 rounded-md border px-3 py-3",
+        compatibilityLevelClass(summary.level),
+      ].join(" ")}
+    >
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold">相性スコア</p>
+          <p className="mt-1 text-xs">
+            このシフト枠の希望者全ペアのスコア合計です
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-md bg-white/70 px-3 py-1 font-mono text-sm font-semibold">
+            {formatCompatibilityScore(summary.totalScore)}
+          </span>
+          <span className="rounded-md bg-white/70 px-3 py-1 text-sm font-semibold">
+            {summary.level}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+        {summary.pairs.map((pair) => (
+          <div
+            key={`${pair.firstEmployeeId}-${pair.secondEmployeeId}`}
+            className="rounded-md bg-white/70 px-3 py-2 text-xs"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate">
+                {pair.firstEmployeeName}・{pair.secondEmployeeName}
+              </span>
+              <span className="font-mono font-semibold">
+                {formatCompatibilityScore(pair.score)}
+              </span>
+            </div>
+            {pair.level !== "注意なし" && (
+              <p className="mt-1 font-semibold">{pair.level}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RecommendedCombinationPanel({
+  recommendedCombination,
+  capacity,
+  remainingApprovalCount,
+  isApproving,
+  onApprove,
+}: {
+  recommendedCombination: RecommendedCombination | null;
+  capacity: number;
+  remainingApprovalCount: number;
+  isApproving: boolean;
+  onApprove: () => void;
+}) {
+  if (!recommendedCombination) return null;
+
+  const pendingRecommendedRequests = recommendedCombination.requests.filter(
+    (request) => request.status !== "承認済",
+  );
+  const canApproveRecommended =
+    pendingRecommendedRequests.length > 0 &&
+    pendingRecommendedRequests.length <= remainingApprovalCount;
+
+  return (
+    <section className="mt-4 rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-3 py-3 text-[#1d4ed8]">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold">おすすめ承認組み合わせ</p>
+          <p className="mt-1 text-xs">
+            募集{capacity}人に対して、相性スコアが最も高い組み合わせです
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {recommendedCombination.requests.map((request) => (
+              <span
+                key={request.id}
+                className="rounded-md bg-white/80 px-2.5 py-1 text-xs font-semibold"
+              >
+                {request.employeeName}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-col gap-2">
+          <span className="rounded-md bg-white/80 px-3 py-1 text-center font-mono text-sm font-semibold">
+            {formatCompatibilityScore(recommendedCombination.score)}
+          </span>
+          <button
+            type="button"
+            disabled={isApproving || !canApproveRecommended}
+            onClick={onApprove}
+            className="h-9 rounded-md bg-[#1763ff] px-4 text-xs font-semibold text-white transition hover:bg-[#0f4ed8] disabled:cursor-not-allowed disabled:bg-[#cbd5e1] disabled:text-white"
+          >
+            {pendingRecommendedRequests.length === 0
+              ? "承認済み"
+              : isApproving
+                ? "承認中..."
+                : remainingApprovalCount <= 0
+                  ? "募集人数に達しました"
+                  : pendingRecommendedRequests.length > remainingApprovalCount
+                    ? "承認枠不足"
+                : "おすすめを一括承認"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ShiftRequestGroup({
   title,
   requests,
@@ -162,6 +471,7 @@ function ShiftRequestGroup({
   approvingRequestId,
   deletingRequestId,
   payrollSettings,
+  isApprovalLimitReached = false,
   onApprove,
   onRemove,
 }: {
@@ -171,6 +481,7 @@ function ShiftRequestGroup({
   approvingRequestId: string | null;
   deletingRequestId: string | null;
   payrollSettings: PayrollSettings;
+  isApprovalLimitReached?: boolean;
   onApprove: (request: ShiftRequest) => void;
   onRemove: (request: ShiftRequest) => void;
 }) {
@@ -191,6 +502,8 @@ function ShiftRequestGroup({
             const approved = request.status === "承認済";
             const approving = approvingRequestId === request.id;
             const deleting = deletingRequestId === request.id;
+            const approvalDisabled =
+              approving || deleting || isApprovalLimitReached;
             const payroll = calculateShiftPayroll(request, payrollSettings);
 
             return (
@@ -214,16 +527,25 @@ function ShiftRequestGroup({
                   {!approved && (
                     <button
                       type="button"
-                      disabled={approving || deleting}
+                      disabled={approvalDisabled}
                       onClick={() => onApprove(request)}
-                      className="h-8 rounded-md bg-[#030213] px-3 text-xs font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#8e8d95]"
+                      title={
+                        isApprovalLimitReached
+                          ? "募集人数に達しているため承認できません"
+                          : undefined
+                      }
+                      className="h-8 rounded-md bg-[#030213] px-3 text-xs font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#d1d5db] disabled:text-white"
                     >
                       {approving ? "承認中..." : "承認"}
                     </button>
                   )}
                   <button
                     type="button"
-                    aria-label={`${request.employeeName}のシフト希望を削除`}
+                    aria-label={
+                      approved
+                        ? `${request.employeeName}の承認を取り消す`
+                        : `${request.employeeName}のシフト希望を削除`
+                    }
                     disabled={deleting}
                     onClick={() => onRemove(request)}
                     className="flex h-8 w-8 items-center justify-center rounded-md text-[#ff003d] transition hover:bg-[#ffe8ee] hover:text-[#cc0031] disabled:cursor-not-allowed disabled:text-[#c56c7f]"
@@ -249,6 +571,8 @@ function AdminShiftManagementContent() {
   } = useManagerOrganizationAccess();
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [compatibilityScores, setCompatibilityScores] =
+    useState<CompatibilityScoreMap>({});
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
     defaultPayrollSettings,
   );
@@ -260,6 +584,8 @@ function AdminShiftManagementContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [approvingRequestId, setApprovingRequestId] = useState<string | null>(null);
+  const [approvingRecommendedSlotId, setApprovingRecommendedSlotId] =
+    useState<string | null>(null);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -297,11 +623,21 @@ function AdminShiftManagementContent() {
       },
       organizationId,
     );
+    const unsubscribeCompatibilityScores = subscribeOrganizationCompatibilityScores(
+      (scores) => {
+        setCompatibilityScores(scores);
+      },
+      (error) => {
+        console.error(error);
+      },
+      organizationId,
+    );
 
     return () => {
       unsubscribeSlots();
       unsubscribeRequests();
       unsubscribePayroll();
+      unsubscribeCompatibilityScores();
     };
   }, [currentOrganization, organizationId]);
 
@@ -328,7 +664,7 @@ function AdminShiftManagementContent() {
     [editingId, slots],
   );
   const isEditingRequestedSlot = Boolean(
-    editingId && (requestCountBySlot[editingId] ?? 0) > 0,
+    editingSlot && getDisplayedRequestCount(editingSlot, requestCountBySlot) > 0,
   );
   const canSave = Boolean(
     (isEditingRequestedSlot && editingSlot
@@ -425,8 +761,17 @@ function AdminShiftManagementContent() {
     }
   }
 
-  async function handleApproveRequest(request: ShiftRequest) {
+  async function handleApproveRequest(slot: ShiftSlot, request: ShiftRequest) {
     if (request.status === "承認済") return;
+
+    const approvedCount = (requestsBySlot[slot.id] ?? []).filter(
+      (slotRequest) => slotRequest.status === "承認済",
+    ).length;
+
+    if (approvedCount >= slot.capacity) {
+      setErrorMessage("募集人数に達しているため、これ以上承認できません。");
+      return;
+    }
 
     try {
       setApprovingRequestId(request.id);
@@ -440,19 +785,62 @@ function AdminShiftManagementContent() {
     }
   }
 
+  async function handleApproveRecommendedRequests(
+    slot: ShiftSlot,
+    recommendedCombination: RecommendedCombination | null,
+  ) {
+    if (!recommendedCombination) return;
+
+    const approvedCount = (requestsBySlot[slot.id] ?? []).filter(
+      (slotRequest) => slotRequest.status === "承認済",
+    ).length;
+    const remainingApprovalCount = Math.max(0, slot.capacity - approvedCount);
+    const pendingRequestIds = recommendedCombination.requests
+      .filter((request) => request.status !== "承認済")
+      .map((request) => request.id);
+
+    if (pendingRequestIds.length === 0) return;
+    if (pendingRequestIds.length > remainingApprovalCount) {
+      setErrorMessage("おすすめ組み合わせを承認すると募集人数を超えるため、承認できません。");
+      return;
+    }
+
+    try {
+      setApprovingRecommendedSlotId(slot.id);
+      setErrorMessage(null);
+      await approveShiftRequests(pendingRequestIds, organizationId);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("おすすめ組み合わせの一括承認に失敗しました。Firestore への書き込み権限を確認してください。");
+    } finally {
+      setApprovingRecommendedSlotId(null);
+    }
+  }
+
   async function handleRemoveRequest(request: ShiftRequest) {
+    const isApproved = request.status === "承認済";
     const confirmed = window.confirm(
-      `${request.employeeName}さんのシフト希望を削除します。よろしいですか？`,
+      isApproved
+        ? `${request.employeeName}さんの承認を取り消し、承認待ちに戻します。よろしいですか？`
+        : `${request.employeeName}さんのシフト希望を削除します。よろしいですか？`,
     );
     if (!confirmed) return;
 
     try {
       setDeletingRequestId(request.id);
       setErrorMessage(null);
-      await removeShiftRequest(request.id, organizationId);
+      if (isApproved) {
+        await resetShiftRequestApproval(request.id, organizationId);
+      } else {
+        await removeShiftRequest(request.id, organizationId);
+      }
     } catch (error) {
       console.error(error);
-      setErrorMessage("シフト希望の削除に失敗しました。Firestore への書き込み権限を確認してください。");
+      setErrorMessage(
+        isApproved
+          ? "承認の取り消しに失敗しました。Firestore への書き込み権限を確認してください。"
+          : "シフト希望の削除に失敗しました。Firestore への書き込み権限を確認してください。",
+      );
     } finally {
       setDeletingRequestId(null);
     }
@@ -512,12 +900,30 @@ function AdminShiftManagementContent() {
                   <div className="mt-4 space-y-3">
                     {dateSlots.map((slot) => {
                       const slotRequests = requestsBySlot[slot.id] ?? [];
+                      const displayedRequestCount = getDisplayedRequestCount(
+                        slot,
+                        requestCountBySlot,
+                      );
                       const approvedRequests = slotRequests.filter(
                         (request) => request.status === "承認済",
                       );
                       const pendingRequests = slotRequests.filter(
                         (request) => request.status !== "承認済",
                       );
+                      const remainingApprovalCount = Math.max(
+                        0,
+                        slot.capacity - approvedRequests.length,
+                      );
+                      const isApprovalLimitReached = remainingApprovalCount === 0;
+                      const compatibilitySummary = getSlotCompatibilitySummary(
+                        slotRequests,
+                        compatibilityScores,
+                      );
+                      const recommendedCombination = getRecommendedCombination({
+                        requests: slotRequests,
+                        capacity: slot.capacity,
+                        scores: compatibilityScores,
+                      });
 
                       return (
                         <div
@@ -532,7 +938,7 @@ function AdminShiftManagementContent() {
                                 </p>
                                 <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
                               </div>
-                              <SlotRequestStatus requestCount={requestCountBySlot[slot.id] ?? 0} />
+                              <SlotRequestStatus requestCount={displayedRequestCount} />
                             </div>
 
                             <div className="flex items-center gap-5 self-end sm:self-auto">
@@ -555,6 +961,20 @@ function AdminShiftManagementContent() {
                             </div>
                           </div>
 
+                          <SlotCompatibilityPanel summary={compatibilitySummary} />
+                          <RecommendedCombinationPanel
+                            recommendedCombination={recommendedCombination}
+                            capacity={slot.capacity}
+                            remainingApprovalCount={remainingApprovalCount}
+                            isApproving={approvingRecommendedSlotId === slot.id}
+                            onApprove={() =>
+                              handleApproveRecommendedRequests(
+                                slot,
+                                recommendedCombination,
+                              )
+                            }
+                          />
+
                           {slotRequests.length > 0 && (
                             <div className="mt-4 grid gap-3 border-t border-black/10 pt-3 lg:grid-cols-2">
                               <ShiftRequestGroup
@@ -564,7 +984,10 @@ function AdminShiftManagementContent() {
                                 approvingRequestId={approvingRequestId}
                                 deletingRequestId={deletingRequestId}
                                 payrollSettings={payrollSettings}
-                                onApprove={handleApproveRequest}
+                                isApprovalLimitReached={isApprovalLimitReached}
+                                onApprove={(request) =>
+                                  handleApproveRequest(slot, request)
+                                }
                                 onRemove={handleRemoveRequest}
                               />
                               <ShiftRequestGroup
@@ -574,7 +997,9 @@ function AdminShiftManagementContent() {
                                 approvingRequestId={approvingRequestId}
                                 deletingRequestId={deletingRequestId}
                                 payrollSettings={payrollSettings}
-                                onApprove={handleApproveRequest}
+                                onApprove={(request) =>
+                                  handleApproveRequest(slot, request)
+                                }
                                 onRemove={handleRemoveRequest}
                               />
                             </div>

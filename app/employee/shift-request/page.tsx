@@ -164,6 +164,13 @@ function sortSlots(slots: ShiftSlot[]) {
   });
 }
 
+function getDisplayedRequestCount(
+  slot: ShiftSlot,
+  requestCountBySlot: Record<string, number>,
+) {
+  return Math.max(slot.requestCount, requestCountBySlot[slot.id] ?? 0);
+}
+
 function EmployeeShiftRequestContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -297,11 +304,9 @@ function EmployeeShiftRequestContent() {
   }, [allRequests]);
   const requestableSlots = useMemo(() => {
     return slots.filter(
-      (slot) =>
-        isShiftStartInFuture(slot, now) &&
-        (requestCountBySlot[slot.id] ?? 0) < slot.capacity,
+      (slot) => isShiftStartInFuture(slot, now),
     );
-  }, [now, requestCountBySlot, slots]);
+  }, [now, slots]);
   const slotsByDate = useMemo(() => {
     return requestableSlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
       groups[slot.date] = [...(groups[slot.date] ?? []), slot];
@@ -364,11 +369,6 @@ function EmployeeShiftRequestContent() {
       setErrorMessage("開始済みまたは終了済みのシフトには希望を提出できません。");
       return;
     }
-    if ((requestCountBySlot[selectedSlot.id] ?? 0) >= selectedSlot.capacity) {
-      setSelectedSlotId("");
-      setErrorMessage("募集人数に達したシフトには希望を提出できません。");
-      return;
-    }
 
     setDraftSlots((current) => sortSlots([...current, selectedSlot]));
     setSelectedSlotId("");
@@ -389,15 +389,6 @@ function EmployeeShiftRequestContent() {
       setDraftSlots(requestableDraftSlots);
       setIsConfirmOpen(false);
       setErrorMessage("開始済みまたは終了済みのシフトには希望を提出できません。");
-      return;
-    }
-    if (
-      requestableDraftSlots.some(
-        (slot) => (requestCountBySlot[slot.id] ?? 0) >= slot.capacity,
-      )
-    ) {
-      setIsConfirmOpen(false);
-      setErrorMessage("募集人数に達したシフトには希望を提出できません。");
       return;
     }
 
@@ -421,11 +412,7 @@ function EmployeeShiftRequestContent() {
       setIsConfirmOpen(false);
     } catch (error) {
       console.error(error);
-      setErrorMessage(
-        error instanceof Error && error.message === "Shift slot capacity exceeded."
-          ? "募集人数に達したシフトには希望を提出できません。"
-          : "希望シフトの送信に失敗しました。Firestore Rulesを確認してください。",
-      );
+      setErrorMessage("希望シフトの送信に失敗しました。Firestore Rulesを確認してください。");
     } finally {
       setIsSubmitting(false);
     }
@@ -555,7 +542,7 @@ function EmployeeShiftRequestContent() {
                         {availableSlotsForSelectedDate.map((slot) => (
                           <option key={slot.id} value={slot.id}>
                             {slot.startTime} - {slot.endTime}（募集 {slot.capacity}人 / 希望{" "}
-                            {requestCountBySlot[slot.id] ?? 0}人）
+                            {getDisplayedRequestCount(slot, requestCountBySlot)}人）
                           </option>
                         ))}
                       </select>
@@ -576,7 +563,7 @@ function EmployeeShiftRequestContent() {
                     </>
                   ) : (
                     <p className="mt-2 text-sm text-[#717182]">
-                      この日の選択可能なシフト枠はありません（既に希望済み・満員・枠なし）
+                      この日の選択可能なシフト枠はありません（既に希望済み・枠なし）
                     </p>
                   )}
                 </div>
@@ -618,7 +605,7 @@ function EmployeeShiftRequestContent() {
                   </div>
 
                   <p className="mt-6 text-sm text-[#717182]">
-                    ※ 送信後は変更できません。先着順で確定されます。
+                    ※ 送信後は変更できません。管理者が応募者の中から承認します。
                   </p>
                   <button
                     type="button"

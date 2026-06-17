@@ -77,6 +77,22 @@ function ClockIcon() {
   );
 }
 
+function CompatibilityIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-6 w-6"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM17 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM3 21a4 4 0 0 1 8 0M13 21a4 4 0 0 1 8 0" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 14h6" />
+    </svg>
+  );
+}
+
 function LogoutIcon() {
   return (
     <svg
@@ -534,7 +550,7 @@ function EmployeePageContent() {
       </header>
 
       <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
-        <section className="grid gap-6 lg:grid-cols-2">
+        <section className="grid gap-6 lg:grid-cols-3">
           <Link
             href={`/employee/shift-request${employeeQuery}`}
             className="min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm transition hover:shadow-md"
@@ -546,6 +562,20 @@ function EmployeePageContent() {
             <p className="mt-1 text-sm text-[#717182]">シフト希望を入力してください</p>
             <div className="mt-5 rounded-md bg-[#030213] px-4 py-2.5 text-center text-sm font-semibold text-white">
               希望シフトを入力
+            </div>
+          </Link>
+
+          <Link
+            href={`/employee/compatibility${employeeQuery}`}
+            className="min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm transition hover:shadow-md"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#f0fdf4] text-[#00a63e]">
+              <CompatibilityIcon />
+            </div>
+            <h2 className="mt-2 text-xl font-semibold">一緒に働きやすさ設定</h2>
+            <p className="mt-1 text-sm text-[#717182]">一緒に働く人との相性を入力します</p>
+            <div className="mt-5 rounded-md bg-[#00a63e] px-4 py-2.5 text-center text-sm font-semibold text-white">
+              設定する
             </div>
           </Link>
 
