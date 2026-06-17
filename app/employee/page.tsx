@@ -18,6 +18,14 @@ import {
   subscribeEmployeeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
+import {
+  calculateShiftPayroll,
+  defaultPayrollSettings,
+  formatCurrency,
+  subscribePayrollSettings,
+  sumShiftPay,
+  type PayrollSettings,
+} from "@/lib/payroll";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -112,9 +120,25 @@ function getRequestStartAt(request: ShiftRequest) {
   return new Date(`${request.date}T${request.startTime}:00`);
 }
 
-function isWithinNextDays(request: ShiftRequest, days: number) {
+function getRequestEndAt(request: ShiftRequest) {
   const startAt = getRequestStartAt(request);
-  const now = new Date();
+  const endAt = new Date(`${request.date}T${request.endTime}:00`);
+
+  if (endAt <= startAt) {
+    endAt.setDate(endAt.getDate() + 1);
+  }
+
+  return endAt;
+}
+
+function isCompletedRequest(request: ShiftRequest, now: Date) {
+  const endAt = getRequestEndAt(request);
+
+  return !Number.isNaN(endAt.getTime()) && endAt <= now;
+}
+
+function isWithinNextDays(request: ShiftRequest, days: number, now: Date) {
+  const startAt = getRequestStartAt(request);
   const limit = new Date(now);
   limit.setDate(now.getDate() + days);
 
@@ -200,8 +224,37 @@ function WorkHoursCard({
   );
 }
 
-function ShiftRequestRow({ request }: { request: ShiftRequest }) {
+function PayCard({
+  title,
+  description,
+  amount,
+  isLoading = false,
+}: {
+  title: string;
+  description: string;
+  amount: number;
+  isLoading?: boolean;
+}) {
+  return (
+    <section className="rounded-xl border border-black/10 bg-white p-6 shadow-sm">
+      <p className="text-sm text-[#717182]">{title}</p>
+      <p className="mt-4 text-3xl font-semibold">
+        {isLoading ? "..." : formatCurrency(amount)}
+      </p>
+      <p className="mt-3 text-sm text-[#717182]">{description}</p>
+    </section>
+  );
+}
+
+function ShiftRequestRow({
+  request,
+  payrollSettings,
+}: {
+  request: ShiftRequest;
+  payrollSettings: PayrollSettings;
+}) {
   const parsedDate = new Date(`${request.date}T00:00:00`);
+  const payroll = calculateShiftPayroll(request, payrollSettings);
 
   return (
     <div className="flex items-center justify-between rounded-lg border border-black/10 px-6 py-4">
@@ -215,6 +268,9 @@ function ShiftRequestRow({ request }: { request: ShiftRequest }) {
           <p className="mt-1 text-sm text-[#475569]">
             {request.startTime} - {request.endTime}
           </p>
+          <p className="mt-1 text-sm font-semibold text-[#00a63e]">
+            {formatCurrency(payroll.totalPay)}
+          </p>
         </div>
       </div>
       <RequestStatusBadge status={request.status} />
@@ -227,11 +283,13 @@ function ShiftRequestGroup({
   description,
   requests,
   emptyText,
+  payrollSettings,
 }: {
   title: string;
   description: string;
   requests: ShiftRequest[];
   emptyText: string;
+  payrollSettings: PayrollSettings;
 }) {
   return (
     <section className="rounded-md border border-black/10 bg-white px-4 py-4">
@@ -252,7 +310,11 @@ function ShiftRequestGroup({
       ) : (
         <div className="mt-3 space-y-3">
           {requests.map((request) => (
-            <ShiftRequestRow key={request.id} request={request} />
+            <ShiftRequestRow
+              key={request.id}
+              request={request}
+              payrollSettings={payrollSettings}
+            />
           ))}
         </div>
       )}
@@ -287,7 +349,20 @@ function EmployeePageContent() {
       : null
     : sessionEmployee;
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
+    defaultPayrollSettings,
+  );
   const [isLoading, setIsLoading] = useState(true);
+  const [isPayrollLoading, setIsPayrollLoading] = useState(true);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => {
+      setNow(new Date());
+    }, 60000);
+
+    return () => window.clearInterval(timerId);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -321,7 +396,7 @@ function EmployeePageContent() {
   useEffect(() => {
     if (!employee) return;
 
-    return subscribeEmployeeShiftRequests(
+    const unsubscribeRequests = subscribeEmployeeShiftRequests(
       employee.employeeId,
       (nextRequests) => {
         setRequests(nextRequests);
@@ -333,6 +408,23 @@ function EmployeePageContent() {
       },
       employee.organizationId,
     );
+
+    const unsubscribePayroll = subscribePayrollSettings(
+      (settings) => {
+        setPayrollSettings(settings);
+        setIsPayrollLoading(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsPayrollLoading(false);
+      },
+      employee.organizationId,
+    );
+
+    return () => {
+      unsubscribeRequests();
+      unsubscribePayroll();
+    };
   }, [employee]);
 
   const sortedRequests = useMemo(() => sortRequests(requests), [requests]);
@@ -344,22 +436,53 @@ function EmployeePageContent() {
     () => sortedRequests.filter((request) => request.status === "承認済"),
     [sortedRequests],
   );
-  const nearestRequest = useMemo(
-    () => approvedRequests.find((request) => isWithinNextDays(request, 7)),
-    [approvedRequests],
+  const completedApprovedRequests = useMemo(
+    () => approvedRequests.filter((request) => isCompletedRequest(request, now)),
+    [approvedRequests, now],
   );
-  const currentDate = useMemo(() => new Date(), []);
+  const nearestRequest = useMemo(
+    () => approvedRequests.find((request) => isWithinNextDays(request, 7, now)),
+    [approvedRequests, now],
+  );
+  const currentDate = now;
   const currentYear = currentDate.getFullYear();
   const monthlyWorkMinutes = useMemo(
     () =>
       sumWorkMinutes(
-        approvedRequests.filter((request) => isRequestInMonth(request, currentDate)),
+        completedApprovedRequests.filter((request) =>
+          isRequestInMonth(request, currentDate),
+        ),
       ),
-    [approvedRequests, currentDate],
+    [completedApprovedRequests, currentDate],
   );
   const yearlyWorkMinutes = useMemo(
-    () => sumWorkMinutes(approvedRequests.filter((request) => isRequestInYear(request, currentYear))),
-    [approvedRequests, currentYear],
+    () =>
+      sumWorkMinutes(
+        completedApprovedRequests.filter((request) =>
+          isRequestInYear(request, currentYear),
+        ),
+      ),
+    [completedApprovedRequests, currentYear],
+  );
+  const monthlyPay = useMemo(
+    () =>
+      sumShiftPay(
+        completedApprovedRequests.filter((request) =>
+          isRequestInMonth(request, currentDate),
+        ),
+        payrollSettings,
+      ),
+    [completedApprovedRequests, currentDate, payrollSettings],
+  );
+  const yearlyPay = useMemo(
+    () =>
+      sumShiftPay(
+        completedApprovedRequests.filter((request) =>
+          isRequestInYear(request, currentYear),
+        ),
+        payrollSettings,
+      ),
+    [completedApprovedRequests, currentYear, payrollSettings],
   );
 
   const employeeQuery = useMemo(
@@ -442,6 +565,11 @@ function EmployeePageContent() {
                     <p className="mt-1 text-sm text-[#475569]">
                       {nearestRequest.startTime} - {nearestRequest.endTime}
                     </p>
+                    <p className="mt-1 text-sm font-semibold text-[#00a63e]">
+                      {formatCurrency(
+                        calculateShiftPayroll(nearestRequest, payrollSettings).totalPay,
+                      )}
+                    </p>
                   </div>
                   <RequestStatusBadge status={nearestRequest.status} />
                 </div>
@@ -458,13 +586,28 @@ function EmployeePageContent() {
         <section className="mt-6 grid gap-6 lg:grid-cols-2">
           <WorkHoursCard
             title="今月の勤務時間"
-            description={`${currentYear}年${currentDate.getMonth() + 1}月の承認済みシフト`}
+            description={`${currentYear}年${currentDate.getMonth() + 1}月の終了済みシフト`}
             minutes={monthlyWorkMinutes}
           />
           <WorkHoursCard
             title="年間の勤務時間"
-            description={`${currentYear}年1月1日〜12月31日の承認済みシフト`}
+            description={`${currentYear}年1月1日〜12月31日の終了済みシフト`}
             minutes={yearlyWorkMinutes}
+          />
+        </section>
+
+        <section className="mt-6 grid gap-6 lg:grid-cols-2">
+          <PayCard
+            title="今月のお給料"
+            description={`${currentYear}年${currentDate.getMonth() + 1}月の終了済みシフト`}
+            amount={monthlyPay}
+            isLoading={isPayrollLoading}
+          />
+          <PayCard
+            title="年間のお給料"
+            description={`${currentYear}年1月1日〜12月31日の終了済みシフト`}
+            amount={yearlyPay}
+            isLoading={isPayrollLoading}
           />
         </section>
 
@@ -491,12 +634,14 @@ function EmployeePageContent() {
                 description="管理者の承認を待っている希望シフト"
                 requests={pendingRequests}
                 emptyText="承認待ちのシフト希望はありません"
+                payrollSettings={payrollSettings}
               />
               <ShiftRequestGroup
                 title="承認済み"
                 description="管理者が承認した確定シフト"
                 requests={approvedRequests}
                 emptyText="承認済みのシフトはありません"
+                payrollSettings={payrollSettings}
               />
             </div>
           )}
