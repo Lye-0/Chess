@@ -1,4 +1,5 @@
 import {
+  collection,
   doc,
   onSnapshot,
   serverTimestamp,
@@ -11,6 +12,11 @@ import { db } from "./firebase";
 import { defaultOrganizationId } from "./people";
 
 export type CompatibilityScores = Record<string, number>;
+export type CompatibilityScoreMap = Record<string, CompatibilityScores>;
+
+function getCompatibilitiesCollection(organizationId = defaultOrganizationId) {
+  return collection(db, "organizations", organizationId, "compatibilities");
+}
 
 function getCompatibilityDocument(
   employeeId: string,
@@ -52,6 +58,27 @@ export function subscribeCompatibilityScores(
     getCompatibilityDocument(employeeId, organizationId),
     (snapshot) => {
       onNext(toCompatibilityScores(snapshot.data()));
+    },
+    onError,
+  );
+}
+
+export function subscribeOrganizationCompatibilityScores(
+  onNext: (scores: CompatibilityScoreMap) => void,
+  onError?: (error: FirestoreError) => void,
+  organizationId = defaultOrganizationId,
+): Unsubscribe {
+  return onSnapshot(
+    getCompatibilitiesCollection(organizationId),
+    (snapshot) => {
+      const nextScores = snapshot.docs.reduce<CompatibilityScoreMap>(
+        (scores, scoreDocument) => {
+          scores[scoreDocument.id] = toCompatibilityScores(scoreDocument.data());
+          return scores;
+        },
+        {},
+      );
+      onNext(nextScores);
     },
     onError,
   );

@@ -24,6 +24,10 @@ import {
   subscribePayrollSettings,
   type PayrollSettings,
 } from "@/lib/payroll";
+import {
+  subscribeOrganizationCompatibilityScores,
+  type CompatibilityScoreMap,
+} from "@/lib/compatibilities";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   BackHeader,
@@ -36,6 +40,23 @@ type ShiftForm = {
   startTime: string;
   endTime: string;
   capacity: string;
+};
+
+type CompatibilityLevel = "注意なし" | "注意あり" | "強い注意";
+
+type PairCompatibility = {
+  firstEmployeeId: string;
+  firstEmployeeName: string;
+  secondEmployeeId: string;
+  secondEmployeeName: string;
+  score: number;
+  level: CompatibilityLevel;
+};
+
+type SlotCompatibilitySummary = {
+  totalScore: number;
+  level: CompatibilityLevel;
+  pairs: PairCompatibility[];
 };
 
 const emptyForm: ShiftForm = {
@@ -155,6 +176,140 @@ function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
   );
 }
 
+function getCompatibilityLevel(score: number): CompatibilityLevel {
+  if (score <= -8) return "強い注意";
+  if (score <= -4) return "注意あり";
+  return "注意なし";
+}
+
+function getCompatibilityScore(
+  scores: CompatibilityScoreMap,
+  fromEmployeeId: string,
+  toEmployeeId: string,
+) {
+  return scores[fromEmployeeId]?.[toEmployeeId] ?? 0;
+}
+
+function getSlotCompatibilitySummary(
+  requests: ShiftRequest[],
+  scores: CompatibilityScoreMap,
+): SlotCompatibilitySummary | null {
+  if (requests.length < 2) return null;
+
+  const pairs: PairCompatibility[] = [];
+
+  for (let firstIndex = 0; firstIndex < requests.length; firstIndex += 1) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < requests.length;
+      secondIndex += 1
+    ) {
+      const firstRequest = requests[firstIndex];
+      const secondRequest = requests[secondIndex];
+      const score =
+        getCompatibilityScore(
+          scores,
+          firstRequest.employeeId,
+          secondRequest.employeeId,
+        ) +
+        getCompatibilityScore(
+          scores,
+          secondRequest.employeeId,
+          firstRequest.employeeId,
+        );
+
+      pairs.push({
+        firstEmployeeId: firstRequest.employeeId,
+        firstEmployeeName: firstRequest.employeeName,
+        secondEmployeeId: secondRequest.employeeId,
+        secondEmployeeName: secondRequest.employeeName,
+        score,
+        level: getCompatibilityLevel(score),
+      });
+    }
+  }
+
+  const totalScore = pairs.reduce((total, pair) => total + pair.score, 0);
+  const hasStrongWarning = pairs.some((pair) => pair.level === "強い注意");
+  const hasWarning = pairs.some((pair) => pair.level === "注意あり");
+
+  return {
+    totalScore,
+    level: hasStrongWarning ? "強い注意" : hasWarning ? "注意あり" : "注意なし",
+    pairs,
+  };
+}
+
+function formatCompatibilityScore(score: number) {
+  if (score > 0) return `+${score}`;
+  return String(score);
+}
+
+function compatibilityLevelClass(level: CompatibilityLevel) {
+  if (level === "強い注意") {
+    return "border-[#fecdd3] bg-[#fff1f2] text-[#be123c]";
+  }
+  if (level === "注意あり") {
+    return "border-[#fed7aa] bg-[#fff7ed] text-[#c2410c]";
+  }
+  return "border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]";
+}
+
+function SlotCompatibilityPanel({
+  summary,
+}: {
+  summary: SlotCompatibilitySummary | null;
+}) {
+  if (!summary) return null;
+
+  return (
+    <section
+      className={[
+        "mt-4 rounded-md border px-3 py-3",
+        compatibilityLevelClass(summary.level),
+      ].join(" ")}
+    >
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold">相性スコア</p>
+          <p className="mt-1 text-xs">
+            このシフト枠の希望者全ペアのスコア合計です
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-md bg-white/70 px-3 py-1 font-mono text-sm font-semibold">
+            {formatCompatibilityScore(summary.totalScore)}
+          </span>
+          <span className="rounded-md bg-white/70 px-3 py-1 text-sm font-semibold">
+            {summary.level}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+        {summary.pairs.map((pair) => (
+          <div
+            key={`${pair.firstEmployeeId}-${pair.secondEmployeeId}`}
+            className="rounded-md bg-white/70 px-3 py-2 text-xs"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate">
+                {pair.firstEmployeeName}・{pair.secondEmployeeName}
+              </span>
+              <span className="font-mono font-semibold">
+                {formatCompatibilityScore(pair.score)}
+              </span>
+            </div>
+            {pair.level !== "注意なし" && (
+              <p className="mt-1 font-semibold">{pair.level}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ShiftRequestGroup({
   title,
   requests,
@@ -249,6 +404,8 @@ function AdminShiftManagementContent() {
   } = useManagerOrganizationAccess();
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [compatibilityScores, setCompatibilityScores] =
+    useState<CompatibilityScoreMap>({});
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
     defaultPayrollSettings,
   );
@@ -297,11 +454,21 @@ function AdminShiftManagementContent() {
       },
       organizationId,
     );
+    const unsubscribeCompatibilityScores = subscribeOrganizationCompatibilityScores(
+      (scores) => {
+        setCompatibilityScores(scores);
+      },
+      (error) => {
+        console.error(error);
+      },
+      organizationId,
+    );
 
     return () => {
       unsubscribeSlots();
       unsubscribeRequests();
       unsubscribePayroll();
+      unsubscribeCompatibilityScores();
     };
   }, [currentOrganization, organizationId]);
 
@@ -518,6 +685,10 @@ function AdminShiftManagementContent() {
                       const pendingRequests = slotRequests.filter(
                         (request) => request.status !== "承認済",
                       );
+                      const compatibilitySummary = getSlotCompatibilitySummary(
+                        slotRequests,
+                        compatibilityScores,
+                      );
 
                       return (
                         <div
@@ -554,6 +725,8 @@ function AdminShiftManagementContent() {
                               </button>
                             </div>
                           </div>
+
+                          <SlotCompatibilityPanel summary={compatibilitySummary} />
 
                           {slotRequests.length > 0 && (
                             <div className="mt-4 grid gap-3 border-t border-black/10 pt-3 lg:grid-cols-2">
