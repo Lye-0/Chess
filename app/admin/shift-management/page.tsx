@@ -13,6 +13,7 @@ import {
 } from "@/lib/shiftSlots";
 import {
   approveShiftRequest,
+  approveShiftRequests,
   removeShiftRequest,
   subscribeShiftRequests,
   type ShiftRequest,
@@ -57,6 +58,11 @@ type SlotCompatibilitySummary = {
   totalScore: number;
   level: CompatibilityLevel;
   pairs: PairCompatibility[];
+};
+
+type RecommendedCombination = {
+  requests: ShiftRequest[];
+  score: number;
 };
 
 const emptyForm: ShiftForm = {
@@ -240,6 +246,78 @@ function getSlotCompatibilitySummary(
   };
 }
 
+function getCombinationScore(
+  requests: ShiftRequest[],
+  scores: CompatibilityScoreMap,
+) {
+  let score = 0;
+
+  for (let firstIndex = 0; firstIndex < requests.length; firstIndex += 1) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < requests.length;
+      secondIndex += 1
+    ) {
+      const firstRequest = requests[firstIndex];
+      const secondRequest = requests[secondIndex];
+      score +=
+        getCompatibilityScore(
+          scores,
+          firstRequest.employeeId,
+          secondRequest.employeeId,
+        ) +
+        getCompatibilityScore(
+          scores,
+          secondRequest.employeeId,
+          firstRequest.employeeId,
+        );
+    }
+  }
+
+  return score;
+}
+
+function getRecommendedCombination({
+  requests,
+  capacity,
+  scores,
+}: {
+  requests: ShiftRequest[];
+  capacity: number;
+  scores: CompatibilityScoreMap;
+}): RecommendedCombination | null {
+  const targetCount = Math.min(Math.max(1, capacity), requests.length);
+  if (requests.length === 0 || targetCount === 0) return null;
+
+  let bestCombination: ShiftRequest[] = [];
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  function walk(startIndex: number, combination: ShiftRequest[]) {
+    if (combination.length === targetCount) {
+      const score = getCombinationScore(combination, scores);
+      if (score > bestScore) {
+        bestScore = score;
+        bestCombination = combination;
+      }
+      return;
+    }
+
+    const remainingSlots = targetCount - combination.length;
+    const lastStartIndex = requests.length - remainingSlots;
+
+    for (let index = startIndex; index <= lastStartIndex; index += 1) {
+      walk(index + 1, [...combination, requests[index]]);
+    }
+  }
+
+  walk(0, []);
+
+  return {
+    requests: bestCombination,
+    score: bestScore === Number.NEGATIVE_INFINITY ? 0 : bestScore,
+  };
+}
+
 function formatCompatibilityScore(score: number) {
   if (score > 0) return `+${score}`;
   return String(score);
@@ -305,6 +383,65 @@ function SlotCompatibilityPanel({
             )}
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function RecommendedCombinationPanel({
+  recommendedCombination,
+  capacity,
+  isApproving,
+  onApprove,
+}: {
+  recommendedCombination: RecommendedCombination | null;
+  capacity: number;
+  isApproving: boolean;
+  onApprove: () => void;
+}) {
+  if (!recommendedCombination) return null;
+
+  const pendingRecommendedRequests = recommendedCombination.requests.filter(
+    (request) => request.status !== "承認済",
+  );
+
+  return (
+    <section className="mt-4 rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-3 py-3 text-[#1d4ed8]">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold">おすすめ承認組み合わせ</p>
+          <p className="mt-1 text-xs">
+            募集{capacity}人に対して、相性スコアが最も高い組み合わせです
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {recommendedCombination.requests.map((request) => (
+              <span
+                key={request.id}
+                className="rounded-md bg-white/80 px-2.5 py-1 text-xs font-semibold"
+              >
+                {request.employeeName}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-col gap-2">
+          <span className="rounded-md bg-white/80 px-3 py-1 text-center font-mono text-sm font-semibold">
+            {formatCompatibilityScore(recommendedCombination.score)}
+          </span>
+          <button
+            type="button"
+            disabled={isApproving || pendingRecommendedRequests.length === 0}
+            onClick={onApprove}
+            className="h-9 rounded-md bg-[#1763ff] px-4 text-xs font-semibold text-white transition hover:bg-[#0f4ed8] disabled:cursor-not-allowed disabled:bg-[#93b4ff]"
+          >
+            {pendingRecommendedRequests.length === 0
+              ? "承認済み"
+              : isApproving
+                ? "承認中..."
+                : "おすすめを一括承認"}
+          </button>
+        </div>
       </div>
     </section>
   );
@@ -417,6 +554,8 @@ function AdminShiftManagementContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [approvingRequestId, setApprovingRequestId] = useState<string | null>(null);
+  const [approvingRecommendedSlotId, setApprovingRecommendedSlotId] =
+    useState<string | null>(null);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -607,6 +746,30 @@ function AdminShiftManagementContent() {
     }
   }
 
+  async function handleApproveRecommendedRequests(
+    slot: ShiftSlot,
+    recommendedCombination: RecommendedCombination | null,
+  ) {
+    if (!recommendedCombination) return;
+
+    const pendingRequestIds = recommendedCombination.requests
+      .filter((request) => request.status !== "承認済")
+      .map((request) => request.id);
+
+    if (pendingRequestIds.length === 0) return;
+
+    try {
+      setApprovingRecommendedSlotId(slot.id);
+      setErrorMessage(null);
+      await approveShiftRequests(pendingRequestIds, organizationId);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("おすすめ組み合わせの一括承認に失敗しました。Firestore への書き込み権限を確認してください。");
+    } finally {
+      setApprovingRecommendedSlotId(null);
+    }
+  }
+
   async function handleRemoveRequest(request: ShiftRequest) {
     const confirmed = window.confirm(
       `${request.employeeName}さんのシフト希望を削除します。よろしいですか？`,
@@ -689,6 +852,11 @@ function AdminShiftManagementContent() {
                         slotRequests,
                         compatibilityScores,
                       );
+                      const recommendedCombination = getRecommendedCombination({
+                        requests: slotRequests,
+                        capacity: slot.capacity,
+                        scores: compatibilityScores,
+                      });
 
                       return (
                         <div
@@ -727,6 +895,17 @@ function AdminShiftManagementContent() {
                           </div>
 
                           <SlotCompatibilityPanel summary={compatibilitySummary} />
+                          <RecommendedCombinationPanel
+                            recommendedCombination={recommendedCombination}
+                            capacity={slot.capacity}
+                            isApproving={approvingRecommendedSlotId === slot.id}
+                            onApprove={() =>
+                              handleApproveRecommendedRequests(
+                                slot,
+                                recommendedCombination,
+                              )
+                            }
+                          />
 
                           {slotRequests.length > 0 && (
                             <div className="mt-4 grid gap-3 border-t border-black/10 pt-3 lg:grid-cols-2">
