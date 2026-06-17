@@ -17,6 +17,7 @@ import {
 import {
   approveShiftRequest,
   approveShiftRequests,
+  isShiftStartInFuture,
   removeShiftRequest,
   resetShiftRequestApproval,
   subscribeShiftRequests,
@@ -446,6 +447,15 @@ function AdminShiftManagementContent() {
     useState<string | null>(null);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => {
+      setNow(new Date());
+    }, 30000);
+
+    return () => window.clearInterval(timerId);
+  }, []);
 
   useEffect(() => {
     if (!currentOrganization) return;
@@ -524,11 +534,25 @@ function AdminShiftManagementContent() {
   const isEditingRequestedSlot = Boolean(
     editingSlot && getDisplayedRequestCount(editingSlot, requestCountBySlot) > 0,
   );
+  const editedSlotStartsInFuture = Boolean(
+    editingSlot && isShiftStartInFuture(editingSlot, now),
+  );
+  const formStartsInFuture =
+    isFourDigitShiftDate(form.date) &&
+    form.startTime &&
+    isShiftStartInFuture(
+      {
+        date: form.date,
+        startTime: form.startTime,
+      },
+      now,
+    );
   const canSave = Boolean(
     (isEditingRequestedSlot && editingSlot
-        ? true
+        ? editedSlotStartsInFuture
         : isFourDigitShiftDate(form.date) &&
-        isValidShiftTimeRange(form.startTime, form.endTime)) &&
+        isValidShiftTimeRange(form.startTime, form.endTime) &&
+        formStartsInFuture) &&
       Number(form.capacity) >= 1 &&
       Number(form.capacity) <= 100,
   );
@@ -574,6 +598,11 @@ function AdminShiftManagementContent() {
         isEditingRequestedSlot && editingSlot ? editingSlot.endTime : form.endTime,
       capacity: Number(form.capacity),
     };
+
+    if (!isShiftStartInFuture(nextSlot)) {
+      setErrorMessage("過去または開始済みの日時ではシフト枠を登録できません。");
+      return;
+    }
 
     try {
       setIsSaving(true);
@@ -962,6 +991,10 @@ function AdminShiftManagementContent() {
                     "rounded-md px-3 py-2 text-sm",
                     form.startTime === form.endTime
                       ? "bg-[#fff1f1] text-[#b00020]"
+                      : isFourDigitShiftDate(form.date) &&
+                          isValidShiftTimeRange(form.startTime, form.endTime) &&
+                          !formStartsInFuture
+                        ? "bg-[#fff1f1] text-[#b00020]"
                       : isOvernightShiftTime(form.startTime, form.endTime)
                         ? "bg-[#eff6ff] text-[#1d4ed8]"
                         : "bg-[#f7f8fb] text-[#475569]",
@@ -969,9 +1002,19 @@ function AdminShiftManagementContent() {
                 >
                   {form.startTime === form.endTime
                     ? "開始時刻と終了時刻は別の時刻にしてください。"
+                    : isFourDigitShiftDate(form.date) &&
+                        isValidShiftTimeRange(form.startTime, form.endTime) &&
+                        !formStartsInFuture
+                      ? "過去または開始済みの日時ではシフト枠を登録できません。"
                     : isOvernightShiftTime(form.startTime, form.endTime)
                       ? "終了時刻は翌日の時刻として保存されます。"
                       : "同じ日のシフトとして保存されます。"}
+                </p>
+              )}
+
+              {isEditingRequestedSlot && editingSlot && !editedSlotStartsInFuture && (
+                <p className="rounded-md bg-[#fff1f1] px-3 py-2 text-sm text-[#b00020]">
+                  このシフトは過去または開始済みのため更新できません。
                 </p>
               )}
 

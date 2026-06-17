@@ -12,7 +12,10 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { removeShiftRequestsBySlot } from "./shiftRequests";
+import {
+  isShiftStartInFuture,
+  removeShiftRequestsBySlot,
+} from "./shiftRequests";
 import { defaultOrganizationId } from "./people";
 
 function getShiftSlotsCollection(organizationId = defaultOrganizationId) {
@@ -90,6 +93,10 @@ function assertValidShiftSlotInput(input: ShiftSlotInput) {
 
   if (!isValidShiftTimeRange(input.startTime, input.endTime)) {
     throw new Error("Shift slot time range must be valid.");
+  }
+
+  if (!isShiftStartInFuture(input)) {
+    throw new Error("Shift slot start time must be in the future.");
   }
 }
 

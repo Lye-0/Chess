@@ -367,7 +367,7 @@ function EmployeeShiftRequestContent() {
     if (!selectedSlot) return;
     if (!isShiftStartInFuture(selectedSlot)) {
       setSelectedSlotId("");
-      setErrorMessage("開始済みまたは終了済みのシフトには希望を提出できません。");
+      setErrorMessage("過去または開始済みのシフトには希望を提出できません。");
       return;
     }
 
@@ -389,7 +389,7 @@ function EmployeeShiftRequestContent() {
     if (requestableDraftSlots.length !== draftSlots.length) {
       setDraftSlots(requestableDraftSlots);
       setIsConfirmOpen(false);
-      setErrorMessage("開始済みまたは終了済みのシフトには希望を提出できません。");
+      setErrorMessage("過去または開始済みのシフトには希望を提出できません。");
       return;
     }
 
