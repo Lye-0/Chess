@@ -99,6 +99,37 @@ function TrashIcon() {
   );
 }
 
+function XIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
+function WarningIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="#ff003d"
+      strokeWidth="2"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.3 4.2 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0Z" />
+    </svg>
+  );
+}
+
 function AdminContent() {
   const router = useRouter();
   const {
@@ -114,6 +145,8 @@ function AdminContent() {
   const [isLoadingSlots, setIsLoadingSlots] = useState(true);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [isDeletingOrganization, setIsDeletingOrganization] = useState(false);
+  const [isDeleteOrganizationModalOpen, setIsDeleteOrganizationModalOpen] =
+    useState(false);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
 
   useEffect(() => {
@@ -167,13 +200,19 @@ function AdminContent() {
     );
   }, [requests]);
 
-  async function handleDeleteOrganization() {
+  function openDeleteOrganizationModal() {
     if (!currentOrganization) return;
+    setIsDeleteOrganizationModalOpen(true);
+    setDeleteErrorMessage("");
+  }
 
-    const confirmed = window.confirm(
-      `${currentOrganization.name}を削除します。従業員・シフト枠・シフト希望も削除されます。よろしいですか？`,
-    );
-    if (!confirmed) return;
+  function closeDeleteOrganizationModal() {
+    if (isDeletingOrganization) return;
+    setIsDeleteOrganizationModalOpen(false);
+  }
+
+  async function confirmDeleteOrganization() {
+    if (!currentOrganization) return;
 
     const user = auth.currentUser;
     if (!user) {
@@ -185,6 +224,7 @@ function AdminContent() {
       setIsDeletingOrganization(true);
       setDeleteErrorMessage("");
       await deleteManagerOrganization(user.uid, organizationId);
+      setIsDeleteOrganizationModalOpen(false);
       router.push("/manager/select-organization");
     } catch (error) {
       console.error(error);
@@ -308,7 +348,7 @@ function AdminContent() {
           <button
             type="button"
             disabled={isDeletingOrganization}
-            onClick={handleDeleteOrganization}
+            onClick={openDeleteOrganizationModal}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#ffccd6] bg-white px-4 text-sm font-semibold text-[#ff003d] transition hover:bg-[#ffe8ee] disabled:cursor-not-allowed disabled:border-[#f3c7d0] disabled:text-[#c56c7f]"
           >
             <TrashIcon />
@@ -316,6 +356,69 @@ function AdminContent() {
           </button>
         </section>
       </div>
+
+      {isDeleteOrganizationModalOpen && currentOrganization && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
+          <section className="w-full max-w-[640px] rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <WarningIcon />
+                <h2 className="text-xl font-semibold">会社の削除</h2>
+              </div>
+              <button
+                type="button"
+                aria-label="閉じる"
+                onClick={closeDeleteOrganizationModal}
+                className="rounded-md p-1 text-[#596074] transition hover:bg-[#f0f1f4] hover:text-[#030213]"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <p className="mt-2 text-sm leading-relaxed text-[#717182]">
+              この会社を削除します。この操作は元に戻せません。従業員・シフト枠・シフト希望・相性スコアも同時に削除されます。
+            </p>
+
+            {deleteErrorMessage && (
+              <p className="mt-4 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-semibold text-[#be123c]">
+                {deleteErrorMessage}
+              </p>
+            )}
+
+            <div className="mt-6 rounded-lg bg-[#f7f8fb] px-5 py-5">
+              <p className="font-semibold">{currentOrganization.name}</p>
+              {currentOrganization.department && (
+                <p className="mt-2 text-sm text-[#475569]">
+                  {currentOrganization.department}
+                </p>
+              )}
+              <p className="mt-2 font-mono text-sm font-semibold text-[#1d4ed8]">
+                {organizationId}
+              </p>
+            </div>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={closeDeleteOrganizationModal}
+                disabled={isDeletingOrganization}
+                className="h-10 rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteOrganization}
+                disabled={isDeletingOrganization}
+                className="inline-flex h-10 items-center justify-center gap-3 rounded-md bg-[#db1741] text-sm font-semibold text-white transition hover:bg-[#c51239] disabled:cursor-not-allowed disabled:bg-[#c56c7f]"
+              >
+                <TrashIcon />
+                {isDeletingOrganization ? "削除中..." : "削除する"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
