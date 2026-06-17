@@ -26,6 +26,7 @@ import {
   sumShiftPay,
   type PayrollSettings,
 } from "@/lib/payroll";
+import { formatShiftTimeRange } from "@/lib/shiftSlots";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -282,7 +283,7 @@ function ShiftRequestRow({
         <div>
           <p className="font-semibold">{formatDateOnly(request.date)}</p>
           <p className="mt-1 text-sm text-[#475569]">
-            {request.startTime} - {request.endTime}
+            {formatShiftTimeRange(request.startTime, request.endTime)}
           </p>
           <p className="mt-1 text-sm font-semibold text-[#00a63e]">
             {formatCurrency(payroll.totalPay)}
@@ -522,18 +523,20 @@ function EmployeePageContent() {
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <header className="border-b border-black/10 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-[1248px] items-center justify-between px-4 py-5 sm:px-6 lg:px-0">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#ececf0] text-[#030213]">
+        <div className="mx-auto flex max-w-[1248px] items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5 lg:px-0">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ececf0] text-[#030213] sm:h-10 sm:w-10">
               <UserIcon />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-2xl font-semibold leading-tight">
+              <h1 className="truncate text-xl font-semibold leading-tight sm:text-2xl">
                 {employee.name}
               </h1>
-              <p className="truncate text-sm text-[#717182]">
-                {employee.organization} - {employee.department}・{employee.employmentType}・
-                {employee.employeeId}
+              <p className="truncate text-xs text-[#717182] sm:text-sm">
+                {employee.organization}
+                {employee.department ? ` - ${employee.department}` : ""}・
+                {employee.employmentType}
+                <span className="hidden sm:inline">・{employee.employeeId}</span>
               </p>
             </div>
           </div>
@@ -541,10 +544,11 @@ function EmployeePageContent() {
           <button
             type="button"
             onClick={handleLogout}
-            className="inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
+            aria-label="ログアウト"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-sm font-semibold transition hover:bg-[#e9ebef] sm:w-auto sm:gap-2 sm:px-3 sm:py-2"
           >
             <LogoutIcon />
-            ログアウト
+            <span className="hidden sm:inline">ログアウト</span>
           </button>
         </div>
       </header>
@@ -593,7 +597,10 @@ function EmployeePageContent() {
                   <div className="min-w-0">
                     <p className="font-semibold">{formatDateLabel(nearestRequest.date)}</p>
                     <p className="mt-1 text-sm text-[#475569]">
-                      {nearestRequest.startTime} - {nearestRequest.endTime}
+                      {formatShiftTimeRange(
+                        nearestRequest.startTime,
+                        nearestRequest.endTime,
+                      )}
                     </p>
                     <p className="mt-1 text-sm font-semibold text-[#00a63e]">
                       {formatCurrency(

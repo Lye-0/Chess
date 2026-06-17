@@ -31,6 +31,7 @@ export type ShiftSlot = {
 export type ShiftSlotInput = Omit<ShiftSlot, "id" | "requestCount">;
 
 const fourDigitDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+const timePattern = /^\d{2}:\d{2}$/;
 
 export function isFourDigitShiftDate(date: string) {
   if (!fourDigitDatePattern.test(date)) return false;
@@ -49,9 +50,46 @@ export function isFourDigitShiftDate(date: string) {
   );
 }
 
+function isValidShiftTime(time: string) {
+  if (!timePattern.test(time)) return false;
+
+  const [hour, minute] = time.split(":").map(Number);
+
+  return (
+    Number.isInteger(hour) &&
+    Number.isInteger(minute) &&
+    hour >= 0 &&
+    hour <= 23 &&
+    minute >= 0 &&
+    minute <= 59
+  );
+}
+
+export function isValidShiftTimeRange(startTime: string, endTime: string) {
+  return (
+    isValidShiftTime(startTime) &&
+    isValidShiftTime(endTime) &&
+    startTime !== endTime
+  );
+}
+
+export function isOvernightShiftTime(startTime: string, endTime: string) {
+  return isValidShiftTimeRange(startTime, endTime) && startTime > endTime;
+}
+
+export function formatShiftTimeRange(startTime: string, endTime: string) {
+  return isOvernightShiftTime(startTime, endTime)
+    ? `${startTime} - 翌日${endTime}`
+    : `${startTime} - ${endTime}`;
+}
+
 function assertValidShiftSlotInput(input: ShiftSlotInput) {
   if (!isFourDigitShiftDate(input.date)) {
     throw new Error("Shift slot date must use a valid four-digit year.");
+  }
+
+  if (!isValidShiftTimeRange(input.startTime, input.endTime)) {
+    throw new Error("Shift slot time range must be valid.");
   }
 }
 
