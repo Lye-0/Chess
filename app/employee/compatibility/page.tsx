@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
+  saveCompatibilityScores,
+  subscribeCompatibilityScores,
+} from "@/lib/compatibilities";
+import {
   findEmployeeById,
   getEmployeePageQuery,
   getEmployeeSessionServerSnapshot,
@@ -61,7 +65,10 @@ function EmployeeCompatibilityContent() {
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [isEmployeesLoading, setIsEmployeesLoading] = useState(true);
+  const [isScoresLoading, setIsScoresLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const sessionSnapshot = useSyncExternalStore(
     subscribeEmployeeSession,
     getEmployeeSessionSnapshot,
@@ -133,6 +140,29 @@ function EmployeeCompatibilityContent() {
     };
   }, [employee]);
 
+  useEffect(() => {
+    if (!employee) return;
+
+    const unsubscribeScores = subscribeCompatibilityScores(
+      employee.employeeId,
+      (nextScores) => {
+        setScores(nextScores);
+        setIsScoresLoading(false);
+        setErrorMessage(null);
+      },
+      (error) => {
+        console.error(error);
+        setIsScoresLoading(false);
+        setErrorMessage("働きやすさ設定の読み込みに失敗しました。");
+      },
+      employee.organizationId,
+    );
+
+    return () => {
+      unsubscribeScores();
+    };
+  }, [employee]);
+
   const targetEmployees = useMemo(() => {
     if (!employee) return [];
     return employees.filter(
@@ -149,6 +179,37 @@ function EmployeeCompatibilityContent() {
       ...currentScores,
       [employeeId]: value,
     }));
+    setSuccessMessage(null);
+  }
+
+  async function saveScores() {
+    if (!employee) return;
+
+    const nextScores = targetEmployees.reduce<Record<string, number>>(
+      (currentScores, targetEmployee) => {
+        currentScores[targetEmployee.employeeId] =
+          scores[targetEmployee.employeeId] ?? 0;
+        return currentScores;
+      },
+      {},
+    );
+
+    try {
+      setIsSaving(true);
+      setErrorMessage(null);
+      await saveCompatibilityScores({
+        employeeId: employee.employeeId,
+        organizationId: employee.organizationId,
+        scores: nextScores,
+      });
+      setScores(nextScores);
+      setSuccessMessage("働きやすさ設定を保存しました。");
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("働きやすさ設定の保存に失敗しました。");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   if (!employee) {
@@ -195,11 +256,16 @@ function EmployeeCompatibilityContent() {
               {errorMessage}
             </div>
           )}
+          {successMessage && (
+            <div className="mt-5 rounded-md border border-[#bbf7d0] bg-[#f0fdf4] px-4 py-3 text-sm text-[#15803d]">
+              {successMessage}
+            </div>
+          )}
 
           <div className="mt-6 space-y-4">
-            {isEmployeesLoading ? (
+            {isEmployeesLoading || isScoresLoading ? (
               <div className="flex min-h-40 items-center justify-center text-center text-[#717182]">
-                <p>従業員を読み込んでいます</p>
+                <p>設定情報を読み込んでいます</p>
               </div>
             ) : targetEmployees.length === 0 ? (
               <div className="flex min-h-40 items-center justify-center text-center text-[#717182]">
@@ -256,6 +322,22 @@ function EmployeeCompatibilityContent() {
               })
             )}
           </div>
+
+          {targetEmployees.length > 0 && (
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-[#717182]">
+                未入力の相手は 0 点として保存されます。
+              </p>
+              <button
+                type="button"
+                disabled={isSaving || isEmployeesLoading || isScoresLoading}
+                onClick={saveScores}
+                className="inline-flex h-10 items-center justify-center rounded-md bg-[#00a63e] px-5 text-sm font-semibold text-white transition hover:bg-[#008c35] disabled:cursor-not-allowed disabled:bg-[#9bcfaa]"
+              >
+                {isSaving ? "保存中..." : "保存する"}
+              </button>
+            </div>
+          )}
         </section>
       </div>
     </main>
