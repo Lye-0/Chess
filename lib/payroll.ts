@@ -11,7 +11,7 @@ import { db } from "./firebase";
 import { defaultOrganizationId } from "./people";
 import type { ShiftRequest } from "./shiftRequests";
 
-export const employmentTypes = ["正社員", "パート", "アルバイト", "契約社員"];
+export const employmentTypes = ["正社員", "アルバイト", "契約社員"];
 
 export type PayrollSettings = {
   hourlyRates: Record<string, number>;

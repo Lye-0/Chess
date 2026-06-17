@@ -2,9 +2,11 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
+  writeBatch,
   type DocumentData,
   type FirestoreError,
   type QueryDocumentSnapshot,
@@ -147,4 +149,52 @@ export async function createManagerOrganization(
   });
 
   return organization;
+}
+
+export async function deleteManagerOrganization(
+  managerUid: string,
+  organizationId: string,
+) {
+  const trimmedOrganizationId = organizationId.trim();
+
+  if (!managerUid) {
+    throw new Error("管理者ログインが必要です。");
+  }
+
+  if (!trimmedOrganizationId) {
+    throw new Error("削除対象の組織が見つかりません。");
+  }
+
+  const organizationSnapshot = await getDoc(
+    doc(getManagerOrganizationsCollection(managerUid), trimmedOrganizationId),
+  );
+
+  if (!organizationSnapshot.exists()) {
+    throw new Error("削除対象の組織が見つかりません。");
+  }
+
+  const deletableCollectionNames = [
+    "employees",
+    "shiftSlots",
+    "shiftRequests",
+    "compatibilities",
+  ];
+  const snapshots = await Promise.all(
+    deletableCollectionNames.map((collectionName) =>
+      getDocs(collection(db, "organizations", trimmedOrganizationId, collectionName)),
+    ),
+  );
+  const batch = writeBatch(db);
+
+  snapshots.forEach((snapshot) => {
+    snapshot.docs.forEach((documentSnapshot) => {
+      batch.delete(documentSnapshot.ref);
+    });
+  });
+
+  batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "payroll"));
+  batch.delete(doc(db, "organizations", trimmedOrganizationId));
+  batch.delete(doc(getManagerOrganizationsCollection(managerUid), trimmedOrganizationId));
+
+  await batch.commit();
 }

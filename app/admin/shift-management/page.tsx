@@ -578,6 +578,8 @@ function AdminShiftManagementContent() {
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ShiftSlot | null>(null);
+  const [deleteRequestTarget, setDeleteRequestTarget] =
+    useState<ShiftRequest | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ShiftForm>(emptyForm);
   const [isLoading, setIsLoading] = useState(true);
@@ -817,23 +819,28 @@ function AdminShiftManagementContent() {
     }
   }
 
-  async function handleRemoveRequest(request: ShiftRequest) {
-    const isApproved = request.status === "承認済";
-    const confirmed = window.confirm(
-      isApproved
-        ? `${request.employeeName}さんの承認を取り消し、承認待ちに戻します。よろしいですか？`
-        : `${request.employeeName}さんのシフト希望を削除します。よろしいですか？`,
-    );
-    if (!confirmed) return;
+  function openDeleteRequestModal(request: ShiftRequest) {
+    setDeleteRequestTarget(request);
+  }
 
+  function closeDeleteRequestModal() {
+    if (deleteRequestTarget && deletingRequestId === deleteRequestTarget.id) return;
+    setDeleteRequestTarget(null);
+  }
+
+  async function confirmDeleteRequest() {
+    if (!deleteRequestTarget) return;
+
+    const isApproved = deleteRequestTarget.status === "承認済";
     try {
-      setDeletingRequestId(request.id);
+      setDeletingRequestId(deleteRequestTarget.id);
       setErrorMessage(null);
       if (isApproved) {
-        await resetShiftRequestApproval(request.id, organizationId);
+        await resetShiftRequestApproval(deleteRequestTarget.id, organizationId);
       } else {
-        await removeShiftRequest(request.id, organizationId);
+        await removeShiftRequest(deleteRequestTarget.id, organizationId);
       }
+      setDeleteRequestTarget(null);
     } catch (error) {
       console.error(error);
       setErrorMessage(
@@ -988,7 +995,7 @@ function AdminShiftManagementContent() {
                                 onApprove={(request) =>
                                   handleApproveRequest(slot, request)
                                 }
-                                onRemove={handleRemoveRequest}
+                                onRemove={openDeleteRequestModal}
                               />
                               <ShiftRequestGroup
                                 title="承認済み"
@@ -1000,7 +1007,7 @@ function AdminShiftManagementContent() {
                                 onApprove={(request) =>
                                   handleApproveRequest(slot, request)
                                 }
-                                onRemove={handleRemoveRequest}
+                                onRemove={openDeleteRequestModal}
                               />
                             </div>
                           )}
@@ -1126,6 +1133,83 @@ function AdminShiftManagementContent() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {deleteRequestTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
+          <section className="w-full max-w-[640px] rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <WarningIcon />
+                <h2 className="text-xl font-semibold">
+                  {deleteRequestTarget.status === "承認済"
+                    ? "承認の取り消し"
+                    : "シフト希望の削除"}
+                </h2>
+              </div>
+              <button
+                type="button"
+                aria-label="閉じる"
+                onClick={closeDeleteRequestModal}
+                className="rounded-md p-1 text-[#596074] transition hover:bg-[#f0f1f4] hover:text-[#030213]"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <p className="mt-2 text-sm leading-relaxed text-[#717182]">
+              {deleteRequestTarget.status === "承認済"
+                ? "この承認を取り消し、承認待ちに戻します。申請自体は削除されません。"
+                : "このシフト希望を削除します。この操作は元に戻せません。"}
+            </p>
+
+            <div className="mt-6 rounded-lg bg-[#f7f8fb] px-5 py-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="font-semibold">{deleteRequestTarget.employeeName}</p>
+                  <p className="mt-2 text-sm text-[#475569]">
+                    {deleteRequestTarget.employeeEmail}
+                    <span className="ml-4">{deleteRequestTarget.employmentType}</span>
+                  </p>
+                  <p className="mt-2 font-mono text-sm font-semibold text-[#1d4ed8]">
+                    {deleteRequestTarget.employeeId}
+                  </p>
+                </div>
+                <RequestStatusBadge status={deleteRequestTarget.status} />
+              </div>
+              <p className="mt-4 text-sm font-semibold text-[#475569]">
+                {getDateLabel(deleteRequestTarget.date)}
+                <span className="ml-4">
+                  {deleteRequestTarget.startTime} - {deleteRequestTarget.endTime}
+                </span>
+              </p>
+            </div>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={closeDeleteRequestModal}
+                disabled={deletingRequestId === deleteRequestTarget.id}
+                className="h-10 rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteRequest}
+                disabled={deletingRequestId === deleteRequestTarget.id}
+                className="inline-flex h-10 items-center justify-center gap-3 rounded-md bg-[#db1741] text-sm font-semibold text-white transition hover:bg-[#c51239] disabled:cursor-not-allowed disabled:bg-[#c56c7f]"
+              >
+                <TrashIcon />
+                {deletingRequestId === deleteRequestTarget.id
+                  ? "処理中..."
+                  : deleteRequestTarget.status === "承認済"
+                    ? "承認を取り消す"
+                    : "削除する"}
+              </button>
+            </div>
+          </section>
         </div>
       )}
 
