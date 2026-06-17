@@ -54,6 +54,16 @@ function normalizeShiftRequestStatus(status: unknown): ShiftRequestStatus {
   return status === "承認済" ? "承認済" : "希望済";
 }
 
+function normalizeShiftSlotCapacity(capacity: unknown) {
+  const normalizedCapacity = Number(capacity ?? 0);
+
+  if (!Number.isFinite(normalizedCapacity) || normalizedCapacity < 1) {
+    throw new Error("Shift slot capacity is invalid.");
+  }
+
+  return normalizedCapacity;
+}
+
 export function isShiftStartInFuture(
   shift: ShiftDateTime,
   now = new Date(),
@@ -218,7 +228,36 @@ export async function approveShiftRequest(
   requestId: string,
   organizationId = defaultOrganizationId,
 ) {
-  await updateDoc(doc(getShiftRequestsCollection(organizationId), requestId), {
+  const requestRef = doc(getShiftRequestsCollection(organizationId), requestId);
+  const requestSnapshot = await getDoc(requestRef);
+
+  if (!requestSnapshot.exists()) return;
+  if (normalizeShiftRequestStatus(requestSnapshot.data().status) === "承認済") return;
+
+  const slotId = String(requestSnapshot.data().slotId ?? "");
+  if (!slotId) throw new Error("Shift request slot is invalid.");
+
+  const slotSnapshot = await getDoc(getShiftSlotDocument(slotId, organizationId));
+  if (!slotSnapshot.exists()) throw new Error("Shift slot is not available.");
+
+  const capacity = normalizeShiftSlotCapacity(slotSnapshot.data().capacity);
+  const currentRequestsSnapshot = await getDocs(
+    getShiftRequestsCollection(organizationId),
+  );
+  const approvedCount = currentRequestsSnapshot.docs.filter((currentSnapshot) => {
+    const data = currentSnapshot.data();
+    return (
+      currentSnapshot.id !== requestId &&
+      data.slotId === slotId &&
+      normalizeShiftRequestStatus(data.status) === "承認済"
+    );
+  }).length;
+
+  if (approvedCount >= capacity) {
+    throw new Error("Shift slot approval capacity reached.");
+  }
+
+  await updateDoc(requestRef, {
     status: "承認済",
     approvedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -229,19 +268,72 @@ export async function approveShiftRequests(
   requestIds: string[],
   organizationId = defaultOrganizationId,
 ) {
-  const batch = writeBatch(db);
   const uniqueRequestIds = [...new Set(requestIds.map((requestId) => requestId.trim()))]
     .filter(Boolean);
 
-  uniqueRequestIds.forEach((requestId) => {
-    batch.update(doc(getShiftRequestsCollection(organizationId), requestId), {
+  if (uniqueRequestIds.length === 0) return;
+
+  const requestSnapshots = await Promise.all(
+    uniqueRequestIds.map((requestId) =>
+      getDoc(doc(getShiftRequestsCollection(organizationId), requestId)),
+    ),
+  );
+  const approvableRequests = requestSnapshots
+    .filter((requestSnapshot) => requestSnapshot.exists())
+    .filter(
+      (requestSnapshot) =>
+        normalizeShiftRequestStatus(requestSnapshot.data().status) !== "承認済",
+    )
+    .map((requestSnapshot) => ({
+      id: requestSnapshot.id,
+      slotId: String(requestSnapshot.data().slotId ?? ""),
+    }))
+    .filter((request) => request.slotId);
+
+  if (approvableRequests.length === 0) return;
+
+  const approvableIdsBySlot = approvableRequests.reduce<Record<string, string[]>>(
+    (groups, request) => {
+      groups[request.slotId] = [...(groups[request.slotId] ?? []), request.id];
+      return groups;
+    },
+    {},
+  );
+  const currentRequestsSnapshot = await getDocs(
+    getShiftRequestsCollection(organizationId),
+  );
+
+  await Promise.all(
+    Object.entries(approvableIdsBySlot).map(async ([slotId, slotRequestIds]) => {
+      const slotSnapshot = await getDoc(getShiftSlotDocument(slotId, organizationId));
+      if (!slotSnapshot.exists()) throw new Error("Shift slot is not available.");
+
+      const capacity = normalizeShiftSlotCapacity(slotSnapshot.data().capacity);
+      const approvingRequestIds = new Set(slotRequestIds);
+      const approvedCount = currentRequestsSnapshot.docs.filter((currentSnapshot) => {
+        const data = currentSnapshot.data();
+        return (
+          !approvingRequestIds.has(currentSnapshot.id) &&
+          data.slotId === slotId &&
+          normalizeShiftRequestStatus(data.status) === "承認済"
+        );
+      }).length;
+
+      if (approvedCount + slotRequestIds.length > capacity) {
+        throw new Error("Shift slot approval capacity reached.");
+      }
+    }),
+  );
+
+  const batch = writeBatch(db);
+
+  approvableRequests.forEach((request) => {
+    batch.update(doc(getShiftRequestsCollection(organizationId), request.id), {
       status: "承認済",
       approvedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
   });
-
-  if (uniqueRequestIds.length === 0) return;
 
   await batch.commit();
 }

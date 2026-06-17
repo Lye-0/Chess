@@ -399,11 +399,13 @@ function SlotCompatibilityPanel({
 function RecommendedCombinationPanel({
   recommendedCombination,
   capacity,
+  remainingApprovalCount,
   isApproving,
   onApprove,
 }: {
   recommendedCombination: RecommendedCombination | null;
   capacity: number;
+  remainingApprovalCount: number;
   isApproving: boolean;
   onApprove: () => void;
 }) {
@@ -412,6 +414,9 @@ function RecommendedCombinationPanel({
   const pendingRecommendedRequests = recommendedCombination.requests.filter(
     (request) => request.status !== "承認済",
   );
+  const canApproveRecommended =
+    pendingRecommendedRequests.length > 0 &&
+    pendingRecommendedRequests.length <= remainingApprovalCount;
 
   return (
     <section className="mt-4 rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-3 py-3 text-[#1d4ed8]">
@@ -439,14 +444,18 @@ function RecommendedCombinationPanel({
           </span>
           <button
             type="button"
-            disabled={isApproving || pendingRecommendedRequests.length === 0}
+            disabled={isApproving || !canApproveRecommended}
             onClick={onApprove}
-            className="h-9 rounded-md bg-[#1763ff] px-4 text-xs font-semibold text-white transition hover:bg-[#0f4ed8] disabled:cursor-not-allowed disabled:bg-[#93b4ff]"
+            className="h-9 rounded-md bg-[#1763ff] px-4 text-xs font-semibold text-white transition hover:bg-[#0f4ed8] disabled:cursor-not-allowed disabled:bg-[#cbd5e1] disabled:text-white"
           >
             {pendingRecommendedRequests.length === 0
               ? "承認済み"
               : isApproving
                 ? "承認中..."
+                : remainingApprovalCount <= 0
+                  ? "募集人数に達しました"
+                  : pendingRecommendedRequests.length > remainingApprovalCount
+                    ? "承認枠不足"
                 : "おすすめを一括承認"}
           </button>
         </div>
@@ -462,6 +471,7 @@ function ShiftRequestGroup({
   approvingRequestId,
   deletingRequestId,
   payrollSettings,
+  isApprovalLimitReached = false,
   onApprove,
   onRemove,
 }: {
@@ -471,6 +481,7 @@ function ShiftRequestGroup({
   approvingRequestId: string | null;
   deletingRequestId: string | null;
   payrollSettings: PayrollSettings;
+  isApprovalLimitReached?: boolean;
   onApprove: (request: ShiftRequest) => void;
   onRemove: (request: ShiftRequest) => void;
 }) {
@@ -491,6 +502,8 @@ function ShiftRequestGroup({
             const approved = request.status === "承認済";
             const approving = approvingRequestId === request.id;
             const deleting = deletingRequestId === request.id;
+            const approvalDisabled =
+              approving || deleting || isApprovalLimitReached;
             const payroll = calculateShiftPayroll(request, payrollSettings);
 
             return (
@@ -514,9 +527,14 @@ function ShiftRequestGroup({
                   {!approved && (
                     <button
                       type="button"
-                      disabled={approving || deleting}
+                      disabled={approvalDisabled}
                       onClick={() => onApprove(request)}
-                      className="h-8 rounded-md bg-[#030213] px-3 text-xs font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#8e8d95]"
+                      title={
+                        isApprovalLimitReached
+                          ? "募集人数に達しているため承認できません"
+                          : undefined
+                      }
+                      className="h-8 rounded-md bg-[#030213] px-3 text-xs font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#d1d5db] disabled:text-white"
                     >
                       {approving ? "承認中..." : "承認"}
                     </button>
@@ -743,8 +761,17 @@ function AdminShiftManagementContent() {
     }
   }
 
-  async function handleApproveRequest(request: ShiftRequest) {
+  async function handleApproveRequest(slot: ShiftSlot, request: ShiftRequest) {
     if (request.status === "承認済") return;
+
+    const approvedCount = (requestsBySlot[slot.id] ?? []).filter(
+      (slotRequest) => slotRequest.status === "承認済",
+    ).length;
+
+    if (approvedCount >= slot.capacity) {
+      setErrorMessage("募集人数に達しているため、これ以上承認できません。");
+      return;
+    }
 
     try {
       setApprovingRequestId(request.id);
@@ -764,11 +791,19 @@ function AdminShiftManagementContent() {
   ) {
     if (!recommendedCombination) return;
 
+    const approvedCount = (requestsBySlot[slot.id] ?? []).filter(
+      (slotRequest) => slotRequest.status === "承認済",
+    ).length;
+    const remainingApprovalCount = Math.max(0, slot.capacity - approvedCount);
     const pendingRequestIds = recommendedCombination.requests
       .filter((request) => request.status !== "承認済")
       .map((request) => request.id);
 
     if (pendingRequestIds.length === 0) return;
+    if (pendingRequestIds.length > remainingApprovalCount) {
+      setErrorMessage("おすすめ組み合わせを承認すると募集人数を超えるため、承認できません。");
+      return;
+    }
 
     try {
       setApprovingRecommendedSlotId(slot.id);
@@ -875,6 +910,11 @@ function AdminShiftManagementContent() {
                       const pendingRequests = slotRequests.filter(
                         (request) => request.status !== "承認済",
                       );
+                      const remainingApprovalCount = Math.max(
+                        0,
+                        slot.capacity - approvedRequests.length,
+                      );
+                      const isApprovalLimitReached = remainingApprovalCount === 0;
                       const compatibilitySummary = getSlotCompatibilitySummary(
                         slotRequests,
                         compatibilityScores,
@@ -925,6 +965,7 @@ function AdminShiftManagementContent() {
                           <RecommendedCombinationPanel
                             recommendedCombination={recommendedCombination}
                             capacity={slot.capacity}
+                            remainingApprovalCount={remainingApprovalCount}
                             isApproving={approvingRecommendedSlotId === slot.id}
                             onApprove={() =>
                               handleApproveRecommendedRequests(
@@ -943,7 +984,10 @@ function AdminShiftManagementContent() {
                                 approvingRequestId={approvingRequestId}
                                 deletingRequestId={deletingRequestId}
                                 payrollSettings={payrollSettings}
-                                onApprove={handleApproveRequest}
+                                isApprovalLimitReached={isApprovalLimitReached}
+                                onApprove={(request) =>
+                                  handleApproveRequest(slot, request)
+                                }
                                 onRemove={handleRemoveRequest}
                               />
                               <ShiftRequestGroup
@@ -953,7 +997,9 @@ function AdminShiftManagementContent() {
                                 approvingRequestId={approvingRequestId}
                                 deletingRequestId={deletingRequestId}
                                 payrollSettings={payrollSettings}
-                                onApprove={handleApproveRequest}
+                                onApprove={(request) =>
+                                  handleApproveRequest(slot, request)
+                                }
                                 onRemove={handleRemoveRequest}
                               />
                             </div>
