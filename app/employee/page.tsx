@@ -537,7 +537,7 @@ function EmployeePageContent() {
         <section className="grid gap-6 lg:grid-cols-2">
           <Link
             href={`/employee/shift-request${employeeQuery}`}
-            className="h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm transition hover:shadow-md"
+            className="min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm transition hover:shadow-md"
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#ececf0] text-[#030213]">
               <CalendarIcon />
@@ -549,7 +549,7 @@ function EmployeePageContent() {
             </div>
           </Link>
 
-          <section className="h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm">
+          <section className="min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#ececf0] text-[#030213]">
               <ClockIcon />
             </div>
@@ -559,8 +559,8 @@ function EmployeePageContent() {
               {isLoading ? (
                 <p className="text-sm text-[#717182]">読み込んでいます</p>
               ) : nearestRequest ? (
-                <div className="flex items-center justify-between rounded-lg bg-[#f7f8fb] px-4 py-3">
-                  <div>
+                <div className="flex flex-col gap-3 rounded-lg bg-[#f7f8fb] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
                     <p className="font-semibold">{formatDateLabel(nearestRequest.date)}</p>
                     <p className="mt-1 text-sm text-[#475569]">
                       {nearestRequest.startTime} - {nearestRequest.endTime}
@@ -571,7 +571,9 @@ function EmployeePageContent() {
                       )}
                     </p>
                   </div>
-                  <RequestStatusBadge status={nearestRequest.status} />
+                  <div className="shrink-0 self-start sm:self-auto">
+                    <RequestStatusBadge status={nearestRequest.status} />
+                  </div>
                 </div>
               ) : (
                 <div className="flex min-h-24 items-center justify-center">
