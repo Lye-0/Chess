@@ -349,6 +349,22 @@ export async function resetShiftRequestApproval(
   });
 }
 
+export async function countApprovedShiftRequestsBySlot(
+  slotId: string,
+  organizationId = defaultOrganizationId,
+) {
+  const snapshot = await getDocs(getShiftRequestsCollection(organizationId));
+
+  return snapshot.docs.filter((requestSnapshot) => {
+    const data = requestSnapshot.data();
+
+    return (
+      data.slotId === slotId &&
+      normalizeShiftRequestStatus(data.status) === "承認済"
+    );
+  }).length;
+}
+
 export async function removeShiftRequestsBySlot(
   slotId: string,
   organizationId = defaultOrganizationId,

@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import {
+  countApprovedShiftRequestsBySlot,
   isShiftStartInFuture,
   removeShiftRequestsBySlot,
 } from "./shiftRequests";
@@ -149,6 +150,11 @@ export async function updateShiftSlot(
   organizationId = defaultOrganizationId,
 ) {
   assertValidShiftSlotInput(input);
+  const approvedCount = await countApprovedShiftRequestsBySlot(id, organizationId);
+
+  if (input.capacity < approvedCount) {
+    throw new Error("Shift slot capacity cannot be less than approved requests.");
+  }
 
   await updateDoc(doc(getShiftSlotsCollection(organizationId), id), {
     ...input,
