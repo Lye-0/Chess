@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowLeftIcon } from "@/components/icons";
+import { ArrowLeftIcon as BackArrowLeftIcon } from "@/components/icons";
 
 export {
   ArrowLeftIcon,
@@ -73,7 +73,7 @@ export function BackHeader({
           href={backHref}
           className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
         >
-          <ArrowLeftIcon />
+          <BackArrowLeftIcon />
           {backLabel}
         </Link>
         {right}
