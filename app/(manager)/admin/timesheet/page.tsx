@@ -24,7 +24,6 @@ import {
   BackHeader,
   Card,
   ChevronDownIcon,
-  DownloadIcon,
 } from "../../_components/shift-ui";
 
 function padDatePart(value: number) {
@@ -333,18 +332,7 @@ function AdminTimesheetContent() {
 
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
-      <BackHeader
-        backHref={`/admin${organizationQuery}`}
-        right={
-          <button
-            type="button"
-            className="inline-flex h-10 items-center gap-2 rounded-md border border-black/10 bg-white px-4 text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
-          >
-            <DownloadIcon />
-            CSVエクスポート
-          </button>
-        }
-      />
+      <BackHeader backHref={`/admin${organizationQuery}`} />
 
       <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
         <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
