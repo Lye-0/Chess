@@ -428,3 +428,4 @@ export default function AdminPage() {
     </Suspense>
   );
 }
+
