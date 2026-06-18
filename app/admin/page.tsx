@@ -249,44 +249,42 @@ function AdminContent() {
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <header className="border-b border-black/10 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-[1248px] items-center justify-between px-4 py-4 sm:px-6 lg:px-0">
-          <div className="flex min-w-0 items-center gap-6">
-            <Link
-              href="/manager/select-organization"
-              className="inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
-            >
-              <ArrowLeftIcon />
-              組織選択へ
-            </Link>
+        <div className="mx-auto grid max-w-[1248px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-4 sm:gap-4 sm:px-6 lg:px-0">
+          <Link
+            href="/manager/select-organization"
+            className="inline-flex shrink-0 items-center gap-2 rounded-md px-2 py-2 text-sm font-semibold transition hover:bg-[#e9ebef] sm:px-3"
+          >
+            <ArrowLeftIcon />
+            <span className="whitespace-nowrap">組織選択へ</span>
+          </Link>
 
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#ececf0]">
-                <BuildingIcon />
-              </div>
-              <div className="min-w-0">
-                <h1 className="truncate text-2xl font-semibold leading-tight">
-                  管理者ホーム
-                </h1>
-                <p className="truncate text-sm text-[#717182]">組織管理</p>
-                <p className="truncate text-xs text-[#717182]">
-                  {currentOrganization.name}
-                  {currentOrganization.department
-                    ? ` - ${currentOrganization.department}`
-                    : ""}
-                </p>
-                <p className="truncate font-mono text-xs text-[#717182]">
-                  ID: {organizationId}
-                </p>
-              </div>
+          <div className="flex min-w-0 items-center justify-center gap-2 sm:gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#ececf0] sm:h-11 sm:w-11">
+              <BuildingIcon />
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-semibold leading-tight sm:text-2xl">
+                管理者ホーム
+              </h1>
+              <p className="truncate text-xs text-[#717182] sm:text-sm">
+                {currentOrganization.name}
+                {currentOrganization.department
+                  ? ` - ${currentOrganization.department}`
+                  : ""}
+              </p>
+              <p className="truncate font-mono text-xs text-[#717182]">
+                ID: {organizationId}
+              </p>
             </div>
           </div>
 
           <Link
             href="/login"
-            className="inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
+            aria-label="ログアウト"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-sm font-semibold transition hover:bg-[#e9ebef] sm:w-auto sm:gap-2 sm:px-3 sm:py-2"
           >
             <LogoutIcon />
-            ログアウト
+            <span className="hidden sm:inline">ログアウト</span>
           </Link>
         </div>
       </header>
