@@ -231,7 +231,7 @@ function AdminContent() {
       setDeleteErrorMessage(
         error instanceof Error
           ? error.message
-          : "会社の削除に失敗しました。",
+          : "組織の削除に失敗しました。",
       );
     } finally {
       setIsDeletingOrganization(false);
@@ -350,7 +350,7 @@ function AdminContent() {
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#ffccd6] bg-white px-4 text-sm font-semibold text-[#ff003d] transition hover:bg-[#ffe8ee] disabled:cursor-not-allowed disabled:border-[#f3c7d0] disabled:text-[#c56c7f]"
           >
             <TrashIcon />
-            {isDeletingOrganization ? "会社を削除中..." : "会社を削除"}
+            {isDeletingOrganization ? "組織を削除中..." : "組織を削除"}
           </button>
         </section>
       </div>
@@ -361,7 +361,7 @@ function AdminContent() {
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-2">
                 <WarningIcon />
-                <h2 className="text-xl font-semibold">会社の削除</h2>
+                <h2 className="text-xl font-semibold">組織の削除</h2>
               </div>
               <button
                 type="button"
@@ -374,7 +374,7 @@ function AdminContent() {
             </div>
 
             <p className="mt-2 text-sm leading-relaxed text-[#717182]">
-              この会社を削除します。この操作は元に戻せません。従業員・シフト枠・シフト希望・相性スコアも同時に削除されます。
+              この組織を削除します。この操作は元に戻せません。従業員・シフト枠・シフト希望・相性スコアも同時に削除されます。
             </p>
 
             {deleteErrorMessage && (
