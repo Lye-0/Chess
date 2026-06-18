@@ -231,7 +231,7 @@ function AdminContent() {
       setDeleteErrorMessage(
         error instanceof Error
           ? error.message
-          : "会社の削除に失敗しました。",
+          : "組織の削除に失敗しました。",
       );
     } finally {
       setIsDeletingOrganization(false);
@@ -291,21 +291,25 @@ function AdminContent() {
 
       <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
         <header>
-          <h2 className="text-2xl font-semibold">管理者用画面</h2>
-          <p className="mt-3 text-[#475569]">
+          <h2 className="break-words text-2xl font-semibold">管理者用画面</h2>
+          <p className="mt-3 max-w-full break-words text-sm leading-relaxed text-[#475569] sm:text-base">
             シフト管理や従業員情報の管理を行うことができます
           </p>
         </header>
 
-        <section className="mt-9 grid gap-6 lg:grid-cols-2">
+        <section className="mt-9 grid grid-cols-1 gap-4 min-[560px]:grid-cols-2 sm:gap-5 lg:gap-6">
           {features.map((feature) => (
-            <Card key={feature.path} className="p-6">
+            <Card key={feature.path} className="p-4 sm:p-5 lg:p-6">
               <IconBadge className={feature.color}>{feature.icon}</IconBadge>
-              <h3 className="mt-3 text-xl font-semibold">{feature.title}</h3>
-              <p className="mt-1 text-sm text-[#717182]">{feature.description}</p>
+              <h3 className="mt-3 break-words text-lg font-semibold sm:text-xl">
+                {feature.title}
+              </h3>
+              <p className="mt-1 break-words text-sm leading-relaxed text-[#717182]">
+                {feature.description}
+              </p>
               <Link
                 href={`${feature.path}${organizationQuery}`}
-                className="mt-7 flex h-10 w-full items-center justify-center rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
+                className="mt-5 flex h-10 w-full items-center justify-center rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] lg:mt-7"
               >
                 開く
               </Link>
@@ -313,22 +317,22 @@ function AdminContent() {
           ))}
         </section>
 
-        <section className="mt-8 grid gap-6 lg:grid-cols-3">
-          <Card className="p-6">
+        <section className="mt-8 grid grid-cols-1 gap-4 min-[560px]:grid-cols-2 sm:gap-5 xl:grid-cols-3">
+          <Card className="p-4 sm:p-5 lg:p-6">
             <p className="text-sm text-[#717182]">登録シフト枠数</p>
             <p className="mt-4 text-3xl font-semibold">
               {isLoadingSlots ? "..." : `${slotCount}件`}
             </p>
             <p className="mt-4 text-sm text-[#475569]">この組織のシフト枠</p>
           </Card>
-          <Card className="p-6">
+          <Card className="p-4 sm:p-5 lg:p-6">
             <p className="text-sm text-[#717182]">登録従業員数</p>
             <p className="mt-4 text-3xl font-semibold">
               {isLoadingEmployees ? "..." : `${employeeCount}人`}
             </p>
             <p className="mt-4 text-sm text-[#475569]">この組織の従業員</p>
           </Card>
-          <Card className="p-6">
+          <Card className="p-4 sm:p-5 lg:p-6">
             <p className="text-sm text-[#717182]">今週の勤務時間</p>
             <p className="mt-4 text-3xl font-semibold">
               {isLoadingRequests ? "..." : formatHoursOnly(totalWorkMinutes)}
@@ -350,7 +354,7 @@ function AdminContent() {
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#ffccd6] bg-white px-4 text-sm font-semibold text-[#ff003d] transition hover:bg-[#ffe8ee] disabled:cursor-not-allowed disabled:border-[#f3c7d0] disabled:text-[#c56c7f]"
           >
             <TrashIcon />
-            {isDeletingOrganization ? "会社を削除中..." : "会社を削除"}
+            {isDeletingOrganization ? "組織を削除中..." : "組織を削除"}
           </button>
         </section>
       </div>
@@ -361,7 +365,7 @@ function AdminContent() {
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-2">
                 <WarningIcon />
-                <h2 className="text-xl font-semibold">会社の削除</h2>
+                <h2 className="text-xl font-semibold">組織の削除</h2>
               </div>
               <button
                 type="button"
@@ -374,7 +378,7 @@ function AdminContent() {
             </div>
 
             <p className="mt-2 text-sm leading-relaxed text-[#717182]">
-              この会社を削除します。この操作は元に戻せません。従業員・シフト枠・シフト希望・相性スコアも同時に削除されます。
+              この組織を削除します。この操作は元に戻せません。従業員・シフト枠・シフト希望・相性スコアも同時に削除されます。
             </p>
 
             {deleteErrorMessage && (

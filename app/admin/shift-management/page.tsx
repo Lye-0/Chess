@@ -17,6 +17,7 @@ import {
 import {
   approveShiftRequest,
   approveShiftRequests,
+  isShiftStartInFuture,
   removeShiftRequest,
   resetShiftRequestApproval,
   subscribeShiftRequests,
@@ -446,6 +447,15 @@ function AdminShiftManagementContent() {
     useState<string | null>(null);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => {
+      setNow(new Date());
+    }, 30000);
+
+    return () => window.clearInterval(timerId);
+  }, []);
 
   useEffect(() => {
     if (!currentOrganization) return;
@@ -517,6 +527,14 @@ function AdminShiftManagementContent() {
       return counts;
     }, {});
   }, [requests]);
+  const approvedCountBySlot = useMemo(() => {
+    return requests.reduce<Record<string, number>>((counts, request) => {
+      if (request.status !== "承認済") return counts;
+
+      counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
+      return counts;
+    }, {});
+  }, [requests]);
   const editingSlot = useMemo(
     () => slots.find((slot) => slot.id === editingId) ?? null,
     [editingId, slots],
@@ -524,13 +542,32 @@ function AdminShiftManagementContent() {
   const isEditingRequestedSlot = Boolean(
     editingSlot && getDisplayedRequestCount(editingSlot, requestCountBySlot) > 0,
   );
+  const editedSlotStartsInFuture = Boolean(
+    editingSlot && isShiftStartInFuture(editingSlot, now),
+  );
+  const formStartsInFuture =
+    isFourDigitShiftDate(form.date) &&
+    form.startTime &&
+    isShiftStartInFuture(
+      {
+        date: form.date,
+        startTime: form.startTime,
+      },
+      now,
+    );
+  const editingApprovedCount = editingSlot
+    ? approvedCountBySlot[editingSlot.id] ?? 0
+    : 0;
+  const minimumCapacity = Math.max(1, editingApprovedCount);
+  const capacityValue = Number(form.capacity);
   const canSave = Boolean(
     (isEditingRequestedSlot && editingSlot
-        ? true
+        ? editedSlotStartsInFuture
         : isFourDigitShiftDate(form.date) &&
-        isValidShiftTimeRange(form.startTime, form.endTime)) &&
-      Number(form.capacity) >= 1 &&
-      Number(form.capacity) <= 100,
+        isValidShiftTimeRange(form.startTime, form.endTime) &&
+        formStartsInFuture) &&
+      capacityValue >= minimumCapacity &&
+      capacityValue <= 100,
   );
   const requestsBySlot = useMemo(() => {
     return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
@@ -575,6 +612,18 @@ function AdminShiftManagementContent() {
       capacity: Number(form.capacity),
     };
 
+    if (!isShiftStartInFuture(nextSlot)) {
+      setErrorMessage("過去または開始済みの日時ではシフト枠を登録できません。");
+      return;
+    }
+
+    if (nextSlot.capacity < minimumCapacity) {
+      setErrorMessage(
+        `承認済み人数（${minimumCapacity}人）未満には募集人数を変更できません。`,
+      );
+      return;
+    }
+
     try {
       setIsSaving(true);
       setErrorMessage(null);
@@ -586,7 +635,13 @@ function AdminShiftManagementContent() {
       closeModal();
     } catch (error) {
       console.error(error);
-      setErrorMessage("シフト枠の保存に失敗しました。Firestore への書き込み権限を確認してください。");
+      setErrorMessage(
+        error instanceof Error &&
+          error.message ===
+            "Shift slot capacity cannot be less than approved requests."
+          ? "募集人数は承認済みの人数より少なくできません。"
+          : "シフト枠の保存に失敗しました。Firestore への書き込み権限を確認してください。",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -962,6 +1017,10 @@ function AdminShiftManagementContent() {
                     "rounded-md px-3 py-2 text-sm",
                     form.startTime === form.endTime
                       ? "bg-[#fff1f1] text-[#b00020]"
+                      : isFourDigitShiftDate(form.date) &&
+                          isValidShiftTimeRange(form.startTime, form.endTime) &&
+                          !formStartsInFuture
+                        ? "bg-[#fff1f1] text-[#b00020]"
                       : isOvernightShiftTime(form.startTime, form.endTime)
                         ? "bg-[#eff6ff] text-[#1d4ed8]"
                         : "bg-[#f7f8fb] text-[#475569]",
@@ -969,25 +1028,46 @@ function AdminShiftManagementContent() {
                 >
                   {form.startTime === form.endTime
                     ? "開始時刻と終了時刻は別の時刻にしてください。"
+                    : isFourDigitShiftDate(form.date) &&
+                        isValidShiftTimeRange(form.startTime, form.endTime) &&
+                        !formStartsInFuture
+                      ? "過去または開始済みの日時ではシフト枠を登録できません。"
                     : isOvernightShiftTime(form.startTime, form.endTime)
                       ? "終了時刻は翌日の時刻として保存されます。"
                       : "同じ日のシフトとして保存されます。"}
                 </p>
               )}
 
+              {isEditingRequestedSlot && editingSlot && !editedSlotStartsInFuture && (
+                <p className="rounded-md bg-[#fff1f1] px-3 py-2 text-sm text-[#b00020]">
+                  このシフトは過去または開始済みのため更新できません。
+                </p>
+              )}
+
               <div>
                 <label htmlFor="shift-capacity" className="block text-sm font-semibold">
-                  募集人数（1〜100人）
+                  募集人数（{minimumCapacity}〜100人）
                 </label>
                 <input
                   id="shift-capacity"
                   type="number"
-                  min="1"
+                  min={minimumCapacity}
                   max="100"
                   value={form.capacity}
                   onChange={(event) => setForm({ ...form, capacity: event.target.value })}
                   className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
                 />
+                {editingApprovedCount > 0 && (
+                  <p className="mt-2 text-sm text-[#717182]">
+                    承認済みが{editingApprovedCount}人いるため、募集人数は
+                    {editingApprovedCount}人未満にできません。
+                  </p>
+                )}
+                {form.capacity && capacityValue < minimumCapacity && (
+                  <p className="mt-2 rounded-md bg-[#fff1f1] px-3 py-2 text-sm text-[#b00020]">
+                    承認済み人数（{minimumCapacity}人）未満には変更できません。
+                  </p>
+                )}
               </div>
 
               <button

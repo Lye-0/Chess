@@ -12,7 +12,11 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { removeShiftRequestsBySlot } from "./shiftRequests";
+import {
+  countApprovedShiftRequestsBySlot,
+  isShiftStartInFuture,
+  removeShiftRequestsBySlot,
+} from "./shiftRequests";
 import { defaultOrganizationId } from "./people";
 
 function getShiftSlotsCollection(organizationId = defaultOrganizationId) {
@@ -91,6 +95,10 @@ function assertValidShiftSlotInput(input: ShiftSlotInput) {
   if (!isValidShiftTimeRange(input.startTime, input.endTime)) {
     throw new Error("Shift slot time range must be valid.");
   }
+
+  if (!isShiftStartInFuture(input)) {
+    throw new Error("Shift slot start time must be in the future.");
+  }
 }
 
 function toShiftSlot(snapshot: QueryDocumentSnapshot<DocumentData>): ShiftSlot {
@@ -142,6 +150,11 @@ export async function updateShiftSlot(
   organizationId = defaultOrganizationId,
 ) {
   assertValidShiftSlotInput(input);
+  const approvedCount = await countApprovedShiftRequestsBySlot(id, organizationId);
+
+  if (input.capacity < approvedCount) {
+    throw new Error("Shift slot capacity cannot be less than approved requests.");
+  }
 
   await updateDoc(doc(getShiftSlotsCollection(organizationId), id), {
     ...input,
