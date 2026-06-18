@@ -635,7 +635,13 @@ function AdminShiftManagementContent() {
       closeModal();
     } catch (error) {
       console.error(error);
-      setErrorMessage("シフト枠の保存に失敗しました。Firestore への書き込み権限を確認してください。");
+      setErrorMessage(
+        error instanceof Error &&
+          error.message ===
+            "Shift slot capacity cannot be less than approved requests."
+          ? "募集人数は承認済みの人数より少なくできません。"
+          : "シフト枠の保存に失敗しました。Firestore への書き込み権限を確認してください。",
+      );
     } finally {
       setIsSaving(false);
     }
