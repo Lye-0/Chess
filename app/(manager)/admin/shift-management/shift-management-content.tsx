@@ -34,6 +34,10 @@ import {
   subscribeOrganizationCompatibilityScores,
   type CompatibilityScoreMap,
 } from "@/lib/compatibilities";
+import {
+  defaultWorkScore,
+  subscribeEmployees,
+} from "@/lib/people";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   BackHeader,
@@ -51,6 +55,16 @@ type ShiftForm = {
 
 type RecommendedCombination = {
   requests: ShiftRequest[];
+  finalScore: number;
+  compatibilityAverage: number;
+  workScoreAverage: number;
+};
+
+type RecommendationWeightOption = {
+  id: "compatibility" | "balanced" | "workScore";
+  label: string;
+  compatibilityWeight: number;
+  workScoreWeight: number;
 };
 
 const emptyForm: ShiftForm = {
@@ -59,6 +73,27 @@ const emptyForm: ShiftForm = {
   endTime: "",
   capacity: "1",
 };
+
+const recommendationWeightOptions: RecommendationWeightOption[] = [
+  {
+    id: "compatibility",
+    label: "相性重視",
+    compatibilityWeight: 0.7,
+    workScoreWeight: 0.3,
+  },
+  {
+    id: "balanced",
+    label: "バランス",
+    compatibilityWeight: 0.5,
+    workScoreWeight: 0.5,
+  },
+  {
+    id: "workScore",
+    label: "シゴデキ重視",
+    compatibilityWeight: 0.3,
+    workScoreWeight: 0.7,
+  },
+];
 
 function normalizeDateInput(value: string) {
   if (value === "") return value;
@@ -185,11 +220,21 @@ function getCompatibilityScore(
   return scores[fromEmployeeId]?.[toEmployeeId] ?? 0;
 }
 
-function getCombinationScore(
+function getEmployeeWorkScore(
+  employeeWorkScores: Record<string, number>,
+  employeeId: string,
+) {
+  return employeeWorkScores[employeeId] ?? defaultWorkScore;
+}
+
+function getCompatibilityAverage(
   requests: ShiftRequest[],
   scores: CompatibilityScoreMap,
 ) {
-  let score = 0;
+  const pairCount = (requests.length * (requests.length - 1)) / 2;
+  if (pairCount === 0) return 0;
+
+  let scoreTotal = 0;
 
   for (let firstIndex = 0; firstIndex < requests.length; firstIndex += 1) {
     for (
@@ -199,42 +244,97 @@ function getCombinationScore(
     ) {
       const firstRequest = requests[firstIndex];
       const secondRequest = requests[secondIndex];
-      score +=
-        getCompatibilityScore(
+      const mutualCompatibility =
+        (getCompatibilityScore(
           scores,
           firstRequest.employeeId,
           secondRequest.employeeId,
         ) +
-        getCompatibilityScore(
-          scores,
-          secondRequest.employeeId,
-          firstRequest.employeeId,
-        );
+          getCompatibilityScore(
+            scores,
+            secondRequest.employeeId,
+            firstRequest.employeeId,
+          )) /
+        2;
+
+      scoreTotal += mutualCompatibility;
     }
   }
 
-  return score;
+  return scoreTotal / pairCount;
+}
+
+function getWorkScoreAverage(
+  requests: ShiftRequest[],
+  employeeWorkScores: Record<string, number>,
+) {
+  if (requests.length === 0) return 0;
+
+  const scoreTotal = requests.reduce(
+    (total, request) =>
+      total + getEmployeeWorkScore(employeeWorkScores, request.employeeId),
+    0,
+  );
+
+  return scoreTotal / requests.length;
+}
+
+function getCombinationScore({
+  requests,
+  scores,
+  employeeWorkScores,
+  weights,
+}: {
+  requests: ShiftRequest[];
+  scores: CompatibilityScoreMap;
+  employeeWorkScores: Record<string, number>;
+  weights: RecommendationWeightOption;
+}) {
+  const compatibilityAverage = getCompatibilityAverage(requests, scores);
+  const workScoreAverage = getWorkScoreAverage(requests, employeeWorkScores);
+  const finalScore =
+    compatibilityAverage * weights.compatibilityWeight +
+    workScoreAverage * weights.workScoreWeight;
+
+  return {
+    finalScore,
+    compatibilityAverage,
+    workScoreAverage,
+  };
 }
 
 function getRecommendedCombination({
   requests,
   capacity,
   scores,
+  employeeWorkScores,
+  weights,
 }: {
   requests: ShiftRequest[];
   capacity: number;
   scores: CompatibilityScoreMap;
+  employeeWorkScores: Record<string, number>;
+  weights: RecommendationWeightOption;
 }): RecommendedCombination | null {
   const targetCount = Math.min(Math.max(1, capacity), requests.length);
   if (requests.length === 0 || targetCount === 0) return null;
 
   let bestCombination: ShiftRequest[] = [];
-  let bestScore = Number.NEGATIVE_INFINITY;
+  let bestScore: Omit<RecommendedCombination, "requests"> = {
+    finalScore: Number.NEGATIVE_INFINITY,
+    compatibilityAverage: 0,
+    workScoreAverage: 0,
+  };
 
   function walk(startIndex: number, combination: ShiftRequest[]) {
     if (combination.length === targetCount) {
-      const score = getCombinationScore(combination, scores);
-      if (score > bestScore) {
+      const score = getCombinationScore({
+        requests: combination,
+        scores,
+        employeeWorkScores,
+        weights,
+      });
+      if (score.finalScore > bestScore.finalScore) {
         bestScore = score;
         bestCombination = combination;
       }
@@ -253,18 +353,23 @@ function getRecommendedCombination({
 
   return {
     requests: bestCombination,
+    finalScore: bestScore.finalScore,
+    compatibilityAverage: bestScore.compatibilityAverage,
+    workScoreAverage: bestScore.workScoreAverage,
   };
 }
 
 function RecommendedCombinationPanel({
   recommendedCombination,
   capacity,
+  weights,
   remainingApprovalCount,
   isApproving,
   onApprove,
 }: {
   recommendedCombination: RecommendedCombination | null;
   capacity: number;
+  weights: RecommendationWeightOption;
   remainingApprovalCount: number;
   isApproving: boolean;
   onApprove: () => void;
@@ -286,6 +391,21 @@ function RecommendedCombinationPanel({
           <p className="mt-1 text-xs">
             募集{capacity}人に対して、おすすめの承認候補です
           </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="rounded-md bg-white/80 px-2.5 py-1">
+              最終 {recommendedCombination.finalScore.toFixed(1)}
+            </span>
+            <span className="rounded-md bg-white/80 px-2.5 py-1">
+              相性平均 {recommendedCombination.compatibilityAverage.toFixed(1)}
+            </span>
+            <span className="rounded-md bg-white/80 px-2.5 py-1">
+              シゴデキ平均 {recommendedCombination.workScoreAverage.toFixed(1)}
+            </span>
+            <span className="rounded-md bg-white/80 px-2.5 py-1">
+              {Math.round(weights.compatibilityWeight * 100)}% /{" "}
+              {Math.round(weights.workScoreWeight * 100)}%
+            </span>
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {recommendedCombination.requests.map((request) => (
               <span
@@ -428,11 +548,14 @@ function AdminShiftManagementContent() {
   } = useManagerOrganizationAccess();
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [employeeWorkScores, setEmployeeWorkScores] = useState<Record<string, number>>({});
   const [compatibilityScores, setCompatibilityScores] =
     useState<CompatibilityScoreMap>({});
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
     defaultPayrollSettings,
   );
+  const [selectedWeightId, setSelectedWeightId] =
+    useState<RecommendationWeightOption["id"]>("balanced");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ShiftSlot | null>(null);
   const [deleteRequestTarget, setDeleteRequestTarget] =
@@ -448,6 +571,9 @@ function AdminShiftManagementContent() {
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const selectedWeights =
+    recommendationWeightOptions.find((option) => option.id === selectedWeightId) ??
+    recommendationWeightOptions[1];
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
@@ -482,6 +608,20 @@ function AdminShiftManagementContent() {
       },
       organizationId,
     );
+    const unsubscribeEmployees = subscribeEmployees(
+      (employees) => {
+        setEmployeeWorkScores(
+          employees.reduce<Record<string, number>>((scores, employee) => {
+            scores[employee.employeeId] = employee.workScore;
+            return scores;
+          }, {}),
+        );
+      },
+      (error) => {
+        console.error(error);
+      },
+      organizationId,
+    );
     const unsubscribePayroll = subscribePayrollSettings(
       (settings) => {
         setPayrollSettings(settings);
@@ -504,6 +644,7 @@ function AdminShiftManagementContent() {
     return () => {
       unsubscribeSlots();
       unsubscribeRequests();
+      unsubscribeEmployees();
       unsubscribePayroll();
       unsubscribeCompatibilityScores();
     };
@@ -793,6 +934,35 @@ function AdminShiftManagementContent() {
             ここで設定したシフト枠のみ従業員が希望を出せます。鉛筆アイコンで募集人数を変更できます。
           </p>
 
+          <section className="mt-5 rounded-lg border border-black/10 bg-[#f7f8fb] px-4 py-4">
+            <p className="text-sm font-semibold">おすすめ計算の比重</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {recommendationWeightOptions.map((option) => {
+                const selected = option.id === selectedWeightId;
+
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setSelectedWeightId(option.id)}
+                    className={[
+                      "rounded-md border px-3 py-2 text-left text-sm transition",
+                      selected
+                        ? "border-[#1763ff] bg-[#eff6ff] text-[#1d4ed8]"
+                        : "border-black/10 bg-white text-[#475569] hover:bg-[#eef2f7]",
+                    ].join(" ")}
+                  >
+                    <span className="block font-semibold">{option.label}</span>
+                    <span className="mt-1 block text-xs">
+                      相性 {Math.round(option.compatibilityWeight * 100)}% / シゴデキ{" "}
+                      {Math.round(option.workScoreWeight * 100)}%
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
           {errorMessage && (
             <div className="mt-5 rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
               {errorMessage}
@@ -835,6 +1005,8 @@ function AdminShiftManagementContent() {
                         requests: slotRequests,
                         capacity: slot.capacity,
                         scores: compatibilityScores,
+                        employeeWorkScores,
+                        weights: selectedWeights,
                       });
 
                       return (
@@ -879,6 +1051,7 @@ function AdminShiftManagementContent() {
                           <RecommendedCombinationPanel
                             recommendedCombination={recommendedCombination}
                             capacity={slot.capacity}
+                            weights={selectedWeights}
                             remainingApprovalCount={remainingApprovalCount}
                             isApproving={approvingRecommendedSlotId === slot.id}
                             onApprove={() =>

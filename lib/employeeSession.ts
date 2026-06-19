@@ -1,5 +1,6 @@
 import {
   defaultOrganizationId,
+  normalizeWorkScore,
   organization,
   type EmployeeProfile,
 } from "./employees";
@@ -38,6 +39,7 @@ function parseEmployeeSession(rawEmployee: string | null) {
       employmentType: String(employee.employmentType ?? ""),
       organization: String(employee.organization ?? organization.name),
       department: String(employee.department ?? organization.department),
+      workScore: normalizeWorkScore(employee.workScore),
     };
   } catch {
     return null;

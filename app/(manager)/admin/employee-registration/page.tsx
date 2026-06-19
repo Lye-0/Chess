@@ -5,8 +5,11 @@ import { Suspense, useEffect, useState } from "react";
 import {
   createEmployee,
   deleteEmployee,
+  defaultWorkScore,
   subscribeEmployees,
   updateEmployee,
+  maxWorkScore,
+  minWorkScore,
   type EmployeeProfile,
 } from "@/lib/people";
 import { employmentTypes } from "@/lib/payroll";
@@ -23,6 +26,7 @@ type EmployeeForm = {
   firstName: string;
   email: string;
   employmentType: string;
+  workScore: string;
 };
 
 const emptyForm: EmployeeForm = {
@@ -30,6 +34,7 @@ const emptyForm: EmployeeForm = {
   firstName: "",
   email: "",
   employmentType: employmentTypes[0],
+  workScore: String(defaultWorkScore),
 };
 
 function PencilIcon() {
@@ -89,6 +94,52 @@ function WarningIcon() {
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.3 4.7 2.9 18a2 2 0 0 0 1.7 3h14.8a2 2 0 0 0 1.7-3L13.7 4.7a2 2 0 0 0-3.4 0Z" />
     </svg>
+  );
+}
+
+function formatScore(score: number | string) {
+  const numericScore = Number(score);
+
+  if (!Number.isFinite(numericScore)) return "0";
+  if (numericScore > 0) return `+${numericScore}`;
+  return String(numericScore);
+}
+
+function WorkScoreField({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="mt-5">
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor={id} className="block text-sm font-semibold">
+          シゴデキ度
+        </label>
+        <span className="inline-flex h-8 min-w-14 items-center justify-center rounded-md bg-[#eef2ff] px-3 font-mono text-sm font-semibold text-[#1d4ed8]">
+          {formatScore(value)}
+        </span>
+      </div>
+      <input
+        id={id}
+        type="range"
+        min={minWorkScore}
+        max={maxWorkScore}
+        step="1"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-3 w-full accent-[#1d4ed8]"
+      />
+      <div className="mt-2 flex justify-between text-xs font-semibold text-[#717182]">
+        <span>{minWorkScore}</span>
+        <span>0</span>
+        <span>+{maxWorkScore}</span>
+      </div>
+    </div>
   );
 }
 
@@ -175,6 +226,7 @@ function AdminEmployeeRegistrationContent() {
       firstName: employee.firstName,
       email: employee.email,
       employmentType: editableEmploymentType,
+      workScore: String(employee.workScore),
     });
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -288,6 +340,12 @@ function AdminEmployeeRegistrationContent() {
                   <p className="text-[#475569]">メールアドレス</p>
                   <p className="mt-1">{createdEmployee.email}</p>
                 </div>
+                <div>
+                  <p className="text-[#475569]">シゴデキ度</p>
+                  <p className="mt-1 font-mono text-lg font-semibold">
+                    {formatScore(createdEmployee.workScore)}
+                  </p>
+                </div>
               </div>
               <p className="mt-3 text-xs text-[#475569]">
                 従業員は所属組織IDとこのメールアドレスでログインできます。希望シフトは従業員IDに紐づきます。
@@ -377,6 +435,12 @@ function AdminEmployeeRegistrationContent() {
               </div>
             </div>
 
+            <WorkScoreField
+              id="work-score"
+              value={form.workScore}
+              onChange={(workScore) => setForm({ ...form, workScore })}
+            />
+
             <button
               type="submit"
               disabled={!canSubmit}
@@ -420,6 +484,9 @@ function AdminEmployeeRegistrationContent() {
                       <p className="mt-1 text-sm text-[#475569]">
                         {employee.email}
                         <span className="ml-4">{employee.employmentType}</span>
+                        <span className="ml-4 font-mono">
+                          シゴデキ {formatScore(employee.workScore)}
+                        </span>
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -546,6 +613,12 @@ function AdminEmployeeRegistrationContent() {
                 <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#717182]" />
               </div>
             </div>
+
+            <WorkScoreField
+              id="edit-work-score"
+              value={editForm.workScore}
+              onChange={(workScore) => setEditForm({ ...editForm, workScore })}
+            />
 
             <div className="mt-8 grid gap-3 sm:grid-cols-2">
               <button
