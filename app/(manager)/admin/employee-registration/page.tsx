@@ -118,7 +118,7 @@ function WorkScoreField({
     <div className="mt-5">
       <div className="flex items-center justify-between gap-3">
         <label htmlFor={id} className="block text-sm font-semibold">
-          シゴデキ度
+          業務スキル
         </label>
         <span className="inline-flex h-8 min-w-14 items-center justify-center rounded-md bg-[#eef2ff] px-3 font-mono text-sm font-semibold text-[#1d4ed8]">
           {formatScore(value)}
@@ -341,7 +341,7 @@ function AdminEmployeeRegistrationContent() {
                   <p className="mt-1">{createdEmployee.email}</p>
                 </div>
                 <div>
-                  <p className="text-[#475569]">シゴデキ度</p>
+                  <p className="text-[#475569]">業務スキル</p>
                   <p className="mt-1 font-mono text-lg font-semibold">
                     {formatScore(createdEmployee.workScore)}
                   </p>
@@ -485,7 +485,7 @@ function AdminEmployeeRegistrationContent() {
                         {employee.email}
                         <span className="ml-4">{employee.employmentType}</span>
                         <span className="ml-4 font-mono">
-                          シゴデキ {formatScore(employee.workScore)}
+                          業務スキル {formatScore(employee.workScore)}
                         </span>
                       </p>
                     </div>

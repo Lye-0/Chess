@@ -89,7 +89,7 @@ const recommendationWeightOptions: RecommendationWeightOption[] = [
   },
   {
     id: "workScore",
-    label: "シゴデキ重視",
+    label: "業務スキル重視",
     compatibilityWeight: 0.3,
     workScoreWeight: 0.7,
   },
@@ -399,7 +399,7 @@ function RecommendedCombinationPanel({
               相性平均 {recommendedCombination.compatibilityAverage.toFixed(1)}
             </span>
             <span className="rounded-md bg-white/80 px-2.5 py-1">
-              シゴデキ平均 {recommendedCombination.workScoreAverage.toFixed(1)}
+              業務スキル平均 {recommendedCombination.workScoreAverage.toFixed(1)}
             </span>
             <span className="rounded-md bg-white/80 px-2.5 py-1">
               {Math.round(weights.compatibilityWeight * 100)}% /{" "}
@@ -954,7 +954,7 @@ function AdminShiftManagementContent() {
                   >
                     <span className="block font-semibold">{option.label}</span>
                     <span className="mt-1 block text-xs">
-                      相性 {Math.round(option.compatibilityWeight * 100)}% / シゴデキ{" "}
+                      相性 {Math.round(option.compatibilityWeight * 100)}% / 業務スキル{" "}
                       {Math.round(option.workScoreWeight * 100)}%
                     </span>
                   </button>
