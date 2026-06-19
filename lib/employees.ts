@@ -21,6 +21,9 @@ export const managedOrganizations = [
 
 export const organization = managedOrganizations[0];
 export const defaultOrganizationId = organization.id;
+export const minWorkScore = -5;
+export const maxWorkScore = 5;
+export const defaultWorkScore = 0;
 
 export function getOrganizationProfile(organizationId = defaultOrganizationId) {
   return (
@@ -60,6 +63,17 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+export function normalizeWorkScore(score: unknown) {
+  const numericScore = Number(score);
+
+  if (!Number.isFinite(numericScore)) return defaultWorkScore;
+
+  return Math.max(
+    minWorkScore,
+    Math.min(maxWorkScore, Math.round(numericScore)),
+  );
+}
+
 export type EmployeeProfile = {
   id: string;
   organizationId: string;
@@ -71,6 +85,7 @@ export type EmployeeProfile = {
   employmentType: string;
   organization: string;
   department: string;
+  workScore: number;
 };
 
 export type EmployeeRegistrationInput = {
@@ -78,6 +93,7 @@ export type EmployeeRegistrationInput = {
   lastName: string;
   email: string;
   employmentType: string;
+  workScore?: number | string;
 };
 
 function toEmployeeProfile(
@@ -102,6 +118,7 @@ function toEmployeeProfile(
     employmentType: String(data.employmentType ?? ""),
     organization: String(data.organization ?? currentOrganization.name),
     department: String(data.department ?? currentOrganization.department),
+    workScore: normalizeWorkScore(data.workScore),
   };
 }
 
@@ -146,6 +163,7 @@ export async function createEmployee(
   const lastName = input.lastName.trim();
   const email = normalizeEmail(input.email);
   const employmentType = input.employmentType.trim();
+  const workScore = normalizeWorkScore(input.workScore);
   const currentOrganization = await loadOrganizationProfile(organizationId);
 
   if (!firstName || !lastName || !email || !employmentType) {
@@ -169,6 +187,7 @@ export async function createEmployee(
     employmentType,
     organization: currentOrganization.name,
     department: currentOrganization.department,
+    workScore,
   };
 
   await setDoc(doc(getEmployeesCollection(organizationId), employeeId), {
@@ -190,6 +209,7 @@ export async function updateEmployee(
   const lastName = input.lastName.trim();
   const email = normalizeEmail(input.email);
   const employmentType = input.employmentType.trim();
+  const workScore = normalizeWorkScore(input.workScore);
   const currentOrganization = await loadOrganizationProfile(organizationId);
 
   if (!trimmedEmployeeId || !firstName || !lastName || !email || !employmentType) {
@@ -219,6 +239,7 @@ export async function updateEmployee(
     employmentType,
     organization: currentOrganization.name,
     department: currentOrganization.department,
+    workScore,
   };
   const requestSnapshot = await getDocs(getShiftRequestsCollection(organizationId));
   const batch = writeBatch(db);
