@@ -21,7 +21,7 @@
 ![利用者選択画面](./public/readme-screenshots/01-login-select.png)
 
 <details>
-<summary><strong>ログイン・登録画面を見る</strong></summary>
+<summary><strong>ログイン・登録画面を見る</strong></summary> 
 
 | 従業員ログイン | 管理者ログイン |
 | --- | --- |
