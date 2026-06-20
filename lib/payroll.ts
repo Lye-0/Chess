@@ -29,10 +29,11 @@ export type ShiftPayroll = {
 };
 
 export const defaultPayrollSettings: PayrollSettings = {
-  hourlyRates: employmentTypes.reduce<Record<string, number>>((rates, type) => {
-    rates[type] = 0;
-    return rates;
-  }, {}),
+  hourlyRates: {
+    正社員: 1500,
+    アルバイト: 1000,
+    契約社員: 1200,
+  },
   nightStartTime: "22:00",
   nightEndTime: "05:00",
   nightMultiplier: 1.25,
