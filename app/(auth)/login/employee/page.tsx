@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { ArrowLeftIcon, BadgeIcon, BuildingIcon, MailIcon } from "@/components/icons";
-import { findEmployeeByEmail, getEmployeePageQuery, saveEmployeeSession } from "@/lib/people";
+import { findEmployeeByEmail, saveEmployeeSession } from "@/lib/people";
 
 function normalizeOrganizationId(value: string) {
   return value.replace(/\D/g, "").slice(0, 6);
@@ -44,7 +44,7 @@ export default function EmployeeLoginPage() {
       }
 
       saveEmployeeSession(employee);
-      router.push(`/employee${getEmployeePageQuery(employee)}`);
+      router.push("/employee");
     } catch (loginError) {
       console.error(loginError);
       setError("従業員情報の確認に失敗しました。時間をおいてもう一度お試しください。");

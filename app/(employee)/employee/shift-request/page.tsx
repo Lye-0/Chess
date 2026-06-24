@@ -1,17 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
-  findEmployeeById,
-  getEmployeePageQuery,
   getEmployeeSessionServerSnapshot,
   getEmployeeSessionSnapshot,
   loadEmployeeSession,
   parseEmployeeSessionSnapshot,
   subscribeEmployeeSession,
-  type EmployeeProfile,
 } from "@/lib/people";
 import {
   formatShiftTimeRange,
@@ -174,11 +171,6 @@ function getDisplayedRequestCount(
 
 function EmployeeShiftRequestContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const routeOrganizationId = searchParams.get("organizationId")?.trim() ?? "";
-  const routeEmployeeId = searchParams.get("employeeId")?.trim() ?? "";
-  const hasRouteEmployee = Boolean(routeOrganizationId && routeEmployeeId);
-  const [routeEmployee, setRouteEmployee] = useState<EmployeeProfile | null>(null);
   const sessionSnapshot = useSyncExternalStore(
     subscribeEmployeeSession,
     getEmployeeSessionSnapshot,
@@ -188,16 +180,7 @@ function EmployeeShiftRequestContent() {
     () => parseEmployeeSessionSnapshot(sessionSnapshot),
     [sessionSnapshot],
   );
-  const routeEmployeeMatches = Boolean(
-    routeEmployee &&
-      routeEmployee.organizationId === routeOrganizationId &&
-      routeEmployee.employeeId === routeEmployeeId,
-  );
-  const employee = hasRouteEmployee
-    ? routeEmployeeMatches
-      ? routeEmployee
-      : null
-    : sessionEmployee;
+  const employee = sessionEmployee;
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [allRequests, setAllRequests] = useState<ShiftRequest[]>([]);
@@ -213,34 +196,12 @@ function EmployeeShiftRequestContent() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const isLoading = isSlotsLoading || isRequestsLoading;
 
-  useEffect(() => {
-    let active = true;
-
-    if (!hasRouteEmployee) return;
-
-    findEmployeeById(routeOrganizationId, routeEmployeeId)
-      .then((nextEmployee) => {
-        if (!active) return;
-        setRouteEmployee(nextEmployee);
-        if (!nextEmployee) router.replace("/login");
-      })
-      .catch((error) => {
-        console.error(error);
-        if (active) router.replace("/login");
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [hasRouteEmployee, routeEmployeeId, routeOrganizationId, router]);
 
   useEffect(() => {
-    if (hasRouteEmployee) return;
-
     if (!sessionEmployee && !loadEmployeeSession()) {
       router.replace("/login");
     }
-  }, [hasRouteEmployee, router, sessionEmployee]);
+  }, [router, sessionEmployee]);
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
@@ -341,10 +302,6 @@ function EmployeeShiftRequestContent() {
     [displayMonth],
   );
   const todayDate = useMemo(() => toDateString(new Date()), []);
-  const employeeQuery = useMemo(
-    () => (employee ? getEmployeePageQuery(employee) : ""),
-    [employee],
-  );
 
   function changeDisplayMonth(offset: number) {
     setDisplayMonth((currentMonth) => {
@@ -432,7 +389,7 @@ function EmployeeShiftRequestContent() {
       <header className="border-b border-black/10 bg-white shadow-sm">
         <div className="mx-auto flex max-w-[1248px] items-center justify-between px-4 py-4 sm:px-6 lg:px-0">
           <Link
-            href={`/employee${employeeQuery}`}
+            href="/employee"
             className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
           >
             <BackIcon />

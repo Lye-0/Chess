@@ -1,18 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   clearEmployeeSession,
-  findEmployeeById,
-  getEmployeePageQuery,
   getEmployeeSessionServerSnapshot,
   getEmployeeSessionSnapshot,
   loadEmployeeSession,
   parseEmployeeSessionSnapshot,
   subscribeEmployeeSession,
-  type EmployeeProfile,
 } from "@/lib/people";
 import {
   subscribeEmployeeShiftRequests,
@@ -341,11 +338,6 @@ function ShiftRequestGroup({
 
 function EmployeePageContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const routeOrganizationId = searchParams.get("organizationId")?.trim() ?? "";
-  const routeEmployeeId = searchParams.get("employeeId")?.trim() ?? "";
-  const hasRouteEmployee = Boolean(routeOrganizationId && routeEmployeeId);
-  const [routeEmployee, setRouteEmployee] = useState<EmployeeProfile | null>(null);
   const sessionSnapshot = useSyncExternalStore(
     subscribeEmployeeSession,
     getEmployeeSessionSnapshot,
@@ -355,16 +347,7 @@ function EmployeePageContent() {
     () => parseEmployeeSessionSnapshot(sessionSnapshot),
     [sessionSnapshot],
   );
-  const routeEmployeeMatches = Boolean(
-    routeEmployee &&
-      routeEmployee.organizationId === routeOrganizationId &&
-      routeEmployee.employeeId === routeEmployeeId,
-  );
-  const employee = hasRouteEmployee
-    ? routeEmployeeMatches
-      ? routeEmployee
-      : null
-    : sessionEmployee;
+  const employee = sessionEmployee;
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
     defaultPayrollSettings,
@@ -381,34 +364,12 @@ function EmployeePageContent() {
     return () => window.clearInterval(timerId);
   }, []);
 
-  useEffect(() => {
-    let active = true;
-
-    if (!hasRouteEmployee) return;
-
-    findEmployeeById(routeOrganizationId, routeEmployeeId)
-      .then((nextEmployee) => {
-        if (!active) return;
-        setRouteEmployee(nextEmployee);
-        if (!nextEmployee) router.replace("/login");
-      })
-      .catch((error) => {
-        console.error(error);
-        if (active) router.replace("/login");
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [hasRouteEmployee, routeEmployeeId, routeOrganizationId, router]);
 
   useEffect(() => {
-    if (hasRouteEmployee) return;
-
     if (!sessionEmployee && !loadEmployeeSession()) {
       router.replace("/login");
     }
-  }, [hasRouteEmployee, router, sessionEmployee]);
+  }, [router, sessionEmployee]);
 
   useEffect(() => {
     if (!employee) return;
@@ -502,10 +463,6 @@ function EmployeePageContent() {
     [completedApprovedRequests, currentYear, payrollSettings],
   );
 
-  const employeeQuery = useMemo(
-    () => (employee ? getEmployeePageQuery(employee) : ""),
-    [employee],
-  );
 
   function handleLogout() {
     clearEmployeeSession();
@@ -556,7 +513,7 @@ function EmployeePageContent() {
       <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
         <section className="grid gap-6 lg:grid-cols-3">
           <Link
-            href={`/employee/shift-request${employeeQuery}`}
+            href="/employee/shift-request"
             className="min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm transition hover:shadow-md"
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#ececf0] text-[#030213]">
@@ -570,7 +527,7 @@ function EmployeePageContent() {
           </Link>
 
           <Link
-            href={`/employee/compatibility${employeeQuery}`}
+            href="/employee/compatibility"
             className="min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm transition hover:shadow-md"
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#f0fdf4] text-[#00a63e]">
