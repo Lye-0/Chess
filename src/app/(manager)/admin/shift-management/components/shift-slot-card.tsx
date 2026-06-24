@@ -47,16 +47,10 @@ function ShiftSlotCard({
     recommendedCombination: RecommendedCombination | null,
   ) => void;
 }) {
-  const approvedRequests = requests.filter(
+  const approvedCount = requests.filter(
     (request) => request.status === "承認済",
-  );
-  const pendingRequests = requests.filter(
-    (request) => request.status !== "承認済",
-  );
-  const remainingApprovalCount = Math.max(
-    0,
-    slot.capacity - approvedRequests.length,
-  );
+  ).length;
+  const remainingApprovalCount = Math.max(0, slot.capacity - approvedCount);
   const isApprovalLimitReached = remainingApprovalCount === 0;
 
   const recommendedCombination = useMemo(
@@ -127,9 +121,8 @@ function ShiftSlotCard({
       {requests.length > 0 && (
         <div className="mt-4 grid gap-3 border-t border-black/10 pt-3 lg:grid-cols-2">
           <ShiftRequestGroup
-            title="承認待ち"
-            requests={pendingRequests}
-            emptyText="承認待ちの希望はありません"
+            variant="pending"
+            requests={requests}
             approvingRequestId={approvingRequestId}
             deletingRequestId={deletingRequestId}
             payrollSettings={payrollSettings}
@@ -138,9 +131,8 @@ function ShiftSlotCard({
             onRemove={onRemoveRequest}
           />
           <ShiftRequestGroup
-            title="承認済み"
-            requests={approvedRequests}
-            emptyText="承認済みの希望はありません"
+            variant="approved"
+            requests={requests}
             approvingRequestId={approvingRequestId}
             deletingRequestId={deletingRequestId}
             payrollSettings={payrollSettings}

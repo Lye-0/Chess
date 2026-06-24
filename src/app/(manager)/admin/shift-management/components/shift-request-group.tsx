@@ -4,10 +4,16 @@ import type { ShiftRequest } from "@/lib/shiftRequests";
 import { RequestStatusBadge } from "./request-status-badge";
 import { TrashIcon } from "./icons";
 
+type ShiftRequestGroupVariant = "pending" | "approved";
+
+const variantCopy: Record<ShiftRequestGroupVariant, { title: string; emptyText: string }> = {
+  pending: { title: "承認待ち", emptyText: "承認待ちの希望はありません" },
+  approved: { title: "承認済み", emptyText: "承認済みの希望はありません" },
+};
+
 export const ShiftRequestGroup = memo(function ShiftRequestGroup({
-  title,
+  variant,
   requests,
-  emptyText,
   approvingRequestId,
   deletingRequestId,
   payrollSettings,
@@ -15,9 +21,8 @@ export const ShiftRequestGroup = memo(function ShiftRequestGroup({
   onApprove,
   onRemove,
 }: {
-  title: string;
+  variant: ShiftRequestGroupVariant;
   requests: ShiftRequest[];
-  emptyText: string;
   approvingRequestId: string | null;
   deletingRequestId: string | null;
   payrollSettings: PayrollSettings;
@@ -25,20 +30,27 @@ export const ShiftRequestGroup = memo(function ShiftRequestGroup({
   onApprove: (request: ShiftRequest) => void;
   onRemove: (request: ShiftRequest) => void;
 }) {
+  const { title, emptyText } = variantCopy[variant];
+  const filteredRequests = requests.filter((request) =>
+    variant === "approved"
+      ? request.status === "承認済"
+      : request.status !== "承認済",
+  );
+
   return (
     <section className="rounded-md border border-black/10 bg-white px-3 py-3">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">{title}</h3>
         <span className="rounded-full bg-[#eef2f7] px-2.5 py-0.5 text-xs font-semibold text-[#475569]">
-          {requests.length}人
+          {filteredRequests.length}人
         </span>
       </div>
 
-      {requests.length === 0 ? (
+      {filteredRequests.length === 0 ? (
         <p className="mt-3 text-xs text-[#717182]">{emptyText}</p>
       ) : (
         <div className="mt-3 space-y-2">
-          {requests.map((request) => {
+          {filteredRequests.map((request) => {
             const approved = request.status === "承認済";
             const approving = approvingRequestId === request.id;
             const deleting = deletingRequestId === request.id;
