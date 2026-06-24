@@ -127,13 +127,24 @@ export function subscribeEmployees(
   onError?: (error: FirestoreError) => void,
   organizationId = defaultOrganizationId,
 ): Unsubscribe {
+  const cache = new Map<string, EmployeeProfile>();
+
   return onSnapshot(
     getEmployeesCollection(organizationId),
     (snapshot) => {
+      for (const change of snapshot.docChanges()) {
+        if (change.type === "removed") {
+          cache.delete(change.doc.id);
+        } else {
+          cache.set(
+            change.doc.id,
+            toEmployeeProfile(change.doc, organizationId),
+          );
+        }
+      }
+
       const nextEmployees = snapshot.docs
-        .map((employeeSnapshot) =>
-          toEmployeeProfile(employeeSnapshot, organizationId),
-        )
+        .map((employeeSnapshot) => cache.get(employeeSnapshot.id)!)
         .sort((a, b) => a.employeeId.localeCompare(b.employeeId));
       onNext(nextEmployees);
     },
