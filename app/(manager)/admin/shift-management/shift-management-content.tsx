@@ -37,8 +37,17 @@ import {
 import {
   defaultWorkScore,
   subscribeEmployees,
+  type EmployeeProfile,
 } from "@/lib/people";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
+import { ShiftExportMenu } from "@/components/ui/shift-export-menu";
+import {
+  buildMonthlyShiftExportData,
+  downloadCsv,
+  downloadRosterPdf,
+  getShiftExportMonths,
+  type ShiftExportFormat,
+} from "@/lib/shiftExports";
 import {
   BackHeader,
   Card,
@@ -548,6 +557,7 @@ function AdminShiftManagementContent() {
   } = useManagerOrganizationAccess();
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const [employeeWorkScores, setEmployeeWorkScores] = useState<Record<string, number>>({});
   const [compatibilityScores, setCompatibilityScores] =
     useState<CompatibilityScoreMap>({});
@@ -571,6 +581,9 @@ function AdminShiftManagementContent() {
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [selectedExportMonth, setSelectedExportMonth] = useState(
+    () => getShiftExportMonths([])[0],
+  );
   const selectedWeights =
     recommendationWeightOptions.find((option) => option.id === selectedWeightId) ??
     recommendationWeightOptions[1];
@@ -610,6 +623,7 @@ function AdminShiftManagementContent() {
     );
     const unsubscribeEmployees = subscribeEmployees(
       (employees) => {
+        setEmployees(employees);
         setEmployeeWorkScores(
           employees.reduce<Record<string, number>>((scores, employee) => {
             scores[employee.employeeId] = employee.workScore;
@@ -649,6 +663,36 @@ function AdminShiftManagementContent() {
       unsubscribeCompatibilityScores();
     };
   }, [currentOrganization, organizationId]);
+
+  const exportMonths = useMemo(() => getShiftExportMonths(requests), [requests]);
+  const activeExportMonth = exportMonths.includes(selectedExportMonth)
+    ? selectedExportMonth
+    : exportMonths[0];
+
+
+  const monthlyExportData = useMemo(
+    () =>
+      buildMonthlyShiftExportData({
+        organizationName: currentOrganization?.name ?? "",
+        department: currentOrganization?.department ?? "",
+        month: activeExportMonth,
+        employees,
+        requests,
+        payrollSettings,
+      }),
+    [currentOrganization, employees, payrollSettings, requests, activeExportMonth],
+  );
+
+  function handleExport(format: ShiftExportFormat) {
+    if (format === "csv") {
+      downloadCsv(monthlyExportData);
+      return;
+    }
+
+    if (format === "pdf") {
+      downloadRosterPdf(monthlyExportData);
+    }
+  }
 
   const groupedSlots = useMemo(() => {
     const sortedSlots = [...slots].sort((a, b) => {
@@ -916,14 +960,28 @@ function AdminShiftManagementContent() {
       <BackHeader
         backHref={`/admin${organizationQuery}`}
         right={
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="inline-flex h-10 items-center gap-2 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#171624]"
-          >
-            <PlusIcon />
-            シフト枠を追加
-          </button>
+          <div className="flex items-center gap-2">
+            <ShiftExportMenu
+              formats={[
+                { format: "pdf", label: "PDFをダウンロード" },
+                { format: "csv", label: "CSVをダウンロード" },
+              ]}
+              months={exportMonths}
+              selectedMonth={activeExportMonth}
+              onMonthChange={setSelectedExportMonth}
+              onExport={handleExport}
+              disabled={isLoading}
+              hasData={monthlyExportData.rows.length > 0}
+            />
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#171624]"
+            >
+              <PlusIcon />
+              シフト枠を追加
+            </button>
+          </div>
         }
       />
 

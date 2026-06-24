@@ -27,6 +27,14 @@ import {
   type PayrollSettings,
 } from "@/lib/payroll";
 import { formatShiftTimeRange } from "@/lib/shiftSlots";
+import { ShiftExportMenu } from "@/components/ui/shift-export-menu";
+import {
+  buildMonthlyShiftExportData,
+  downloadIcs,
+  downloadRosterPng,
+  getShiftExportMonths,
+  type ShiftExportFormat,
+} from "@/lib/shiftExports";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -372,6 +380,9 @@ function EmployeePageContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isPayrollLoading, setIsPayrollLoading] = useState(true);
   const [now, setNow] = useState(() => new Date());
+  const [selectedExportMonth, setSelectedExportMonth] = useState(
+    () => getShiftExportMonths([])[0],
+  );
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
@@ -444,6 +455,12 @@ function EmployeePageContent() {
     };
   }, [employee]);
 
+  const exportMonths = useMemo(() => getShiftExportMonths(requests), [requests]);
+  const activeExportMonth = exportMonths.includes(selectedExportMonth)
+    ? selectedExportMonth
+    : exportMonths[0];
+
+
   const sortedRequests = useMemo(() => sortRequests(requests), [requests]);
   const pendingRequests = useMemo(
     () => sortedRequests.filter((request) => request.status !== "承認済"),
@@ -506,6 +523,34 @@ function EmployeePageContent() {
     () => (employee ? getEmployeePageQuery(employee) : ""),
     [employee],
   );
+  const monthlyExportData = useMemo(
+    () =>
+      employee
+        ? buildMonthlyShiftExportData({
+            organizationName: employee.organization,
+            department: employee.department,
+            month: activeExportMonth,
+            employees: [employee],
+            requests,
+            payrollSettings,
+            employeeId: employee.employeeId,
+          })
+        : null,
+    [employee, payrollSettings, requests, activeExportMonth],
+  );
+
+  function handleExport(format: ShiftExportFormat) {
+    if (!monthlyExportData) return;
+
+    if (format === "ics") {
+      downloadIcs(monthlyExportData);
+      return;
+    }
+
+    if (format === "png") {
+      downloadRosterPng(monthlyExportData);
+    }
+  }
 
   function handleLogout() {
     clearEmployeeSession();
@@ -541,15 +586,29 @@ function EmployeePageContent() {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleLogout}
-            aria-label="ログアウト"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-sm font-semibold transition hover:bg-[#e9ebef] sm:w-auto sm:gap-2 sm:px-3 sm:py-2"
-          >
-            <LogoutIcon />
-            <span className="hidden sm:inline">ログアウト</span>
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <ShiftExportMenu
+              formats={[
+                { format: "ics", label: "ICSをダウンロード" },
+                { format: "png", label: "PNGをダウンロード" },
+              ]}
+              months={exportMonths}
+              selectedMonth={activeExportMonth}
+              onMonthChange={setSelectedExportMonth}
+              onExport={handleExport}
+              disabled={isLoading || isPayrollLoading}
+              hasData={Boolean(monthlyExportData?.rows.length)}
+            />
+            <button
+              type="button"
+              onClick={handleLogout}
+              aria-label="ログアウト"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-sm font-semibold transition hover:bg-[#e9ebef] sm:w-auto sm:gap-2 sm:px-3 sm:py-2"
+            >
+              <LogoutIcon />
+              <span className="hidden sm:inline">ログアウト</span>
+            </button>
+          </div>
         </div>
       </header>
 
