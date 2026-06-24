@@ -104,10 +104,20 @@ export function subscribeShiftRequests(
   onError?: (error: FirestoreError) => void,
   organizationId = defaultOrganizationId,
 ): Unsubscribe {
+  const cache = new Map<string, ShiftRequest>();
+
   return onSnapshot(
     getShiftRequestsCollection(organizationId),
     (snapshot) => {
-      onNext(snapshot.docs.map(toShiftRequest));
+      for (const change of snapshot.docChanges()) {
+        if (change.type === "removed") {
+          cache.delete(change.doc.id);
+        } else {
+          cache.set(change.doc.id, toShiftRequest(change.doc));
+        }
+      }
+
+      onNext(snapshot.docs.map((document) => cache.get(document.id)!));
     },
     onError,
   );
@@ -119,13 +129,23 @@ export function subscribeEmployeeShiftRequests(
   onError?: (error: FirestoreError) => void,
   organizationId = defaultOrganizationId,
 ): Unsubscribe {
+  const cache = new Map<string, ShiftRequest>();
+
   return onSnapshot(
     query(
       getShiftRequestsCollection(organizationId),
       where("employeeId", "==", employeeId),
     ),
     (snapshot) => {
-      onNext(snapshot.docs.map(toShiftRequest));
+      for (const change of snapshot.docChanges()) {
+        if (change.type === "removed") {
+          cache.delete(change.doc.id);
+        } else {
+          cache.set(change.doc.id, toShiftRequest(change.doc));
+        }
+      }
+
+      onNext(snapshot.docs.map((document) => cache.get(document.id)!));
     },
     onError,
   );

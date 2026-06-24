@@ -68,16 +68,23 @@ export function subscribeOrganizationCompatibilityScores(
   onError?: (error: FirestoreError) => void,
   organizationId = defaultOrganizationId,
 ): Unsubscribe {
+  const cache = new Map<string, CompatibilityScores>();
+
   return onSnapshot(
     getCompatibilitiesCollection(organizationId),
     (snapshot) => {
-      const nextScores = snapshot.docs.reduce<CompatibilityScoreMap>(
-        (scores, scoreDocument) => {
-          scores[scoreDocument.id] = toCompatibilityScores(scoreDocument.data());
-          return scores;
-        },
-        {},
-      );
+      for (const change of snapshot.docChanges()) {
+        if (change.type === "removed") {
+          cache.delete(change.doc.id);
+        } else {
+          cache.set(change.doc.id, toCompatibilityScores(change.doc.data()));
+        }
+      }
+
+      const nextScores: CompatibilityScoreMap = {};
+      for (const scoreDocument of snapshot.docs) {
+        nextScores[scoreDocument.id] = cache.get(scoreDocument.id)!;
+      }
       onNext(nextScores);
     },
     onError,

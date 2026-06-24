@@ -121,10 +121,20 @@ export function subscribeShiftSlots(
   onError?: (error: FirestoreError) => void,
   organizationId = defaultOrganizationId,
 ): Unsubscribe {
+  const cache = new Map<string, ShiftSlot>();
+
   return onSnapshot(
     getShiftSlotsCollection(organizationId),
     (snapshot) => {
-      onNext(snapshot.docs.map(toShiftSlot));
+      for (const change of snapshot.docChanges()) {
+        if (change.type === "removed") {
+          cache.delete(change.doc.id);
+        } else {
+          cache.set(change.doc.id, toShiftSlot(change.doc));
+        }
+      }
+
+      onNext(snapshot.docs.map((document) => cache.get(document.id)!));
     },
     onError,
   );

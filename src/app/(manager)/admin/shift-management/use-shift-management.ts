@@ -31,6 +31,7 @@ import {
 import { subscribeEmployees } from "@/lib/people";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import { emptyForm, recommendationWeightOptions } from "./constants";
+import { stabilizeGroupedArrays, stabilizeRecord } from "./group-utils";
 import { getDisplayedRequestCount } from "./request-utils";
 import type { RecommendedCombination, RecommendationWeightOption, ShiftForm } from "./types";
 
@@ -105,12 +106,14 @@ export function useShiftManagement() {
     );
     const unsubscribeEmployees = subscribeEmployees(
       (employees) => {
-        setEmployeeWorkScores(
-          employees.reduce<Record<string, number>>((scores, employee) => {
+        const nextScores = employees.reduce<Record<string, number>>(
+          (scores, employee) => {
             scores[employee.employeeId] = employee.workScore;
             return scores;
-          }, {}),
+          },
+          {},
         );
+        setEmployeeWorkScores((previous) => stabilizeRecord(nextScores, previous));
       },
       (error) => {
         console.error(error);
@@ -128,7 +131,7 @@ export function useShiftManagement() {
     );
     const unsubscribeCompatibilityScores = subscribeOrganizationCompatibilityScores(
       (scores) => {
-        setCompatibilityScores(scores);
+        setCompatibilityScores((previous) => stabilizeRecord(scores, previous));
       },
       (error) => {
         console.error(error);
@@ -145,32 +148,51 @@ export function useShiftManagement() {
     };
   }, [currentOrganization, organizationId]);
 
-  const groupedSlots = useMemo(() => {
+  const [groupedSlots, setGroupedSlots] = useState<Record<string, ShiftSlot[]>>({});
+  {
     const sortedSlots = [...slots].sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       return a.startTime.localeCompare(b.startTime);
     });
 
-    return sortedSlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
+    const nextGroupedSlots = sortedSlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
       groups[slot.date] = [...(groups[slot.date] ?? []), slot];
       return groups;
     }, {});
-  }, [slots]);
 
-  const requestCountBySlot = useMemo(() => {
-    return requests.reduce<Record<string, number>>((counts, request) => {
+    const stabilized = stabilizeGroupedArrays(nextGroupedSlots, groupedSlots);
+    if (stabilized !== groupedSlots) {
+      setGroupedSlots(stabilized);
+    }
+  }
+
+  const [requestCountBySlot, setRequestCountBySlot] = useState<Record<string, number>>({});
+  {
+    const nextCounts = requests.reduce<Record<string, number>>((counts, request) => {
       counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
       return counts;
     }, {});
-  }, [requests]);
-  const approvedCountBySlot = useMemo(() => {
-    return requests.reduce<Record<string, number>>((counts, request) => {
+
+    const stabilized = stabilizeRecord(nextCounts, requestCountBySlot);
+    if (stabilized !== requestCountBySlot) {
+      setRequestCountBySlot(stabilized);
+    }
+  }
+
+  const [approvedCountBySlot, setApprovedCountBySlot] = useState<Record<string, number>>({});
+  {
+    const nextCounts = requests.reduce<Record<string, number>>((counts, request) => {
       if (request.status !== "承認済") return counts;
 
       counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
       return counts;
     }, {});
-  }, [requests]);
+
+    const stabilized = stabilizeRecord(nextCounts, approvedCountBySlot);
+    if (stabilized !== approvedCountBySlot) {
+      setApprovedCountBySlot(stabilized);
+    }
+  }
   const editingSlot = useMemo(
     () => slots.find((slot) => slot.id === editingId) ?? null,
     [editingId, slots],
@@ -206,12 +228,18 @@ export function useShiftManagement() {
       capacityValue >= minimumCapacity &&
       capacityValue <= 100,
   );
-  const requestsBySlot = useMemo(() => {
-    return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
+  const [requestsBySlot, setRequestsBySlot] = useState<Record<string, ShiftRequest[]>>({});
+  {
+    const nextGroups = requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
       groups[request.slotId] = [...(groups[request.slotId] ?? []), request];
       return groups;
     }, {});
-  }, [requests]);
+
+    const stabilized = stabilizeGroupedArrays(nextGroups, requestsBySlot);
+    if (stabilized !== requestsBySlot) {
+      setRequestsBySlot(stabilized);
+    }
+  }
 
   const slotsRef = useRef(slots);
   useEffect(() => {
