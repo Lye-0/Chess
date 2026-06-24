@@ -2,18 +2,86 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
 
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
-    match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2026, 7, 13);
+    function isVerifiedManager() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isManagerOrganization(organizationId) {
+      return isVerifiedManager() &&
+        exists(/databases/$(database)/documents/managers/$(request.auth.uid)/organizations/$(organizationId));
+    }
+
+    function isEmployeeForOrganization(organizationId) {
+      return isSignedIn() &&
+        request.auth.token.role == "employee" &&
+        request.auth.token.organizationId == organizationId &&
+        request.auth.token.employeeId is string;
+    }
+
+    function isEmployee(organizationId, employeeId) {
+      return isEmployeeForOrganization(organizationId) &&
+        request.auth.token.employeeId == employeeId;
+    }
+
+    match /managers/{managerUid} {
+      allow read, write: if isVerifiedManager() && request.auth.uid == managerUid;
+
+      match /organizations/{organizationId} {
+        allow read: if isVerifiedManager() && request.auth.uid == managerUid;
+        allow create: if isVerifiedManager() &&
+          request.auth.uid == managerUid &&
+          request.resource.data.organizationId == organizationId &&
+          getAfter(/databases/$(database)/documents/organizations/$(organizationId)).data.createdBy == request.auth.uid;
+        allow update, delete: if isVerifiedManager() &&
+          request.auth.uid == managerUid &&
+          isManagerOrganization(organizationId);
+      }
+    }
+
+    match /organizations/{organizationId} {
+      allow create: if isVerifiedManager() &&
+        request.resource.data.createdBy == request.auth.uid;
+      allow read, update, delete: if isManagerOrganization(organizationId);
+
+      match /employees/{employeeId} {
+        allow read: if isManagerOrganization(organizationId) ||
+          isEmployeeForOrganization(organizationId);
+        allow write: if isManagerOrganization(organizationId);
+      }
+
+      match /shiftSlots/{slotId} {
+        allow read: if isManagerOrganization(organizationId) ||
+          isEmployeeForOrganization(organizationId);
+        allow write: if isManagerOrganization(organizationId);
+      }
+
+      match /shiftRequests/{requestId} {
+        allow read: if isManagerOrganization(organizationId) ||
+          (
+            isEmployeeForOrganization(organizationId) &&
+            resource.data.employeeId == request.auth.token.employeeId
+          );
+        allow write: if isManagerOrganization(organizationId);
+      }
+
+      match /compatibilities/{employeeId} {
+        allow read: if isManagerOrganization(organizationId) ||
+          isEmployee(organizationId, employeeId);
+        allow create, update: if isEmployee(organizationId, employeeId) &&
+          request.resource.data.employeeId == employeeId &&
+          request.resource.data.organizationId == organizationId;
+        allow write: if isManagerOrganization(organizationId);
+      }
+
+      match /settings/payroll {
+        allow read: if isManagerOrganization(organizationId) ||
+          isEmployeeForOrganization(organizationId);
+        allow write: if isManagerOrganization(organizationId);
+      }
     }
   }
 }

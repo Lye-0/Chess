@@ -3,12 +3,20 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { signInWithCustomToken } from "firebase/auth";
 import { ArrowLeftIcon, BadgeIcon, BuildingIcon, MailIcon } from "@/components/icons";
-import { findEmployeeByEmail, saveEmployeeSession } from "@/lib/people";
+import { auth } from "@/lib/firebase";
+import { saveEmployeeSession, type EmployeeProfile } from "@/lib/people";
 
 function normalizeOrganizationId(value: string) {
   return value.replace(/\D/g, "").slice(0, 6);
 }
+
+type EmployeeLoginResponse = {
+  customToken?: string;
+  employee?: EmployeeProfile;
+  error?: string;
+};
 
 export default function EmployeeLoginPage() {
   const router = useRouter();
@@ -36,14 +44,28 @@ export default function EmployeeLoginPage() {
 
     try {
       setIsSubmitting(true);
-      const employee = await findEmployeeByEmail(trimmedOrganizationId, trimmedEmail);
+      const response = await fetch("/api/employee/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          organizationId: trimmedOrganizationId,
+          email: trimmedEmail,
+        }),
+      });
+      const result = (await response.json()) as EmployeeLoginResponse;
 
-      if (!employee) {
-        setError("入力された組織IDとメールアドレスに一致する従業員が見つかりません。");
+      if (!response.ok || !result.customToken || !result.employee) {
+        setError(
+          result.error ??
+            "入力された組織IDとメールアドレスに一致する従業員が見つかりません。",
+        );
         return;
       }
 
-      saveEmployeeSession(employee);
+      await signInWithCustomToken(auth, result.customToken);
+      saveEmployeeSession(result.employee);
       router.push("/employee");
     } catch (loginError) {
       console.error(loginError);

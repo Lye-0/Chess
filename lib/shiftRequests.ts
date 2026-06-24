@@ -5,15 +5,17 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
+  query,
   serverTimestamp,
   updateDoc,
+  where,
   writeBatch,
   type DocumentData,
   type FirestoreError,
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { auth, db } from "./firebase";
 import { defaultOrganizationId } from "./people";
 
 function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
@@ -76,14 +78,6 @@ export function isShiftStartInFuture(
   );
 }
 
-function getTodayString() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const date = String(today.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${date}`;
-}
 
 function toShiftRequest(
   snapshot: QueryDocumentSnapshot<DocumentData>,
@@ -125,12 +119,15 @@ export function subscribeEmployeeShiftRequests(
   onError?: (error: FirestoreError) => void,
   organizationId = defaultOrganizationId,
 ): Unsubscribe {
-  return subscribeShiftRequests(
-    (requests) => {
-      onNext(requests.filter((request) => request.employeeId === employeeId));
+  return onSnapshot(
+    query(
+      getShiftRequestsCollection(organizationId),
+      where("employeeId", "==", employeeId),
+    ),
+    (snapshot) => {
+      onNext(snapshot.docs.map(toShiftRequest));
     },
     onError,
-    organizationId,
   );
 }
 
@@ -140,51 +137,27 @@ export async function createShiftRequests(
 ) {
   if (inputs.length === 0) return;
 
-  const batch = writeBatch(db);
-  const submittedDate = getTodayString();
-  const now = new Date();
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error("従業員ログインが必要です。");
 
-  if (inputs.some((input) => !isShiftStartInFuture(input, now))) {
-    throw new Error("Started shift slots cannot be requested.");
+  const response = await fetch("/api/employee/shift-requests", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      organizationId,
+      slotIds: inputs.map((input) => input.slotId),
+    }),
+  });
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(result?.error ?? "希望シフトの送信に失敗しました。");
   }
-
-  const incomingCountBySlot = inputs.reduce<Record<string, number>>(
-    (counts, input) => {
-      counts[input.slotId] = (counts[input.slotId] ?? 0) + 1;
-      return counts;
-    },
-    {},
-  );
-  const currentRequestsSnapshot = await getDocs(
-    getShiftRequestsCollection(organizationId),
-  );
-  const currentCountBySlot = currentRequestsSnapshot.docs.reduce<Record<string, number>>(
-    (counts, requestSnapshot) => {
-      const slotId = String(requestSnapshot.data().slotId ?? "");
-      if (slotId) counts[slotId] = (counts[slotId] ?? 0) + 1;
-      return counts;
-    },
-    {},
-  );
-
-  inputs.forEach((input) => {
-    const requestRef = doc(getShiftRequestsCollection(organizationId));
-    batch.set(requestRef, {
-      ...input,
-      status: "希望済",
-      submittedDate,
-      submittedAt: serverTimestamp(),
-    });
-  });
-
-  Object.entries(incomingCountBySlot).forEach(([slotId, incomingCount]) => {
-    batch.update(getShiftSlotDocument(slotId, organizationId), {
-      requestCount: (currentCountBySlot[slotId] ?? 0) + incomingCount,
-      updatedAt: serverTimestamp(),
-    });
-  });
-
-  await batch.commit();
 }
 
 export async function removeShiftRequest(

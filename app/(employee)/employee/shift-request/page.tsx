@@ -18,7 +18,7 @@ import {
 import {
   createShiftRequests,
   isShiftStartInFuture,
-  subscribeShiftRequests,
+  subscribeEmployeeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 
@@ -162,13 +162,6 @@ function sortSlots(slots: ShiftSlot[]) {
   });
 }
 
-function getDisplayedRequestCount(
-  slot: ShiftSlot,
-  requestCountBySlot: Record<string, number>,
-) {
-  return Math.max(slot.requestCount, requestCountBySlot[slot.id] ?? 0);
-}
-
 function EmployeeShiftRequestContent() {
   const router = useRouter();
   const sessionSnapshot = useSyncExternalStore(
@@ -183,7 +176,6 @@ function EmployeeShiftRequestContent() {
   const employee = sessionEmployee;
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
-  const [allRequests, setAllRequests] = useState<ShiftRequest[]>([]);
   const [displayMonth, setDisplayMonth] = useState(() => getMonthStart(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState("");
@@ -227,12 +219,10 @@ function EmployeeShiftRequestContent() {
       },
       employee.organizationId,
     );
-    const unsubscribeRequests = subscribeShiftRequests(
+    const unsubscribeRequests = subscribeEmployeeShiftRequests(
+      employee.employeeId,
       (nextRequests) => {
-        setAllRequests(nextRequests);
-        setRequests(
-          nextRequests.filter((request) => request.employeeId === employee.employeeId),
-        );
+        setRequests(nextRequests);
         setIsRequestsLoading(false);
         setErrorMessage(null);
       },
@@ -258,12 +248,6 @@ function EmployeeShiftRequestContent() {
     () => new Set(draftSlots.map((slot) => slot.id)),
     [draftSlots],
   );
-  const requestCountBySlot = useMemo(() => {
-    return allRequests.reduce<Record<string, number>>((counts, request) => {
-      counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
-      return counts;
-    }, {});
-  }, [allRequests]);
   const requestableSlots = useMemo(() => {
     return slots.filter(
       (slot) => isShiftStartInFuture(slot, now),
@@ -500,7 +484,7 @@ function EmployeeShiftRequestContent() {
                         {availableSlotsForSelectedDate.map((slot) => (
                           <option key={slot.id} value={slot.id}>
                             {formatShiftTimeRange(slot.startTime, slot.endTime)}（募集 {slot.capacity}人 / 希望{" "}
-                            {getDisplayedRequestCount(slot, requestCountBySlot)}人）
+                            {slot.requestCount}人）
                           </option>
                         ))}
                       </select>
