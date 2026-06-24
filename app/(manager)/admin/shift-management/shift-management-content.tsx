@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createShiftSlot,
   formatShiftTimeRange,
@@ -359,7 +359,7 @@ function getRecommendedCombination({
   };
 }
 
-function RecommendedCombinationPanel({
+const RecommendedCombinationPanel = memo(function RecommendedCombinationPanel({
   recommendedCombination,
   capacity,
   weights,
@@ -439,9 +439,9 @@ function RecommendedCombinationPanel({
       </div>
     </section>
   );
-}
+});
 
-function ShiftRequestGroup({
+const ShiftRequestGroup = memo(function ShiftRequestGroup({
   title,
   requests,
   emptyText,
@@ -537,7 +537,151 @@ function ShiftRequestGroup({
       )}
     </section>
   );
+});
+
+function ShiftSlotCard({
+  slot,
+  requests,
+  displayedRequestCount,
+  compatibilityScores,
+  employeeWorkScores,
+  weights,
+  payrollSettings,
+  approvingRequestId,
+  deletingRequestId,
+  isApprovingRecommended,
+  onEdit,
+  onDelete,
+  onApproveRequest,
+  onRemoveRequest,
+  onApproveRecommended,
+}: {
+  slot: ShiftSlot;
+  requests: ShiftRequest[];
+  displayedRequestCount: number;
+  compatibilityScores: CompatibilityScoreMap;
+  employeeWorkScores: Record<string, number>;
+  weights: RecommendationWeightOption;
+  payrollSettings: PayrollSettings;
+  approvingRequestId: string | null;
+  deletingRequestId: string | null;
+  isApprovingRecommended: boolean;
+  onEdit: (slot: ShiftSlot) => void;
+  onDelete: (slot: ShiftSlot) => void;
+  onApproveRequest: (slotId: string, request: ShiftRequest) => void;
+  onRemoveRequest: (request: ShiftRequest) => void;
+  onApproveRecommended: (
+    slotId: string,
+    recommendedCombination: RecommendedCombination | null,
+  ) => void;
+}) {
+  const approvedRequests = requests.filter(
+    (request) => request.status === "承認済",
+  );
+  const pendingRequests = requests.filter(
+    (request) => request.status !== "承認済",
+  );
+  const remainingApprovalCount = Math.max(
+    0,
+    slot.capacity - approvedRequests.length,
+  );
+  const isApprovalLimitReached = remainingApprovalCount === 0;
+
+  const recommendedCombination = useMemo(
+    () =>
+      getRecommendedCombination({
+        requests,
+        capacity: slot.capacity,
+        scores: compatibilityScores,
+        employeeWorkScores,
+        weights,
+      }),
+    [requests, slot.capacity, compatibilityScores, employeeWorkScores, weights],
+  );
+
+  const handleEdit = useCallback(() => onEdit(slot), [onEdit, slot]);
+  const handleDelete = useCallback(() => onDelete(slot), [onDelete, slot]);
+  const handleApprove = useCallback(
+    (request: ShiftRequest) => onApproveRequest(slot.id, request),
+    [onApproveRequest, slot.id],
+  );
+  const handleApproveRecommended = useCallback(
+    () => onApproveRecommended(slot.id, recommendedCombination),
+    [onApproveRecommended, slot.id, recommendedCombination],
+  );
+
+  return (
+    <div className="rounded-lg bg-[#f7f8fb] px-4 py-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <p className="font-semibold">
+              {formatShiftTimeRange(slot.startTime, slot.endTime)}
+            </p>
+            <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
+          </div>
+          <SlotRequestStatus requestCount={displayedRequestCount} />
+        </div>
+
+        <div className="flex items-center gap-5 self-end sm:self-auto">
+          <button
+            type="button"
+            aria-label="シフト枠を編集"
+            onClick={handleEdit}
+            className="text-[#596074] transition hover:text-[#030213]"
+          >
+            <PencilIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="シフト枠を削除"
+            onClick={handleDelete}
+            className="text-[#ff003d] transition hover:text-[#cc0031]"
+          >
+            <TrashIcon />
+          </button>
+        </div>
+      </div>
+
+      <RecommendedCombinationPanel
+        recommendedCombination={recommendedCombination}
+        capacity={slot.capacity}
+        weights={weights}
+        remainingApprovalCount={remainingApprovalCount}
+        isApproving={isApprovingRecommended}
+        onApprove={handleApproveRecommended}
+      />
+
+      {requests.length > 0 && (
+        <div className="mt-4 grid gap-3 border-t border-black/10 pt-3 lg:grid-cols-2">
+          <ShiftRequestGroup
+            title="承認待ち"
+            requests={pendingRequests}
+            emptyText="承認待ちの希望はありません"
+            approvingRequestId={approvingRequestId}
+            deletingRequestId={deletingRequestId}
+            payrollSettings={payrollSettings}
+            isApprovalLimitReached={isApprovalLimitReached}
+            onApprove={handleApprove}
+            onRemove={onRemoveRequest}
+          />
+          <ShiftRequestGroup
+            title="承認済み"
+            requests={approvedRequests}
+            emptyText="承認済みの希望はありません"
+            approvingRequestId={approvingRequestId}
+            deletingRequestId={deletingRequestId}
+            payrollSettings={payrollSettings}
+            onApprove={handleApprove}
+            onRemove={onRemoveRequest}
+          />
+        </div>
+      )}
+    </div>
+  );
 }
+
+const MemoizedShiftSlotCard = memo(ShiftSlotCard);
 
 function AdminShiftManagementContent() {
   const {
@@ -717,13 +861,22 @@ function AdminShiftManagementContent() {
     }, {});
   }, [requests]);
 
-  function openCreateModal() {
+  const slotsRef = useRef(slots);
+  useEffect(() => {
+    slotsRef.current = slots;
+  }, [slots]);
+  const requestsBySlotRef = useRef(requestsBySlot);
+  useEffect(() => {
+    requestsBySlotRef.current = requestsBySlot;
+  }, [requestsBySlot]);
+
+  const openCreateModal = useCallback(() => {
     setEditingId(null);
     setForm(emptyForm);
     setIsModalOpen(true);
-  }
+  }, []);
 
-  function openEditModal(slot: ShiftSlot) {
+  const openEditModal = useCallback((slot: ShiftSlot) => {
     setEditingId(slot.id);
     setForm({
       date: slot.date,
@@ -732,7 +885,7 @@ function AdminShiftManagementContent() {
       capacity: String(slot.capacity),
     });
     setIsModalOpen(true);
-  }
+  }, []);
 
   function closeModal() {
     setIsModalOpen(false);
@@ -788,9 +941,9 @@ function AdminShiftManagementContent() {
     }
   }
 
-  function openDeleteModal(slot: ShiftSlot) {
+  const openDeleteModal = useCallback((slot: ShiftSlot) => {
     setDeleteTarget(slot);
-  }
+  }, []);
 
   function closeDeleteModal() {
     if (isDeleting) return;
@@ -813,65 +966,77 @@ function AdminShiftManagementContent() {
     }
   }
 
-  async function handleApproveRequest(slot: ShiftSlot, request: ShiftRequest) {
-    if (request.status === "承認済") return;
+  const handleApproveRequest = useCallback(
+    async (slotId: string, request: ShiftRequest) => {
+      if (request.status === "承認済") return;
 
-    const approvedCount = (requestsBySlot[slot.id] ?? []).filter(
-      (slotRequest) => slotRequest.status === "承認済",
-    ).length;
+      const slot = slotsRef.current.find((candidate) => candidate.id === slotId);
+      if (!slot) return;
 
-    if (approvedCount >= slot.capacity) {
-      setErrorMessage("募集人数に達しているため、これ以上承認できません。");
-      return;
-    }
+      const approvedCount = (requestsBySlotRef.current[slotId] ?? []).filter(
+        (slotRequest) => slotRequest.status === "承認済",
+      ).length;
 
-    try {
-      setApprovingRequestId(request.id);
-      setErrorMessage(null);
-      await approveShiftRequest(request.id, organizationId);
-    } catch (error) {
-      console.error(error);
-      setErrorMessage("シフト希望の承認に失敗しました。Firestore への書き込み権限を確認してください。");
-    } finally {
-      setApprovingRequestId(null);
-    }
-  }
+      if (approvedCount >= slot.capacity) {
+        setErrorMessage("募集人数に達しているため、これ以上承認できません。");
+        return;
+      }
 
-  async function handleApproveRecommendedRequests(
-    slot: ShiftSlot,
-    recommendedCombination: RecommendedCombination | null,
-  ) {
-    if (!recommendedCombination) return;
+      try {
+        setApprovingRequestId(request.id);
+        setErrorMessage(null);
+        await approveShiftRequest(request.id, organizationId);
+      } catch (error) {
+        console.error(error);
+        setErrorMessage("シフト希望の承認に失敗しました。Firestore への書き込み権限を確認してください。");
+      } finally {
+        setApprovingRequestId(null);
+      }
+    },
+    [organizationId],
+  );
 
-    const approvedCount = (requestsBySlot[slot.id] ?? []).filter(
-      (slotRequest) => slotRequest.status === "承認済",
-    ).length;
-    const remainingApprovalCount = Math.max(0, slot.capacity - approvedCount);
-    const pendingRequestIds = recommendedCombination.requests
-      .filter((request) => request.status !== "承認済")
-      .map((request) => request.id);
+  const handleApproveRecommendedRequests = useCallback(
+    async (
+      slotId: string,
+      recommendedCombination: RecommendedCombination | null,
+    ) => {
+      if (!recommendedCombination) return;
 
-    if (pendingRequestIds.length === 0) return;
-    if (pendingRequestIds.length > remainingApprovalCount) {
-      setErrorMessage("おすすめ組み合わせを承認すると募集人数を超えるため、承認できません。");
-      return;
-    }
+      const slot = slotsRef.current.find((candidate) => candidate.id === slotId);
+      if (!slot) return;
 
-    try {
-      setApprovingRecommendedSlotId(slot.id);
-      setErrorMessage(null);
-      await approveShiftRequests(pendingRequestIds, organizationId);
-    } catch (error) {
-      console.error(error);
-      setErrorMessage("おすすめ組み合わせの一括承認に失敗しました。Firestore への書き込み権限を確認してください。");
-    } finally {
-      setApprovingRecommendedSlotId(null);
-    }
-  }
+      const approvedCount = (requestsBySlotRef.current[slotId] ?? []).filter(
+        (slotRequest) => slotRequest.status === "承認済",
+      ).length;
+      const remainingApprovalCount = Math.max(0, slot.capacity - approvedCount);
+      const pendingRequestIds = recommendedCombination.requests
+        .filter((request) => request.status !== "承認済")
+        .map((request) => request.id);
 
-  function openDeleteRequestModal(request: ShiftRequest) {
+      if (pendingRequestIds.length === 0) return;
+      if (pendingRequestIds.length > remainingApprovalCount) {
+        setErrorMessage("おすすめ組み合わせを承認すると募集人数を超えるため、承認できません。");
+        return;
+      }
+
+      try {
+        setApprovingRecommendedSlotId(slotId);
+        setErrorMessage(null);
+        await approveShiftRequests(pendingRequestIds, organizationId);
+      } catch (error) {
+        console.error(error);
+        setErrorMessage("おすすめ組み合わせの一括承認に失敗しました。Firestore への書き込み権限を確認してください。");
+      } finally {
+        setApprovingRecommendedSlotId(null);
+      }
+    },
+    [organizationId],
+  );
+
+  const openDeleteRequestModal = useCallback((request: ShiftRequest) => {
     setDeleteRequestTarget(request);
-  }
+  }, []);
 
   function closeDeleteRequestModal() {
     if (deleteRequestTarget && deletingRequestId === deleteRequestTarget.id) return;
@@ -990,108 +1155,42 @@ function AdminShiftManagementContent() {
                         slot,
                         requestCountBySlot,
                       );
-                      const approvedRequests = slotRequests.filter(
-                        (request) => request.status === "承認済",
-                      );
-                      const pendingRequests = slotRequests.filter(
-                        (request) => request.status !== "承認済",
-                      );
-                      const remainingApprovalCount = Math.max(
-                        0,
-                        slot.capacity - approvedRequests.length,
-                      );
-                      const isApprovalLimitReached = remainingApprovalCount === 0;
-                      const recommendedCombination = getRecommendedCombination({
-                        requests: slotRequests,
-                        capacity: slot.capacity,
-                        scores: compatibilityScores,
-                        employeeWorkScores,
-                        weights: selectedWeights,
-                      });
+                      const approvingRequestIdForSlot =
+                        approvingRequestId !== null &&
+                        slotRequests.some(
+                          (request) => request.id === approvingRequestId,
+                        )
+                          ? approvingRequestId
+                          : null;
+                      const deletingRequestIdForSlot =
+                        deletingRequestId !== null &&
+                        slotRequests.some(
+                          (request) => request.id === deletingRequestId,
+                        )
+                          ? deletingRequestId
+                          : null;
 
                       return (
-                        <div
+                        <MemoizedShiftSlotCard
                           key={slot.id}
-                          className="rounded-lg bg-[#f7f8fb] px-4 py-4"
-                        >
-                          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                                <p className="font-semibold">
-                                  {formatShiftTimeRange(
-                                    slot.startTime,
-                                    slot.endTime,
-                                  )}
-                                </p>
-                                <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
-                              </div>
-                              <SlotRequestStatus requestCount={displayedRequestCount} />
-                            </div>
-
-                            <div className="flex items-center gap-5 self-end sm:self-auto">
-                              <button
-                                type="button"
-                                aria-label="シフト枠を編集"
-                                onClick={() => openEditModal(slot)}
-                                className="text-[#596074] transition hover:text-[#030213]"
-                              >
-                                <PencilIcon />
-                              </button>
-                              <button
-                                type="button"
-                                aria-label="シフト枠を削除"
-                                onClick={() => openDeleteModal(slot)}
-                                className="text-[#ff003d] transition hover:text-[#cc0031]"
-                              >
-                                <TrashIcon />
-                              </button>
-                            </div>
-                          </div>
-
-                          <RecommendedCombinationPanel
-                            recommendedCombination={recommendedCombination}
-                            capacity={slot.capacity}
-                            weights={selectedWeights}
-                            remainingApprovalCount={remainingApprovalCount}
-                            isApproving={approvingRecommendedSlotId === slot.id}
-                            onApprove={() =>
-                              handleApproveRecommendedRequests(
-                                slot,
-                                recommendedCombination,
-                              )
-                            }
-                          />
-
-                          {slotRequests.length > 0 && (
-                            <div className="mt-4 grid gap-3 border-t border-black/10 pt-3 lg:grid-cols-2">
-                              <ShiftRequestGroup
-                                title="承認待ち"
-                                requests={pendingRequests}
-                                emptyText="承認待ちの希望はありません"
-                                approvingRequestId={approvingRequestId}
-                                deletingRequestId={deletingRequestId}
-                                payrollSettings={payrollSettings}
-                                isApprovalLimitReached={isApprovalLimitReached}
-                                onApprove={(request) =>
-                                  handleApproveRequest(slot, request)
-                                }
-                                onRemove={openDeleteRequestModal}
-                              />
-                              <ShiftRequestGroup
-                                title="承認済み"
-                                requests={approvedRequests}
-                                emptyText="承認済みの希望はありません"
-                                approvingRequestId={approvingRequestId}
-                                deletingRequestId={deletingRequestId}
-                                payrollSettings={payrollSettings}
-                                onApprove={(request) =>
-                                  handleApproveRequest(slot, request)
-                                }
-                                onRemove={openDeleteRequestModal}
-                              />
-                            </div>
-                          )}
-                        </div>
+                          slot={slot}
+                          requests={slotRequests}
+                          displayedRequestCount={displayedRequestCount}
+                          compatibilityScores={compatibilityScores}
+                          employeeWorkScores={employeeWorkScores}
+                          weights={selectedWeights}
+                          payrollSettings={payrollSettings}
+                          approvingRequestId={approvingRequestIdForSlot}
+                          deletingRequestId={deletingRequestIdForSlot}
+                          isApprovingRecommended={
+                            approvingRecommendedSlotId === slot.id
+                          }
+                          onEdit={openEditModal}
+                          onDelete={openDeleteModal}
+                          onApproveRequest={handleApproveRequest}
+                          onRemoveRequest={openDeleteRequestModal}
+                          onApproveRecommended={handleApproveRecommendedRequests}
+                        />
                       );
                     })}
                   </div>
