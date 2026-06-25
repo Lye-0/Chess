@@ -42,11 +42,17 @@ import {
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import { ShiftExportMenu } from "@/components/ui/shift-export-menu";
 import {
+  buildDailyShiftExportData,
   buildMonthlyShiftExportData,
   downloadCsv,
+  downloadDailyCsv,
+  downloadDailyRosterPdf,
+  downloadMonthDailyRosterPdf,
   downloadRosterPdf,
+  getShiftExportDates,
   getShiftExportMonths,
   type ShiftExportFormat,
+  type ShiftExportScope,
 } from "@/lib/shiftExports";
 import {
   BackHeader,
@@ -584,6 +590,11 @@ function AdminShiftManagementContent() {
   const [selectedExportMonth, setSelectedExportMonth] = useState(
     () => getShiftExportMonths([])[0],
   );
+  const [selectedExportDate, setSelectedExportDate] = useState(
+    () => getShiftExportDates([])[0],
+  );
+  const [selectedExportScope, setSelectedExportScope] =
+    useState<ShiftExportScope>("month");
   const selectedWeights =
     recommendationWeightOptions.find((option) => option.id === selectedWeightId) ??
     recommendationWeightOptions[1];
@@ -668,7 +679,13 @@ function AdminShiftManagementContent() {
   const activeExportMonth = exportMonths.includes(selectedExportMonth)
     ? selectedExportMonth
     : exportMonths[0];
-
+  const exportDates = useMemo(
+    () => getShiftExportDates(requests, selectedExportScope === "day" ? undefined : activeExportMonth),
+    [activeExportMonth, requests, selectedExportScope],
+  );
+  const activeExportDate = exportDates.includes(selectedExportDate)
+    ? selectedExportDate
+    : exportDates[0];
 
   const monthlyExportData = useMemo(
     () =>
@@ -682,14 +699,45 @@ function AdminShiftManagementContent() {
       }),
     [currentOrganization, employees, payrollSettings, requests, activeExportMonth],
   );
+  const dailyExportData = useMemo(
+    () =>
+      buildDailyShiftExportData({
+        organizationName: currentOrganization?.name ?? "",
+        department: currentOrganization?.department ?? "",
+        date: activeExportDate,
+        employees,
+        requests,
+        payrollSettings,
+      }),
+    [activeExportDate, currentOrganization, employees, payrollSettings, requests],
+  );
+  const hasExportData =
+    selectedExportScope === "day"
+      ? dailyExportData.rows.length > 0
+      : monthlyExportData.rows.length > 0;
 
   function handleExport(format: ShiftExportFormat) {
     if (format === "csv") {
+      if (selectedExportScope === "day") {
+        downloadDailyCsv(dailyExportData);
+        return;
+      }
+
       downloadCsv(monthlyExportData);
       return;
     }
 
     if (format === "pdf") {
+      if (selectedExportScope === "day") {
+        downloadDailyRosterPdf(dailyExportData);
+        return;
+      }
+
+      if (selectedExportScope === "monthDaily") {
+        downloadMonthDailyRosterPdf(monthlyExportData);
+        return;
+      }
+
       downloadRosterPdf(monthlyExportData);
     }
   }
@@ -971,7 +1019,17 @@ function AdminShiftManagementContent() {
               onMonthChange={setSelectedExportMonth}
               onExport={handleExport}
               disabled={isLoading}
-              hasData={monthlyExportData.rows.length > 0}
+              hasData={hasExportData}
+              scopeOptions={[
+                { scope: "month", label: "月単位" },
+                { scope: "monthDaily", label: "月単位（一日ずつ）" },
+                { scope: "day", label: "日単位" },
+              ]}
+              selectedScope={selectedExportScope}
+              onScopeChange={setSelectedExportScope}
+              dates={exportDates}
+              selectedDate={activeExportDate}
+              onDateChange={setSelectedExportDate}
             />
             <button
               type="button"

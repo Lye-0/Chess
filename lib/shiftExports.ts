@@ -8,6 +8,7 @@ import {
 import type { ShiftRequest } from "./shiftRequests";
 
 export type ShiftExportFormat = "ics" | "png" | "pdf" | "csv";
+export type ShiftExportScope = "month" | "monthDaily" | "day";
 
 export type MonthlyShiftExportRow = {
   employee: EmployeeProfile | null;
@@ -23,6 +24,14 @@ export type MonthlyShiftExportData = {
   rows: MonthlyShiftExportRow[];
 };
 
+export type DailyShiftExportData = {
+  organizationName: string;
+  department: string;
+  date: string;
+  employees: EmployeeProfile[];
+  rows: MonthlyShiftExportRow[];
+};
+
 type BuildMonthlyShiftExportDataInput = {
   organizationName: string;
   department?: string;
@@ -31,6 +40,13 @@ type BuildMonthlyShiftExportDataInput = {
   requests: ShiftRequest[];
   payrollSettings: PayrollSettings;
   employeeId?: string;
+};
+
+type BuildDailyShiftExportDataInput = Omit<
+  BuildMonthlyShiftExportDataInput,
+  "month"
+> & {
+  date: string;
 };
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
@@ -43,8 +59,20 @@ function getCurrentMonthValue(date = new Date()) {
   return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}`;
 }
 
+function getCurrentDateValue(date = new Date()) {
+  return `${getCurrentMonthValue(date)}-${padDatePart(date.getDate())}`;
+}
+
 function parseShiftDateTime(date: string, time: string) {
   return new Date(`${date}T${time}:00`);
+}
+
+function parseTimeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+
+  return hour * 60 + minute;
 }
 
 function getShiftStartEnd(request: ShiftRequest) {
@@ -58,6 +86,16 @@ function getShiftStartEnd(request: ShiftRequest) {
   return { startAt, endAt };
 }
 
+function getShiftStartEndMinutes(request: ShiftRequest) {
+  const start = parseTimeToMinutes(request.startTime);
+  const end = parseTimeToMinutes(request.endTime);
+
+  return {
+    start,
+    end: end > start ? end : end + 24 * 60,
+  };
+}
+
 function formatMonthLabel(month: string) {
   const [year, monthNumber] = month.split("-");
 
@@ -68,6 +106,12 @@ function formatDateLabel(date: string) {
   const parsedDate = new Date(`${date}T00:00:00`);
 
   return `${parsedDate.getMonth() + 1}/${parsedDate.getDate()} (${weekdays[parsedDate.getDay()]})`;
+}
+
+function formatFullDateLabel(date: string) {
+  const parsedDate = new Date(`${date}T00:00:00`);
+
+  return `${parsedDate.getFullYear()}年${parsedDate.getMonth() + 1}月${parsedDate.getDate()}日 ${weekdays[parsedDate.getDay()]}`;
 }
 
 function getDaysInMonth(month: string) {
@@ -140,8 +184,8 @@ function downloadTextFile(filename: string, content: string, type: string) {
   downloadBlob(filename, new Blob([content], { type }));
 }
 
-function getFilenameBase(data: MonthlyShiftExportData) {
-  return `shift-${data.month}`;
+function getFilenameBase(data: MonthlyShiftExportData | DailyShiftExportData) {
+  return "month" in data ? `shift-${data.month}` : `shift-${data.date}`;
 }
 
 function createCanvas(width: number, height: number) {
@@ -181,6 +225,26 @@ function fillWrappedText(
   lines.slice(0, maxLines).forEach((currentLine, index) => {
     context.fillText(currentLine, x, y + index * lineHeight);
   });
+}
+
+function getEmployeeDisplayRows(data: MonthlyShiftExportData | DailyShiftExportData) {
+  return data.employees.length > 0 ? data.employees : [null];
+}
+
+function drawClippedText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  context.save();
+  context.beginPath();
+  context.rect(x, y, width, height);
+  context.clip();
+  context.fillText(text, x + 3, y + height / 2);
+  context.restore();
 }
 
 function drawEmployeeRoster(data: MonthlyShiftExportData) {
@@ -292,7 +356,7 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
     },
     {},
   );
-  const displayEmployees = data.employees.length > 0 ? data.employees : [null];
+  const displayEmployees = getEmployeeDisplayRows(data);
 
   context.fillStyle = "#f3f4f6";
   context.fillRect(0, tableTop, width, 42);
@@ -340,15 +404,23 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
       const x = indexWidth + nameWidth + dayIndex * dayWidth;
       const dayRows = employeeRows.filter((row) => row.request.date === day.date);
 
-      if (dayRows.length === 0) return;
-      context.fillStyle = "#fce7f3";
-      context.fillRect(x + 2, y + 8, dayWidth - 4, rowHeight - 16);
-      context.fillStyle = "#111827";
-      context.font = "11px Arial, sans-serif";
       dayRows.slice(0, 2).forEach((row, index) => {
-        context.fillText(`${row.request.startTime}-${row.request.endTime}`, x + 5, y + 22 + index * 16);
+        const blockX = x + 8;
+        const blockY = y + 10 + index * 20;
+        const blockWidth = dayWidth - 16;
+        const blockHeight = 16;
+
+        context.fillStyle = "#fce7f3";
+        context.fillRect(blockX, blockY, blockWidth, blockHeight);
+        context.fillStyle = "#111827";
+        context.font = "10px Arial, sans-serif";
+        drawClippedText(context, `${row.request.startTime}-${row.request.endTime}`, blockX, blockY, blockWidth, blockHeight);
       });
-      if (dayRows.length > 2) context.fillText(`+${dayRows.length - 2}`, x + 5, y + 52);
+      if (dayRows.length > 2) {
+        context.fillStyle = "#111827";
+        context.font = "10px Arial, sans-serif";
+        context.fillText(`+${dayRows.length - 2}`, x + 8, y + 52);
+      }
     });
 
     context.fillStyle = "#fef08a";
@@ -384,6 +456,165 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
   return canvas;
 }
 
+function getDailyTimeRange(rows: MonthlyShiftExportRow[]) {
+  const shiftRanges = rows.map((row) => getShiftStartEndMinutes(row.request));
+  const minShiftStart = Math.min(...shiftRanges.map((range) => range.start), 9 * 60);
+  const maxShiftEnd = Math.max(...shiftRanges.map((range) => range.end), 22 * 60);
+  const start = Math.floor(minShiftStart / 30) * 30;
+  const end = Math.max(start + 60, Math.ceil(maxShiftEnd / 30) * 30);
+
+  return { start, end };
+}
+
+function drawDailyRoster(data: DailyShiftExportData) {
+  const rowHeight = 54;
+  const headerHeight = 132;
+  const timeHeaderHeight = 48;
+  const footerHeight = 52;
+  const indexWidth = 46;
+  const nameWidth = 176;
+  const slotWidth = 28;
+  const totalWidth = 88;
+  const payWidth = 108;
+  const displayEmployees = getEmployeeDisplayRows(data);
+  const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
+    (groups, row) => {
+      groups[row.request.employeeId] = [...(groups[row.request.employeeId] ?? []), row];
+      return groups;
+    },
+    {},
+  );
+  const { start, end } = getDailyTimeRange(data.rows);
+  const slotCount = Math.ceil((end - start) / 30);
+  const timeWidth = slotCount * slotWidth;
+  const totalX = indexWidth + nameWidth + timeWidth;
+  const width = indexWidth + nameWidth + timeWidth + totalWidth + payWidth;
+  const tableTop = headerHeight;
+  const bodyTop = tableTop + timeHeaderHeight;
+  const bodyHeight = Math.max(1, displayEmployees.length) * rowHeight;
+  const height = bodyTop + bodyHeight + footerHeight;
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext("2d");
+
+  if (!context) throw new Error("Canvas is not available.");
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.textBaseline = "middle";
+  context.strokeStyle = "#2f3338";
+  context.lineWidth = 1;
+  context.fillStyle = "#111827";
+  context.font = "bold 28px Arial, sans-serif";
+  context.fillText("従業員シフト表", 28, 36);
+  context.font = "16px Arial, sans-serif";
+  context.fillText(`${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 28, 70);
+  context.fillText(formatFullDateLabel(data.date), 28, 96);
+
+  const totalMinutes = data.rows.reduce((total, row) => total + row.payroll.totalMinutes, 0);
+  const totalPay = data.rows.reduce((total, row) => total + row.payroll.totalPay, 0);
+  context.fillStyle = "#fef3c7";
+  context.fillRect(width - 310, 20, 280, 78);
+  context.fillStyle = "#111827";
+  context.font = "bold 14px Arial, sans-serif";
+  context.fillText(`総勤務時間 ${formatHours(totalMinutes)}`, width - 288, 44);
+  context.fillText(`給与目安 ${formatCurrency(totalPay)}`, width - 288, 74);
+
+  context.fillStyle = "#f3f4f6";
+  context.fillRect(0, tableTop, width, timeHeaderHeight);
+  context.fillStyle = "#111827";
+  context.font = "bold 13px Arial, sans-serif";
+  context.fillText("No.", 14, tableTop + timeHeaderHeight / 2);
+  context.fillText("氏名", indexWidth + 14, tableTop + timeHeaderHeight / 2);
+  context.fillText("合計", totalX + 22, tableTop + timeHeaderHeight / 2);
+  context.fillText("給与目安", totalX + totalWidth + 18, tableTop + timeHeaderHeight / 2);
+
+  for (let minute = start; minute < end; minute += 30) {
+    const x = indexWidth + nameWidth + ((minute - start) / 30) * slotWidth;
+    const hour = Math.floor((minute % (24 * 60)) / 60);
+    const isHour = minute % 60 === 0;
+
+    context.strokeStyle = isHour ? "#111827" : "#cbd5e1";
+    context.lineWidth = isHour ? 2 : 1;
+    context.beginPath();
+    context.moveTo(x, tableTop);
+    context.lineTo(x, bodyTop + bodyHeight);
+    context.stroke();
+
+    if (isHour) {
+      context.fillStyle = "#111827";
+      context.font = "bold 12px Arial, sans-serif";
+      context.fillText(String(hour), x + 7, tableTop + 18);
+    }
+  }
+
+  displayEmployees.forEach((employee, rowIndex) => {
+    const y = bodyTop + rowIndex * rowHeight;
+    const employeeRows = employee ? rowsByEmployee[employee.employeeId] ?? [] : [];
+    const employeeMinutes = employeeRows.reduce((total, row) => total + row.payroll.totalMinutes, 0);
+    const employeePay = employeeRows.reduce((total, row) => total + row.payroll.totalPay, 0);
+
+    context.fillStyle = rowIndex % 2 === 0 ? "#ffffff" : "#f8fafc";
+    context.fillRect(0, y, width, rowHeight);
+    context.fillStyle = "#e0f2fe";
+    context.fillRect(indexWidth, y, nameWidth, rowHeight);
+    context.fillStyle = "#111827";
+    context.font = "13px Arial, sans-serif";
+    context.fillText(String(rowIndex + 1), 16, y + rowHeight / 2);
+    context.font = "bold 14px Arial, sans-serif";
+    fillWrappedText(context, employee?.name ?? "対象従業員なし", indexWidth + 12, y + 22, nameWidth - 20, 18, 2);
+
+    employeeRows.forEach((row) => {
+      const range = getShiftStartEndMinutes(row.request);
+      const blockStart = Math.max(start, range.start);
+      const blockEnd = Math.min(end, range.end);
+      const x = indexWidth + nameWidth + ((blockStart - start) / 30) * slotWidth + 2;
+      const blockWidth = Math.max(10, ((blockEnd - blockStart) / 30) * slotWidth - 4);
+      const blockY = y + 14;
+      const blockHeight = 24;
+
+      if (blockEnd <= blockStart) return;
+      context.fillStyle = "#fce7f3";
+      context.fillRect(x, blockY, blockWidth, blockHeight);
+      context.fillStyle = "#111827";
+      context.font = "11px Arial, sans-serif";
+      drawClippedText(context, `${row.request.startTime}-${row.request.endTime}`, x, blockY, blockWidth, blockHeight);
+    });
+
+    context.fillStyle = "#fef08a";
+    context.fillRect(totalX, y, totalWidth, rowHeight);
+    context.fillStyle = "#fef3c7";
+    context.fillRect(totalX + totalWidth, y, payWidth, rowHeight);
+    context.fillStyle = "#111827";
+    context.font = "bold 13px Arial, sans-serif";
+    context.fillText(formatHours(employeeMinutes), totalX + 16, y + rowHeight / 2);
+    context.fillText(formatCurrency(employeePay), totalX + totalWidth + 12, y + rowHeight / 2);
+  });
+
+  const verticalLines = [0, indexWidth, indexWidth + nameWidth, totalX, totalX + totalWidth, width];
+  verticalLines.forEach((x) => {
+    context.strokeStyle = "#2f3338";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(x, tableTop);
+    context.lineTo(x, bodyTop + bodyHeight);
+    context.stroke();
+  });
+  for (let y = tableTop; y <= bodyTop + bodyHeight; y += rowHeight) {
+    context.strokeStyle = "#2f3338";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(width, y);
+    context.stroke();
+  }
+
+  context.fillStyle = "#475569";
+  context.font = "13px Arial, sans-serif";
+  context.fillText(`出力日時: ${new Date().toLocaleString("ja-JP")}`, 28, height - 24);
+
+  return canvas;
+}
+
 function canvasToJpegBytes(canvas: HTMLCanvasElement) {
   const base64 = canvas.toDataURL("image/jpeg", 0.92).split(",")[1] ?? "";
   const binary = window.atob(base64);
@@ -396,16 +627,10 @@ function canvasToJpegBytes(canvas: HTMLCanvasElement) {
   return bytes;
 }
 
-function buildPdfFromJpeg(imageBytes: Uint8Array, imageWidth: number, imageHeight: number) {
+function buildPdfFromJpegs(images: { bytes: Uint8Array; width: number; height: number }[]) {
   const pageWidth = 842;
   const pageHeight = 595;
   const margin = 24;
-  const scale = Math.min((pageWidth - margin * 2) / imageWidth, (pageHeight - margin * 2) / imageHeight);
-  const drawWidth = imageWidth * scale;
-  const drawHeight = imageHeight * scale;
-  const drawX = (pageWidth - drawWidth) / 2;
-  const drawY = (pageHeight - drawHeight) / 2;
-  const contentStream = `q\n${drawWidth.toFixed(2)} 0 0 ${drawHeight.toFixed(2)} ${drawX.toFixed(2)} ${drawY.toFixed(2)} cm\n/Im0 Do\nQ`;
   const encoder = new TextEncoder();
   const chunks: Uint8Array[] = [];
   const offsets: number[] = [];
@@ -427,22 +652,38 @@ function buildPdfFromJpeg(imageBytes: Uint8Array, imageWidth: number, imageHeigh
     pushText(`${id} 0 obj\n${content}\nendobj\n`);
   }
 
+  const pageIds = images.map((_, index) => 3 + index * 3);
+
   pushText("%PDF-1.4\n");
   addObject(1, "<< /Type /Catalog /Pages 2 0 R >>");
-  addObject(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
-  addObject(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
-  offsets[4] = length;
-  pushText(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imageWidth} /Height ${imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`);
-  pushBytes(imageBytes);
-  pushText("\nendstream\nendobj\n");
-  addObject(5, `<< /Length ${encoder.encode(contentStream).length} >>\nstream\n${contentStream}\nendstream`);
+  addObject(2, `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${images.length} >>`);
 
+  images.forEach((image, index) => {
+    const pageId = 3 + index * 3;
+    const imageId = pageId + 1;
+    const contentId = pageId + 2;
+    const scale = Math.min((pageWidth - margin * 2) / image.width, (pageHeight - margin * 2) / image.height);
+    const drawWidth = image.width * scale;
+    const drawHeight = image.height * scale;
+    const drawX = (pageWidth - drawWidth) / 2;
+    const drawY = (pageHeight - drawHeight) / 2;
+    const contentStream = `q\n${drawWidth.toFixed(2)} 0 0 ${drawHeight.toFixed(2)} ${drawX.toFixed(2)} ${drawY.toFixed(2)} cm\n/Im${index} Do\nQ`;
+
+    addObject(pageId, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im${index} ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+    offsets[imageId] = length;
+    pushText(` ${imageId} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.bytes.length} >>\nstream\n`.trimStart());
+    pushBytes(image.bytes);
+    pushText("\nendstream\nendobj\n");
+    addObject(contentId, `<< /Length ${encoder.encode(contentStream).length} >>\nstream\n${contentStream}\nendstream`);
+  });
+
+  const objectCount = 2 + images.length * 3;
   const xrefOffset = length;
-  pushText("xref\n0 6\n0000000000 65535 f \n");
-  for (let id = 1; id <= 5; id += 1) {
+  pushText(`xref\n0 ${objectCount + 1}\n0000000000 65535 f \n`);
+  for (let id = 1; id <= objectCount; id += 1) {
     pushText(`${String(offsets[id]).padStart(10, "0")} 00000 n \n`);
   }
-  pushText(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
+  pushText(`trailer\n<< /Size ${objectCount + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
 
   const pdfBytes = new Uint8Array(length);
   let offset = 0;
@@ -452,6 +693,16 @@ function buildPdfFromJpeg(imageBytes: Uint8Array, imageWidth: number, imageHeigh
   });
 
   return pdfBytes;
+}
+
+function canvasesToPdfBytes(canvases: HTMLCanvasElement[]) {
+  return buildPdfFromJpegs(
+    canvases.map((canvas) => ({
+      bytes: canvasToJpegBytes(canvas),
+      width: canvas.width,
+      height: canvas.height,
+    })),
+  );
 }
 
 export function getShiftExportMonths(requests: ShiftRequest[]) {
@@ -464,6 +715,22 @@ export function getShiftExportMonths(requests: ShiftRequest[]) {
   });
 
   return [...months].sort().reverse();
+}
+
+export function getShiftExportDates(requests: ShiftRequest[], month?: string) {
+  const dates = new Set<string>();
+
+  requests.forEach((request) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(request.date) && (!month || request.date.startsWith(month))) {
+      dates.add(request.date);
+    }
+  });
+
+  if (dates.size === 0) {
+    dates.add(month ? `${month}-01` : getCurrentDateValue());
+  }
+
+  return [...dates].sort().reverse();
 }
 
 export function buildMonthlyShiftExportData({
@@ -500,6 +767,34 @@ export function buildMonthlyShiftExportData({
     month,
     employees: scopedEmployees,
     rows,
+  };
+}
+
+export function buildDailyShiftExportData({
+  organizationName,
+  department = "",
+  date,
+  employees,
+  requests,
+  payrollSettings,
+  employeeId,
+}: BuildDailyShiftExportDataInput): DailyShiftExportData {
+  const monthlyData = buildMonthlyShiftExportData({
+    organizationName,
+    department,
+    month: date.slice(0, 7),
+    employees,
+    requests,
+    payrollSettings,
+    employeeId,
+  });
+
+  return {
+    organizationName,
+    department,
+    date,
+    employees: monthlyData.employees,
+    rows: monthlyData.rows.filter((row) => row.request.date === date),
   };
 }
 
@@ -559,6 +854,27 @@ export function downloadCsv(data: MonthlyShiftExportData) {
   downloadTextFile(`${getFilenameBase(data)}.csv`, `\uFEFF${content}`, "text/csv;charset=utf-8");
 }
 
+export function downloadDailyCsv(data: DailyShiftExportData) {
+  const headers = ["日付", "曜日", "開始", "終了", "従業員ID", "氏名", "雇用形態", "勤務時間", "給与目安"];
+  const parsedDate = new Date(`${data.date}T00:00:00`);
+  const rows = data.rows.map((row) => [
+    data.date,
+    weekdays[parsedDate.getDay()],
+    row.request.startTime,
+    row.request.endTime,
+    row.request.employeeId,
+    row.request.employeeName,
+    row.request.employmentType,
+    formatHours(row.payroll.totalMinutes),
+    row.payroll.totalPay,
+  ]);
+  const content = [headers, ...rows]
+    .map((row) => row.map(escapeCsvValue).join(","))
+    .join("\r\n");
+
+  downloadTextFile(`${getFilenameBase(data)}.csv`, `\uFEFF${content}`, "text/csv;charset=utf-8");
+}
+
 export function downloadRosterPng(data: MonthlyShiftExportData) {
   const canvas = drawEmployeeRoster(data);
 
@@ -569,9 +885,28 @@ export function downloadRosterPng(data: MonthlyShiftExportData) {
 }
 
 export function downloadRosterPdf(data: MonthlyShiftExportData) {
-  const canvas = drawManagerRoster(data);
-  const imageBytes = canvasToJpegBytes(canvas);
-  const pdfBytes = buildPdfFromJpeg(imageBytes, canvas.width, canvas.height);
+  const pdfBytes = canvasesToPdfBytes([drawManagerRoster(data)]);
 
   downloadBlob(`${getFilenameBase(data)}.pdf`, new Blob([pdfBytes.buffer], { type: "application/pdf" }));
+}
+
+export function downloadDailyRosterPdf(data: DailyShiftExportData) {
+  const pdfBytes = canvasesToPdfBytes([drawDailyRoster(data)]);
+
+  downloadBlob(`${getFilenameBase(data)}.pdf`, new Blob([pdfBytes.buffer], { type: "application/pdf" }));
+}
+
+export function downloadMonthDailyRosterPdf(data: MonthlyShiftExportData) {
+  const canvases = getMonthDays(data.month).map((day) =>
+    drawDailyRoster({
+      organizationName: data.organizationName,
+      department: data.department,
+      date: day.date,
+      employees: data.employees,
+      rows: data.rows.filter((row) => row.request.date === day.date),
+    }),
+  );
+  const pdfBytes = canvasesToPdfBytes(canvases);
+
+  downloadBlob(`shift-${data.month}-daily.pdf`, new Blob([pdfBytes.buffer], { type: "application/pdf" }));
 }
