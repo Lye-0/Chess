@@ -28,8 +28,21 @@ import {
   subscribeOrganizationCompatibilityScores,
   type CompatibilityScoreMap,
 } from "@/lib/compatibilities";
-import { subscribeEmployees } from "@/lib/people";
+import { subscribeEmployees, type EmployeeProfile } from "@/lib/people";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
+import {
+  buildDailyShiftExportData,
+  buildMonthlyShiftExportData,
+  downloadCsv,
+  downloadDailyCsv,
+  downloadDailyRosterPdf,
+  downloadMonthDailyRosterPdf,
+  downloadRosterPdf,
+  getShiftExportDates,
+  getShiftExportMonths,
+  type ShiftExportFormat,
+  type ShiftExportScope,
+} from "@/lib/shiftExports";
 import { emptyForm, recommendationWeightOptions } from "./constants";
 import { stabilizeGroupedArrays, stabilizeRecord } from "./group-utils";
 import { getDisplayedRequestCount } from "./request-utils";
@@ -44,6 +57,7 @@ export function useShiftManagement() {
   } = useManagerOrganizationAccess();
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const [employeeWorkScores, setEmployeeWorkScores] = useState<Record<string, number>>({});
   const [compatibilityScores, setCompatibilityScores] =
     useState<CompatibilityScoreMap>({});
@@ -67,6 +81,14 @@ export function useShiftManagement() {
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [selectedExportMonth, setSelectedExportMonth] = useState(
+    () => getShiftExportMonths([])[0],
+  );
+  const [selectedExportDate, setSelectedExportDate] = useState(
+    () => getShiftExportDates([])[0],
+  );
+  const [selectedExportScope, setSelectedExportScope] =
+    useState<ShiftExportScope>("month");
   const selectedWeights =
     recommendationWeightOptions.find((option) => option.id === selectedWeightId) ??
     recommendationWeightOptions[1];
@@ -106,6 +128,7 @@ export function useShiftManagement() {
     );
     const unsubscribeEmployees = subscribeEmployees(
       (employees) => {
+        setEmployees(employees);
         const nextScores = employees.reduce<Record<string, number>>(
           (scores, employee) => {
             scores[employee.employeeId] = employee.workScore;
@@ -147,6 +170,79 @@ export function useShiftManagement() {
       unsubscribeCompatibilityScores();
     };
   }, [currentOrganization, organizationId]);
+
+  const exportMonths = useMemo(() => getShiftExportMonths(requests), [requests]);
+  const activeExportMonth = exportMonths.includes(selectedExportMonth)
+    ? selectedExportMonth
+    : exportMonths[0];
+  const exportDates = useMemo(
+    () =>
+      getShiftExportDates(
+        requests,
+        selectedExportScope === "day" ? undefined : activeExportMonth,
+      ),
+    [activeExportMonth, requests, selectedExportScope],
+  );
+  const activeExportDate = exportDates.includes(selectedExportDate)
+    ? selectedExportDate
+    : exportDates[0];
+  const monthlyExportData = useMemo(
+    () =>
+      buildMonthlyShiftExportData({
+        organizationName: currentOrganization?.name ?? "",
+        department: currentOrganization?.department ?? "",
+        month: activeExportMonth,
+        employees,
+        requests,
+        payrollSettings,
+      }),
+    [activeExportMonth, currentOrganization, employees, payrollSettings, requests],
+  );
+  const dailyExportData = useMemo(
+    () =>
+      buildDailyShiftExportData({
+        organizationName: currentOrganization?.name ?? "",
+        department: currentOrganization?.department ?? "",
+        date: activeExportDate,
+        employees,
+        requests,
+        payrollSettings,
+      }),
+    [activeExportDate, currentOrganization, employees, payrollSettings, requests],
+  );
+  const hasExportData =
+    selectedExportScope === "day"
+      ? dailyExportData.rows.length > 0
+      : monthlyExportData.rows.length > 0;
+
+  const handleExport = useCallback(
+    (format: ShiftExportFormat) => {
+      if (format === "csv") {
+        if (selectedExportScope === "day") {
+          downloadDailyCsv(dailyExportData);
+          return;
+        }
+
+        downloadCsv(monthlyExportData);
+        return;
+      }
+
+      if (format === "pdf") {
+        if (selectedExportScope === "day") {
+          downloadDailyRosterPdf(dailyExportData);
+          return;
+        }
+
+        if (selectedExportScope === "monthDaily") {
+          downloadMonthDailyRosterPdf(monthlyExportData);
+          return;
+        }
+
+        downloadRosterPdf(monthlyExportData);
+      }
+    },
+    [dailyExportData, monthlyExportData, selectedExportScope],
+  );
 
   const [groupedSlots, setGroupedSlots] = useState<Record<string, ShiftSlot[]>>({});
   {
@@ -473,6 +569,16 @@ export function useShiftManagement() {
     compatibilityScores,
     employeeWorkScores,
     payrollSettings,
+    exportMonths,
+    activeExportMonth,
+    setSelectedExportMonth,
+    exportDates,
+    activeExportDate,
+    setSelectedExportDate,
+    selectedExportScope,
+    setSelectedExportScope,
+    hasExportData,
+    handleExport,
     selectedWeightId,
     selectedWeights,
     setSelectedWeightId,

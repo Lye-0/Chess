@@ -10,6 +10,7 @@ import { MemoizedShiftSlotCard } from "./components/shift-slot-card";
 import { ShiftFormModal } from "./components/shift-form-modal";
 import { DeleteRequestModal } from "./components/delete-request-modal";
 import { DeleteSlotModal } from "./components/delete-slot-modal";
+import { ShiftExportMenu } from "@/components/ui/shift-export-menu";
 
 function AdminShiftManagementContent() {
   const {
@@ -24,6 +25,16 @@ function AdminShiftManagementContent() {
     compatibilityScores,
     employeeWorkScores,
     payrollSettings,
+    exportMonths,
+    activeExportMonth,
+    setSelectedExportMonth,
+    exportDates,
+    activeExportDate,
+    setSelectedExportDate,
+    selectedExportScope,
+    setSelectedExportScope,
+    hasExportData,
+    handleExport,
     selectedWeightId,
     selectedWeights,
     setSelectedWeightId,
@@ -72,14 +83,38 @@ function AdminShiftManagementContent() {
       <BackHeader
         backHref={`/admin${organizationQuery}`}
         right={
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="inline-flex h-10 items-center gap-2 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#171624]"
-          >
-            <PlusIcon />
-            シフト枠を追加
-          </button>
+          <div className="flex items-center gap-2">
+            <ShiftExportMenu
+              formats={[
+                { format: "pdf", label: "PDFをダウンロード" },
+                { format: "csv", label: "CSVをダウンロード" },
+              ]}
+              months={exportMonths}
+              selectedMonth={activeExportMonth}
+              onMonthChange={setSelectedExportMonth}
+              onExport={handleExport}
+              disabled={isLoading}
+              hasData={hasExportData}
+              scopeOptions={[
+                { scope: "month", label: "月単位" },
+                { scope: "monthDaily", label: "月単位（一日ずつ）" },
+                { scope: "day", label: "日単位" },
+              ]}
+              selectedScope={selectedExportScope}
+              onScopeChange={setSelectedExportScope}
+              dates={exportDates}
+              selectedDate={activeExportDate}
+              onDateChange={setSelectedExportDate}
+            />
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#171624]"
+            >
+              <PlusIcon />
+              シフト枠を追加
+            </button>
+          </div>
         }
       />
 
