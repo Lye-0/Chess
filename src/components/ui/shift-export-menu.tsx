@@ -67,17 +67,19 @@ export function ShiftExportMenu({
     <div className="relative">
       <button
         type="button"
+        aria-label={label}
+        title={label}
         disabled={disabled}
         onClick={() => setIsOpen((current) => !current)}
-        className="inline-flex h-10 items-center gap-2 rounded-md border border-black/10 bg-white px-4 text-sm font-semibold text-[#030213] shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed disabled:bg-[#e9ebef] disabled:text-[#717182]"
+        className="inline-flex h-10 w-10 items-center justify-center gap-1 rounded-md border border-black/10 bg-white text-sm font-semibold text-[#030213] shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed disabled:bg-[#e9ebef] disabled:text-[#717182] sm:w-auto sm:gap-2 sm:px-4"
       >
         <DownloadIcon />
-        {label}
+        <span className="hidden sm:inline">{label}</span>
         <ChevronDownIcon />
       </button>
 
       {isOpen && !disabled && (
-        <div className="absolute right-0 z-40 mt-2 w-72 rounded-lg border border-black/10 bg-white p-3 text-[#030213] shadow-xl">
+        <div className="fixed left-4 right-4 top-20 z-40 rounded-lg border border-black/10 bg-white p-3 text-[#030213] shadow-xl sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-72">
           {scopeOptions && onScopeChange && (
             <>
               <label className="block text-xs font-semibold text-[#717182]" htmlFor="shift-export-scope">
