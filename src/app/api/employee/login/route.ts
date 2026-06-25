@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
+import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { getAdminAuth, getAdminDb } from "@/lib/firebaseAdmin";
 import { getEmployeeUid } from "@/lib/employeeAuthServer";
 import type { EmployeeProfile } from "@/lib/people";
@@ -19,7 +19,7 @@ function normalizeWorkScore(score: unknown) {
 }
 
 async function loadOrganizationProfile(
-  adminDb: ReturnType<typeof getAdminDb>,
+  adminDb: Firestore,
   organizationId: string,
 ) {
   const snapshot = await adminDb.collection("organizations").doc(organizationId).get();
@@ -60,8 +60,8 @@ function toEmployeeProfile(
 
 export async function POST(request: Request) {
   try {
-    const adminAuth = getAdminAuth();
-    const adminDb = getAdminDb();
+    const adminAuth = await getAdminAuth();
+    const adminDb = await getAdminDb();
     const body = (await request.json()) as {
       organizationId?: unknown;
       email?: unknown;

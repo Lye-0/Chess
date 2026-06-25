@@ -1,6 +1,6 @@
-import { cert, getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import type { App } from "firebase-admin/app";
+import type { Auth } from "firebase-admin/auth";
+import type { Firestore } from "firebase-admin/firestore";
 
 function getPrivateKey() {
   const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
@@ -8,7 +8,8 @@ function getPrivateKey() {
   return privateKey?.replace(/\\n/g, "\n");
 }
 
-export function getAdminApp() {
+export async function getAdminApp(): Promise<App> {
+  const { cert, getApps, initializeApp } = await import("firebase-admin/app");
   const existingApp = getApps()[0];
   if (existingApp) return existingApp;
 
@@ -31,10 +32,14 @@ export function getAdminApp() {
   });
 }
 
-export function getAdminAuth() {
-  return getAuth(getAdminApp());
+export async function getAdminAuth(): Promise<Auth> {
+  const { getAuth } = await import("firebase-admin/auth");
+
+  return getAuth(await getAdminApp());
 }
 
-export function getAdminDb() {
-  return getFirestore(getAdminApp());
+export async function getAdminDb(): Promise<Firestore> {
+  const { getFirestore } = await import("firebase-admin/firestore");
+
+  return getFirestore(await getAdminApp());
 }

@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "firebase": "^12.14.0",
-    "firebase-admin": "^14.0.0",
+    "firebase-admin": "14.1.0",
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -25,5 +25,8 @@
     "react-scan": "^0.5.7",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "jwks-rsa": "3.2.2"
   }
 }

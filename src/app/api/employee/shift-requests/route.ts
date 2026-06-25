@@ -36,7 +36,7 @@ function normalizeSlotIds(value: unknown) {
 export async function POST(request: Request) {
   try {
     const employeeAuth = await verifyEmployeeRequest(request);
-    const adminDb = getAdminDb();
+    const adminDb = await getAdminDb();
     const body = (await request.json()) as { slotIds?: unknown };
     const slotIds = normalizeSlotIds(body.slotIds);
 
