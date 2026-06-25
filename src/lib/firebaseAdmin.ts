@@ -8,7 +8,7 @@ function getPrivateKey() {
   return privateKey?.replace(/\\n/g, "\n");
 }
 
-function getAdminApp() {
+export function getAdminApp() {
   const existingApp = getApps()[0];
   if (existingApp) return existingApp;
 
@@ -31,6 +31,10 @@ function getAdminApp() {
   });
 }
 
-export const adminApp = getAdminApp();
-export const adminAuth = getAuth(adminApp);
-export const adminDb = getFirestore(adminApp);
+export function getAdminAuth() {
+  return getAuth(getAdminApp());
+}
+
+export function getAdminDb() {
+  return getFirestore(getAdminApp());
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { getAdminDb } from "@/lib/firebaseAdmin";
 import { verifyEmployeeRequest } from "@/lib/employeeAuthServer";
 
 export const runtime = "nodejs";
@@ -36,6 +36,7 @@ function normalizeSlotIds(value: unknown) {
 export async function POST(request: Request) {
   try {
     const employeeAuth = await verifyEmployeeRequest(request);
+    const adminDb = getAdminDb();
     const body = (await request.json()) as { slotIds?: unknown };
     const slotIds = normalizeSlotIds(body.slotIds);
 

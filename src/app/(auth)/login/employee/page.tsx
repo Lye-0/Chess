@@ -18,6 +18,24 @@ type EmployeeLoginResponse = {
   error?: string;
 };
 
+async function readEmployeeLoginResponse(
+  response: Response,
+): Promise<EmployeeLoginResponse> {
+  const text = await response.text();
+
+  if (!text) return {};
+
+  try {
+    return JSON.parse(text) as EmployeeLoginResponse;
+  } catch {
+    return {
+      error: response.ok
+        ? "従業員情報の確認に失敗しました。"
+        : "従業員情報の確認に失敗しました。時間をおいてもう一度お試しください。",
+    };
+  }
+}
+
 export default function EmployeeLoginPage() {
   const router = useRouter();
   const [organizationId, setOrganizationId] = useState("");
@@ -54,7 +72,7 @@ export default function EmployeeLoginPage() {
           email: trimmedEmail,
         }),
       });
-      const result = (await response.json()) as EmployeeLoginResponse;
+      const result = await readEmployeeLoginResponse(response);
 
       if (!response.ok || !result.customToken || !result.employee) {
         setError(

@@ -1,4 +1,4 @@
-import { adminAuth } from "./firebaseAdmin";
+import { getAdminAuth } from "./firebaseAdmin";
 
 export type EmployeeAuthClaims = {
   uid: string;
@@ -26,7 +26,7 @@ export async function verifyEmployeeRequest(
     throw new Error("従業員ログインが必要です。");
   }
 
-  const decodedToken = await adminAuth.verifyIdToken(token);
+  const decodedToken = await getAdminAuth().verifyIdToken(token);
   const organizationId = String(decodedToken.organizationId ?? "");
   const employeeId = String(decodedToken.employeeId ?? "");
   const role = String(decodedToken.role ?? "");
