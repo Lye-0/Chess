@@ -197,15 +197,7 @@ function createCanvas(width: number, height: number) {
   return canvas;
 }
 
-function fillWrappedText(
-  context: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  lineHeight: number,
-  maxLines: number,
-) {
+function getWrappedTextLines(context: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number) {
   const lines: string[] = [];
   let line = "";
 
@@ -222,8 +214,25 @@ function fillWrappedText(
 
   if (line) lines.push(line);
 
-  lines.slice(0, maxLines).forEach((currentLine, index) => {
-    context.fillText(currentLine, x, y + index * lineHeight);
+  return lines.slice(0, maxLines);
+}
+
+function drawCenteredWrappedText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  lineHeight: number,
+  maxLines: number,
+) {
+  const lines = getWrappedTextLines(context, text, width, maxLines);
+  const totalTextHeight = (lines.length - 1) * lineHeight;
+  const firstLineY = y + height / 2 - totalTextHeight / 2;
+
+  lines.forEach((line, index) => {
+    context.fillText(line, x, firstLineY + index * lineHeight);
   });
 }
 
@@ -231,19 +240,31 @@ function getEmployeeDisplayRows(data: MonthlyShiftExportData | DailyShiftExportD
   return data.employees.length > 0 ? data.employees : [null];
 }
 
-function drawClippedText(
+function drawFittedCenteredText(
   context: CanvasRenderingContext2D,
   text: string,
   x: number,
   y: number,
   width: number,
   height: number,
+  options: { maxFontSize: number; minFontSize: number; fontWeight?: string },
 ) {
+  const fontWeight = options.fontWeight ? `${options.fontWeight} ` : "";
+  let fontSize = options.maxFontSize;
+
+  while (fontSize > options.minFontSize) {
+    context.font = `${fontWeight}${fontSize}px Arial, sans-serif`;
+    if (context.measureText(text).width <= width - 6) break;
+    fontSize -= 1;
+  }
+
+  context.font = `${fontWeight}${Math.max(fontSize, options.minFontSize)}px Arial, sans-serif`;
   context.save();
   context.beginPath();
   context.rect(x, y, width, height);
   context.clip();
-  context.fillText(text, x + 3, y + height / 2);
+  context.textAlign = "center";
+  context.fillText(text, x + width / 2, y + height / 2);
   context.restore();
 }
 
@@ -325,7 +346,7 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
   const footerHeight = 52;
   const indexWidth = 46;
   const nameWidth = 176;
-  const dayWidth = 66;
+  const dayWidth = 88;
   const totalWidth = 88;
   const payWidth = 108;
   const width = indexWidth + nameWidth + days.length * dayWidth + totalWidth + payWidth;
@@ -397,29 +418,37 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
     context.fillStyle = "#111827";
     context.font = "13px Arial, sans-serif";
     context.fillText(String(rowIndex + 1), 16, y + rowHeight / 2);
-    context.font = "bold 14px Arial, sans-serif";
-    fillWrappedText(context, employee?.name ?? "対象従業員なし", indexWidth + 12, y + 22, nameWidth - 20, 18, 2);
+    context.font = "bold 17px Arial, sans-serif";
+    drawCenteredWrappedText(context, employee?.name ?? "対象従業員なし", indexWidth + 12, y, nameWidth - 20, rowHeight, 20, 2);
 
     days.forEach((day, dayIndex) => {
       const x = indexWidth + nameWidth + dayIndex * dayWidth;
       const dayRows = employeeRows.filter((row) => row.request.date === day.date);
 
-      dayRows.slice(0, 2).forEach((row, index) => {
-        const blockX = x + 8;
-        const blockY = y + 10 + index * 20;
-        const blockWidth = dayWidth - 16;
-        const blockHeight = 16;
+      const visibleRows = dayRows.slice(0, 2);
+      const blockHeight = 22;
+      const blockGap = 4;
+      const blockGroupHeight = visibleRows.length * blockHeight + Math.max(0, visibleRows.length - 1) * blockGap;
+      const firstBlockY = y + rowHeight / 2 - blockGroupHeight / 2;
+
+      visibleRows.forEach((row, index) => {
+        const blockX = x + 4;
+        const blockY = firstBlockY + index * (blockHeight + blockGap);
+        const blockWidth = dayWidth - 8;
 
         context.fillStyle = "#fce7f3";
         context.fillRect(blockX, blockY, blockWidth, blockHeight);
         context.fillStyle = "#111827";
-        context.font = "10px Arial, sans-serif";
-        drawClippedText(context, `${row.request.startTime}-${row.request.endTime}`, blockX, blockY, blockWidth, blockHeight);
+        drawFittedCenteredText(context, `${row.request.startTime}-${row.request.endTime}`, blockX, blockY, blockWidth, blockHeight, {
+          maxFontSize: 13,
+          minFontSize: 11,
+          fontWeight: "bold",
+        });
       });
       if (dayRows.length > 2) {
         context.fillStyle = "#111827";
-        context.font = "10px Arial, sans-serif";
-        context.fillText(`+${dayRows.length - 2}`, x + 8, y + 52);
+        context.font = "bold 11px Arial, sans-serif";
+        context.fillText(`+${dayRows.length - 2}`, x + 8, y + rowHeight - 7);
       }
     });
 
@@ -442,7 +471,13 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
     context.lineTo(x, bottom);
     context.stroke();
   });
-  for (let y = tableTop; y <= bottom; y += rowHeight) {
+  [tableTop, headerHeight].forEach((lineY) => {
+    context.beginPath();
+    context.moveTo(0, lineY);
+    context.lineTo(width, lineY);
+    context.stroke();
+  });
+  for (let y = headerHeight + rowHeight; y <= bottom; y += rowHeight) {
     context.beginPath();
     context.moveTo(0, y);
     context.lineTo(width, y);
@@ -560,8 +595,8 @@ function drawDailyRoster(data: DailyShiftExportData) {
     context.fillStyle = "#111827";
     context.font = "13px Arial, sans-serif";
     context.fillText(String(rowIndex + 1), 16, y + rowHeight / 2);
-    context.font = "bold 14px Arial, sans-serif";
-    fillWrappedText(context, employee?.name ?? "対象従業員なし", indexWidth + 12, y + 22, nameWidth - 20, 18, 2);
+    context.font = "bold 17px Arial, sans-serif";
+    drawCenteredWrappedText(context, employee?.name ?? "対象従業員なし", indexWidth + 12, y, nameWidth - 20, rowHeight, 20, 2);
 
     employeeRows.forEach((row) => {
       const range = getShiftStartEndMinutes(row.request);
@@ -569,15 +604,18 @@ function drawDailyRoster(data: DailyShiftExportData) {
       const blockEnd = Math.min(end, range.end);
       const x = indexWidth + nameWidth + ((blockStart - start) / 30) * slotWidth + 2;
       const blockWidth = Math.max(10, ((blockEnd - blockStart) / 30) * slotWidth - 4);
-      const blockY = y + 14;
-      const blockHeight = 24;
+      const blockHeight = 28;
+      const blockY = y + rowHeight / 2 - blockHeight / 2;
 
       if (blockEnd <= blockStart) return;
       context.fillStyle = "#fce7f3";
       context.fillRect(x, blockY, blockWidth, blockHeight);
       context.fillStyle = "#111827";
-      context.font = "11px Arial, sans-serif";
-      drawClippedText(context, `${row.request.startTime}-${row.request.endTime}`, x, blockY, blockWidth, blockHeight);
+      drawFittedCenteredText(context, `${row.request.startTime}-${row.request.endTime}`, x, blockY, blockWidth, blockHeight, {
+        maxFontSize: 13,
+        minFontSize: 11,
+        fontWeight: "bold",
+      });
     });
 
     context.fillStyle = "#fef08a";
@@ -599,7 +637,15 @@ function drawDailyRoster(data: DailyShiftExportData) {
     context.lineTo(x, bodyTop + bodyHeight);
     context.stroke();
   });
-  for (let y = tableTop; y <= bodyTop + bodyHeight; y += rowHeight) {
+  [tableTop, bodyTop].forEach((lineY) => {
+    context.strokeStyle = "#2f3338";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(0, lineY);
+    context.lineTo(width, lineY);
+    context.stroke();
+  });
+  for (let y = bodyTop + rowHeight; y <= bodyTop + bodyHeight; y += rowHeight) {
     context.strokeStyle = "#2f3338";
     context.lineWidth = 1;
     context.beginPath();
