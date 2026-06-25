@@ -1,0 +1,22 @@
+import type { ShiftRequest } from "@/lib/shiftRequests";
+
+export type ShiftForm = {
+  date: string;
+  startTime: string;
+  endTime: string;
+  capacity: string;
+};
+
+export type RecommendedCombination = {
+  requests: ShiftRequest[];
+  finalScore: number;
+  compatibilityAverage: number;
+  workScoreAverage: number;
+};
+
+export type RecommendationWeightOption = {
+  id: "compatibility" | "balanced" | "workScore";
+  label: string;
+  compatibilityWeight: number;
+  workScoreWeight: number;
+};

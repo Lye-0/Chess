@@ -18,20 +18,20 @@
 
 従業員または管理者を選び、それぞれのログイン画面へ進みます。   
 
-![利用者選択画面](./public/readme-screenshots/01-login-select.png)
+![利用者選択画面](./readme-screenshots/01-login-select.png)
 
 <details>
 <summary><strong>ログイン・登録画面を見る</strong></summary> 
 
 | 従業員ログイン | 管理者ログイン |
 | --- | --- |
-| ![従業員ログイン](./public/readme-screenshots/02-employee-login.png) | ![管理者ログイン](./public/readme-screenshots/03-manager-login.png) |
+| ![従業員ログイン](./readme-screenshots/02-employee-login.png) | ![管理者ログイン](./readme-screenshots/03-manager-login.png) |
 
 | 管理者新規登録 | 登録フォーム |
 | --- | --- |
-| ![管理者新規登録](./public/readme-screenshots/04-manager-signup.png) | ![管理者登録フォーム](./public/readme-screenshots/05-register.png) |
+| ![管理者新規登録](./readme-screenshots/04-manager-signup.png) | ![管理者登録フォーム](./readme-screenshots/05-register.png) |
 
-![確認コード入力](./public/readme-screenshots/06-verify-code.png)
+![確認コード入力](./readme-screenshots/06-verify-code.png)
 
 </details>
 
@@ -40,22 +40,22 @@
 シフト枠、希望者、従業員、勤務時間と給与を一つの管理画面から確認できます。
 おすすめ候補は、従業員同士の相性平均と管理者が設定した業務スキル平均を比重付きで計算します。
 
-![管理者ホーム](./public/readme-screenshots/09-admin-home.png)
+![管理者ホーム](./readme-screenshots/09-admin-home.png)
 
 <details>
 <summary><strong>管理者画面をすべて見る</strong></summary>
 
 | 組織選択 | 組織追加 |
 | --- | --- |
-| ![組織選択](./public/readme-screenshots/07-organization-select.png) | ![組織追加](./public/readme-screenshots/08-organization-new.png) |
+| ![組織選択](./readme-screenshots/07-organization-select.png) | ![組織追加](./readme-screenshots/08-organization-new.png) |
 
 | シフト管理 | 従業員シフト表 |
 | --- | --- |
-| ![シフト管理](./public/readme-screenshots/10-shift-management.png) | ![従業員シフト表](./public/readme-screenshots/11-employee-list.png) |
+| ![シフト管理](./readme-screenshots/10-shift-management.png) | ![従業員シフト表](./readme-screenshots/11-employee-list.png) |
 
 | 従業員登録 | 勤務時間・給与設定 |
 | --- | --- |
-| ![従業員登録](./public/readme-screenshots/12-employee-registration.png) | ![勤務時間・給与設定](./public/readme-screenshots/13-timesheet.png) |
+| ![従業員登録](./readme-screenshots/12-employee-registration.png) | ![勤務時間・給与設定](./readme-screenshots/13-timesheet.png) |
 
 </details>
 
@@ -63,14 +63,14 @@
 
 従業員はアカウント作成不要で、希望シフトや働きやすさを入力できます。
 
-![従業員ホーム](./public/readme-screenshots/14-employee-home.png)
+![従業員ホーム](./readme-screenshots/14-employee-home.png)
 
 <details>
 <summary><strong>従業員画面を見る</strong></summary>
 
 | 希望シフト入力 | 一緒に働きやすさ設定 |
 | --- | --- |
-| ![希望シフト入力](./public/readme-screenshots/15-shift-request.png) | ![一緒に働きやすさ設定](./public/readme-screenshots/16-compatibility.png) |
+| ![希望シフト入力](./readme-screenshots/15-shift-request.png) | ![一緒に働きやすさ設定](./readme-screenshots/16-compatibility.png) |
 
 </details>
 
