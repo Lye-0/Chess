@@ -5,7 +5,7 @@ import {
   type PayrollSettings,
   type ShiftPayroll,
 } from "./payroll";
-import type { ShiftRequest } from "./shiftRequests";
+import { getShiftRequestPositionLabel, type ShiftRequest } from "./shiftRequests";
 
 export type ShiftExportFormat = "ics" | "png" | "pdf" | "csv";
 export type ShiftExportScope = "month" | "monthDaily" | "day";
@@ -292,10 +292,11 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
 
   const columns = [
     { label: "日付", x: 32 },
-    { label: "勤務時間", x: 222 },
-    { label: "氏名", x: 412 },
-    { label: "合計", x: 662 },
-    { label: "給与目安", x: 802 },
+    { label: "勤務時間", x: 202 },
+    { label: "ポジション", x: 372 },
+    { label: "氏名", x: 542 },
+    { label: "合計", x: 742 },
+    { label: "給与目安", x: 862 },
   ];
 
   context.fillStyle = "#f3f4f6";
@@ -318,9 +319,10 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
       context.font = "14px Arial, sans-serif";
       context.fillText(formatDateLabel(row.request.date), columns[0].x + 12, y + rowHeight / 2);
       context.fillText(`${row.request.startTime} - ${row.request.endTime}`, columns[1].x + 12, y + rowHeight / 2);
-      context.fillText(row.request.employeeName, columns[2].x + 12, y + rowHeight / 2);
-      context.fillText(formatHours(row.payroll.totalMinutes), columns[3].x + 12, y + rowHeight / 2);
-      context.fillText(formatCurrency(row.payroll.totalPay), columns[4].x + 12, y + rowHeight / 2);
+      context.fillText(getShiftRequestPositionLabel(row.request), columns[2].x + 12, y + rowHeight / 2);
+      context.fillText(row.request.employeeName, columns[3].x + 12, y + rowHeight / 2);
+      context.fillText(formatHours(row.payroll.totalMinutes), columns[4].x + 12, y + rowHeight / 2);
+      context.fillText(formatCurrency(row.payroll.totalPay), columns[5].x + 12, y + rowHeight / 2);
     });
   }
 
@@ -848,7 +850,8 @@ export function downloadIcs(data: MonthlyShiftExportData) {
   const events = data.rows
     .map((row) => {
       const { startAt, endAt } = getShiftStartEnd(row.request);
-      const description = `${formatDateLabel(row.request.date)} ${row.request.startTime}-${row.request.endTime}`;
+      const positionName = getShiftRequestPositionLabel(row.request);
+      const description = `${formatDateLabel(row.request.date)} ${row.request.startTime}-${row.request.endTime} ${positionName}`;
 
       return [
         "BEGIN:VEVENT",
@@ -856,7 +859,7 @@ export function downloadIcs(data: MonthlyShiftExportData) {
         `DTSTAMP:${formatIcsDateTime(new Date())}`,
         `DTSTART:${formatIcsDateTime(startAt)}`,
         `DTEND:${formatIcsDateTime(endAt)}`,
-        `SUMMARY:${escapeIcsText(`${row.request.employeeName} シフト`)}`,
+        `SUMMARY:${escapeIcsText(`${row.request.employeeName} ${positionName} シフト`)}`,
         `DESCRIPTION:${escapeIcsText(description)}`,
         "END:VEVENT",
       ].join("\r\n");
@@ -877,7 +880,7 @@ export function downloadIcs(data: MonthlyShiftExportData) {
 }
 
 export function downloadCsv(data: MonthlyShiftExportData) {
-  const headers = ["日付", "曜日", "開始", "終了", "従業員ID", "氏名", "雇用形態", "勤務時間", "給与目安"];
+  const headers = ["日付", "曜日", "開始", "終了", "ポジション", "従業員ID", "氏名", "雇用形態", "勤務時間", "給与目安"];
   const rows = data.rows.map((row) => {
     const parsedDate = new Date(`${row.request.date}T00:00:00`);
 
@@ -886,6 +889,7 @@ export function downloadCsv(data: MonthlyShiftExportData) {
       weekdays[parsedDate.getDay()],
       row.request.startTime,
       row.request.endTime,
+      getShiftRequestPositionLabel(row.request),
       row.request.employeeId,
       row.request.employeeName,
       row.request.employmentType,
@@ -901,13 +905,14 @@ export function downloadCsv(data: MonthlyShiftExportData) {
 }
 
 export function downloadDailyCsv(data: DailyShiftExportData) {
-  const headers = ["日付", "曜日", "開始", "終了", "従業員ID", "氏名", "雇用形態", "勤務時間", "給与目安"];
+  const headers = ["日付", "曜日", "開始", "終了", "ポジション", "従業員ID", "氏名", "雇用形態", "勤務時間", "給与目安"];
   const parsedDate = new Date(`${data.date}T00:00:00`);
   const rows = data.rows.map((row) => [
     data.date,
     weekdays[parsedDate.getDay()],
     row.request.startTime,
     row.request.endTime,
+    getShiftRequestPositionLabel(row.request),
     row.request.employeeId,
     row.request.employeeName,
     row.request.employmentType,

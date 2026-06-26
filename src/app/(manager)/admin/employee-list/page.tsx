@@ -7,6 +7,7 @@ import {
 } from "@/lib/people";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
+  getShiftRequestPositionLabel,
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -330,6 +331,9 @@ function AdminEmployeeListContent() {
                           <div>
                             <p className="font-semibold">
                               {formatDateLabel(request.date)}
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
+                              {getShiftRequestPositionLabel(request)}
                             </p>
                             <p className="mt-1 text-sm text-[#475569]">
                               {formatShiftTimeRange(

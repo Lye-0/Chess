@@ -10,6 +10,8 @@ type ShiftSlotData = {
   date: string;
   startTime: string;
   endTime: string;
+  positionId: string;
+  positionName: string;
 };
 
 function getTodayString() {
@@ -83,6 +85,8 @@ export async function POST(request: Request) {
         date: String(data.date ?? ""),
         startTime: String(data.startTime ?? ""),
         endTime: String(data.endTime ?? ""),
+        positionId: String(data.positionId ?? ""),
+        positionName: String(data.positionName ?? ""),
       };
     });
 
@@ -123,6 +127,8 @@ export async function POST(request: Request) {
         date: slot.date,
         startTime: slot.startTime,
         endTime: slot.endTime,
+        positionId: slot.positionId,
+        positionName: slot.positionName,
         status: "希望済",
         submittedDate,
         submittedAt: Timestamp.now(),

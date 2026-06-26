@@ -351,6 +351,8 @@ function EmployeeShiftRequestContent() {
           date: slot.date,
           startTime: slot.startTime,
           endTime: slot.endTime,
+          positionId: slot.positionId,
+          positionName: slot.positionName,
         })),
         employee.organizationId,
       );

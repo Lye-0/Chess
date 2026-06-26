@@ -1,4 +1,7 @@
-import type { ShiftRequest } from "@/lib/shiftRequests";
+import {
+  getShiftRequestPositionLabel,
+  type ShiftRequest,
+} from "@/lib/shiftRequests";
 import { getDateLabel } from "../date-utils";
 import { RequestStatusBadge } from "./request-status-badge";
 import { TrashIcon, WarningIcon, XIcon } from "./icons";
@@ -56,7 +59,10 @@ export function DeleteRequestModal({
             </div>
             <RequestStatusBadge status={target.status} />
           </div>
-          <p className="mt-4 text-sm font-semibold text-[#475569]">
+          <p className="mt-4 text-sm font-semibold text-[#1d4ed8]">
+            {getShiftRequestPositionLabel(target)}
+          </p>
+          <p className="mt-2 text-sm font-semibold text-[#475569]">
             {getDateLabel(target.date)}
             <span className="ml-4">
               {target.startTime} - {target.endTime}

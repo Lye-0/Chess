@@ -14,6 +14,7 @@ import {
   subscribeEmployeeSession,
 } from "@/lib/people";
 import {
+  getShiftRequestPositionLabel,
   subscribeEmployeeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -289,6 +290,9 @@ function ShiftRequestRow({
         </div>
         <div>
           <p className="font-semibold">{formatDateOnly(request.date)}</p>
+          <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
+            {getShiftRequestPositionLabel(request)}
+          </p>
           <p className="mt-1 text-sm text-[#475569]">
             {formatShiftTimeRange(request.startTime, request.endTime)}
           </p>
@@ -615,6 +619,9 @@ function EmployeePageContent() {
                 <div className="flex flex-col gap-3 rounded-lg bg-[#f7f8fb] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="font-semibold">{formatDateLabel(nearestRequest.date)}</p>
+                    <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
+                      {getShiftRequestPositionLabel(nearestRequest)}
+                    </p>
                     <p className="mt-1 text-sm text-[#475569]">
                       {formatShiftTimeRange(
                         nearestRequest.startTime,

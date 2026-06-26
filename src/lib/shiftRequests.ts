@@ -38,6 +38,8 @@ export type ShiftRequest = {
   date: string;
   startTime: string;
   endTime: string;
+  positionId: string;
+  positionName: string;
   status: ShiftRequestStatus;
   submittedDate: string;
 };
@@ -94,9 +96,17 @@ function toShiftRequest(
     date: String(data.date ?? ""),
     startTime: String(data.startTime ?? ""),
     endTime: String(data.endTime ?? ""),
+    positionId: String(data.positionId ?? ""),
+    positionName: String(data.positionName ?? ""),
     status: normalizeShiftRequestStatus(data.status),
     submittedDate: String(data.submittedDate ?? ""),
   };
+}
+
+export function getShiftRequestPositionLabel(
+  request: Pick<ShiftRequest, "positionName">,
+) {
+  return request.positionName || "ポジション未設定";
 }
 
 export function subscribeShiftRequests(
