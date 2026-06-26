@@ -109,12 +109,7 @@ export function SelectedDayTimeline({
   return (
     <section className="mt-4 rounded-lg border border-black/10 bg-white p-3 sm:p-4">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h3 className="text-sm font-semibold">時間帯ビュー</h3>
-          <p className="mt-1 text-xs text-[#717182]">
-            横方向が時間、色がポジションです。重なるシフトは上下に分けて表示します。
-          </p>
-        </div>
+        <h3 className="text-sm font-semibold">時間帯ビュー</h3>
         <p className="text-xs text-[#717182]">横にスクロールできます</p>
       </div>
 
@@ -213,4 +208,3 @@ export function SelectedDayTimeline({
     </section>
   );
 }
-
