@@ -12,6 +12,7 @@ import { getDisplayedRequestCount } from "./request-utils";
 import { useShiftManagement } from "./use-shift-management";
 import { WeightSelector } from "./components/weight-selector";
 import { AdminShiftCalendar } from "./components/admin-shift-calendar";
+import { SelectedDayTimeline } from "./components/selected-day-timeline";
 import { MemoizedShiftSlotCard } from "./components/shift-slot-card";
 import { ShiftFormModal } from "./components/shift-form-modal";
 import { DeleteRequestModal } from "./components/delete-request-modal";
@@ -353,7 +354,13 @@ function AdminShiftManagementContent() {
                 </div>
               </div>
               {selectedDateSlots.length > 0 ? (
-                <div className="mt-4 space-y-3">
+                <>
+                  <SelectedDayTimeline
+                    slots={selectedDateSlots}
+                    requestsBySlot={requestsBySlot}
+                    requestCountBySlot={requestCountBySlot}
+                  />
+                  <div className="mt-4 space-y-3">
                   {selectedDateSlots.map((slot) => {
                     const slotRequests = requestsBySlot[slot.id] ?? [];
                     const displayedRequestCount = getDisplayedRequestCount(
@@ -398,7 +405,8 @@ function AdminShiftManagementContent() {
                       />
                     );
                   })}
-                </div>
+                  </div>
+                </>
               ) : (
                 <div className="flex min-h-[140px] flex-col items-center justify-center text-center text-[#717182]">
                   <p>この日のシフトはありません</p>
