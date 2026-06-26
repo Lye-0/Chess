@@ -166,6 +166,16 @@ function AdminShiftManagementContent() {
     }, {});
   }, [groupedSlots, requestCountBySlot, requestsBySlot]);
   const selectedDateSlots = selectedDate ? groupedSlots[selectedDate] ?? [] : [];
+  const selectedDateSummary = selectedDate
+    ? calendarSummaryByDate[selectedDate] ?? null
+    : null;
+  const selectedDateIndex = selectedDate ? slotDates.indexOf(selectedDate) : -1;
+  const previousShiftDate =
+    selectedDateIndex > 0 ? slotDates[selectedDateIndex - 1] : null;
+  const nextShiftDate =
+    selectedDateIndex >= 0 && selectedDateIndex < slotDates.length - 1
+      ? slotDates[selectedDateIndex + 1]
+      : null;
   const deleteRequestSlotPositionName = useMemo(() => {
     if (!deleteRequestTarget) return "";
 
@@ -202,6 +212,14 @@ function AdminShiftManagementContent() {
   function selectDate(date: string) {
     setCalendarState({
       displayMonth,
+      selectedDate: date,
+      hasUserMovedCalendar: true,
+    });
+  }
+
+  function jumpToShiftDate(date: string) {
+    setCalendarState({
+      displayMonth: getMonthStart(getDateFromString(date)),
       selectedDate: date,
       hasUserMovedCalendar: true,
     });
@@ -295,10 +313,45 @@ function AdminShiftManagementContent() {
               <p className="mt-2">右上のボタンから追加してください</p>
             </div>
           ) : selectedDate ? (
-            <section className="mt-6 rounded-lg border border-black/10 p-4">
-              <h2 className="text-lg font-semibold">
-                {getDateLabel(selectedDate)}のシフト
-              </h2>
+            <section className="mt-6 rounded-lg border border-black/10 p-3 sm:p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">
+                    {getDateLabel(selectedDate)}のシフト
+                  </h2>
+                  {selectedDateSummary && (
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold">
+                      <span className="rounded-md bg-[#eef2ff] px-2 py-1 text-[#1d4ed8]">
+                        {selectedDateSummary.slotCount}枠
+                      </span>
+                      <span className="rounded-md bg-[#f1f5f9] px-2 py-1 text-[#475569]">
+                        希望 {selectedDateSummary.requestCount}人
+                      </span>
+                      <span className="rounded-md bg-[#f0fdf4] px-2 py-1 text-[#166534]">
+                        承認 {selectedDateSummary.approvedCount}/{selectedDateSummary.capacity}人
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+                  <button
+                    type="button"
+                    disabled={!previousShiftDate}
+                    onClick={() => previousShiftDate && jumpToShiftDate(previousShiftDate)}
+                    className="h-9 rounded-md border border-black/10 px-3 text-sm font-semibold text-[#475569] shadow-sm transition hover:bg-[#eef2f7] disabled:cursor-not-allowed disabled:text-[#b4b7c0] disabled:shadow-none"
+                  >
+                    前のシフト日
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!nextShiftDate}
+                    onClick={() => nextShiftDate && jumpToShiftDate(nextShiftDate)}
+                    className="h-9 rounded-md border border-black/10 px-3 text-sm font-semibold text-[#475569] shadow-sm transition hover:bg-[#eef2f7] disabled:cursor-not-allowed disabled:text-[#b4b7c0] disabled:shadow-none"
+                  >
+                    次のシフト日
+                  </button>
+                </div>
+              </div>
               {selectedDateSlots.length > 0 ? (
                 <div className="mt-4 space-y-3">
                   {selectedDateSlots.map((slot) => {

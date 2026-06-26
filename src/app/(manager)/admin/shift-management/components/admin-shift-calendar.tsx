@@ -72,7 +72,7 @@ export function AdminShiftCalendar({
   onSelectDate: (date: string) => void;
 }) {
   return (
-    <section className="mt-5 rounded-lg border border-black/10 bg-white p-4">
+    <section className="mt-5 rounded-lg border border-black/10 bg-white p-3 sm:p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold">カレンダーで日付を選択</h2>
@@ -103,7 +103,7 @@ export function AdminShiftCalendar({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-semibold text-[#717182]">
+      <div className="mt-4 grid grid-cols-7 gap-0.5 text-center text-xs font-semibold text-[#717182] sm:gap-1">
         {weekdays.map((day) => (
           <span key={day} className="py-1">
             {day}
@@ -111,7 +111,7 @@ export function AdminShiftCalendar({
         ))}
       </div>
 
-      <div className="mt-1 grid grid-cols-7 gap-1">
+      <div className="mt-1 grid grid-cols-7 gap-0.5 sm:gap-1">
         {days.map((day, index) => {
           const summary = summaryByDate[day.date];
           const hasSlots = Boolean(summary && summary.slotCount > 0);
@@ -130,7 +130,7 @@ export function AdminShiftCalendar({
                   : `${getDateLabel(day.date)}、シフトなし`
               }
               className={[
-                "min-h-20 rounded-md border p-2 text-left transition sm:min-h-24",
+                "min-h-[68px] rounded-md border p-1 text-left transition sm:min-h-24 sm:p-2",
                 selected
                   ? "border-[#030213] bg-[#030213] text-white shadow-sm"
                   : disabled
@@ -141,23 +141,24 @@ export function AdminShiftCalendar({
                   : "",
               ].join(" ")}
             >
-              <span className="block text-sm font-semibold">{day.value}</span>
+              <span className="block text-xs font-semibold sm:text-sm">{day.value}</span>
               {hasSlots && summary ? (
-                <span className="mt-2 grid gap-1 text-[11px] leading-tight">
+                <span className="mt-1 grid gap-0.5 text-[10px] leading-tight sm:mt-2 sm:gap-1 sm:text-[11px]">
                   <span className={selected ? "text-white" : "text-current"}>
-                    {summary.slotCount}枠
+                    <span className="sm:hidden">枠{summary.slotCount}</span>
+                    <span className="hidden sm:inline">{summary.slotCount}枠</span>
                   </span>
                   <span className={selected ? "text-white/90" : "text-[#475569]"}>
-                    希望 {summary.requestCount}
+                    <span className="sm:hidden">希{summary.requestCount}</span>
+                    <span className="hidden sm:inline">希望 {summary.requestCount}</span>
                   </span>
                   <span className={selected ? "text-white/90" : "text-[#475569]"}>
-                    承認 {summary.approvedCount}/{summary.capacity}
+                    <span className="sm:hidden">承{summary.approvedCount}/{summary.capacity}</span>
+                    <span className="hidden sm:inline">承認 {summary.approvedCount}/{summary.capacity}</span>
                   </span>
                 </span>
               ) : (
-                <span className="mt-2 block text-[11px] leading-tight">
-                  なし
-                </span>
+                <span className="mt-1 block text-[10px] leading-tight sm:mt-2 sm:text-[11px]">-</span>
               )}
             </button>
           );
