@@ -29,6 +29,10 @@ import {
   type CompatibilityScoreMap,
 } from "@/lib/compatibilities";
 import { subscribeEmployees, type EmployeeProfile } from "@/lib/people";
+import {
+  subscribePositions,
+  type OrganizationPosition,
+} from "@/lib/managerOrganizations";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   buildDailyShiftExportData,
@@ -58,6 +62,7 @@ export function useShiftManagement() {
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
+  const [positions, setPositions] = useState<OrganizationPosition[]>([]);
   const [employeeWorkScores, setEmployeeWorkScores] = useState<Record<string, number>>({});
   const [compatibilityScores, setCompatibilityScores] =
     useState<CompatibilityScoreMap>({});
@@ -152,6 +157,15 @@ export function useShiftManagement() {
       },
       organizationId,
     );
+    const unsubscribePositions = subscribePositions(
+      organizationId,
+      (nextPositions) => {
+        setPositions(nextPositions);
+      },
+      (error) => {
+        console.error(error);
+      },
+    );
     const unsubscribeCompatibilityScores = subscribeOrganizationCompatibilityScores(
       (scores) => {
         setCompatibilityScores((previous) => stabilizeRecord(scores, previous));
@@ -167,6 +181,7 @@ export function useShiftManagement() {
       unsubscribeRequests();
       unsubscribeEmployees();
       unsubscribePayroll();
+      unsubscribePositions();
       unsubscribeCompatibilityScores();
     };
   }, [currentOrganization, organizationId]);
@@ -313,14 +328,17 @@ export function useShiftManagement() {
   const editingApprovedCount = editingSlot
     ? approvedCountBySlot[editingSlot.id] ?? 0
     : 0;
+  const selectedPosition =
+    positions.find((position) => position.id === form.positionId) ?? null;
   const minimumCapacity = Math.max(1, editingApprovedCount);
   const capacityValue = Number(form.capacity);
   const canSave = Boolean(
     (isEditingRequestedSlot && editingSlot
         ? editedSlotStartsInFuture
         : isFourDigitShiftDate(form.date) &&
-        isValidShiftTimeRange(form.startTime, form.endTime) &&
-        formStartsInFuture) &&
+          isValidShiftTimeRange(form.startTime, form.endTime) &&
+          formStartsInFuture &&
+          selectedPosition) &&
       capacityValue >= minimumCapacity &&
       capacityValue <= 100,
   );
@@ -358,6 +376,8 @@ export function useShiftManagement() {
       date: slot.date,
       startTime: slot.startTime,
       endTime: slot.endTime,
+      positionId: slot.positionId,
+      positionName: slot.positionName,
       capacity: String(slot.capacity),
     });
     setIsModalOpen(true);
@@ -380,11 +400,24 @@ export function useShiftManagement() {
           isEditingRequestedSlot && editingSlot ? editingSlot.startTime : form.startTime,
         endTime:
           isEditingRequestedSlot && editingSlot ? editingSlot.endTime : form.endTime,
+        positionId:
+          isEditingRequestedSlot && editingSlot
+            ? editingSlot.positionId
+            : selectedPosition?.id ?? "",
+        positionName:
+          isEditingRequestedSlot && editingSlot
+            ? editingSlot.positionName
+            : selectedPosition?.name ?? "",
         capacity: Number(form.capacity),
       };
 
       if (!isShiftStartInFuture(nextSlot)) {
         setErrorMessage("過去または開始済みの日時ではシフト枠を登録できません。");
+        return;
+      }
+
+      if (!isEditingRequestedSlot && !selectedPosition) {
+        setErrorMessage("ポジションを選択してください。");
         return;
       }
 
@@ -426,6 +459,7 @@ export function useShiftManagement() {
       isEditingRequestedSlot,
       minimumCapacity,
       organizationId,
+      selectedPosition,
     ],
   );
 
@@ -569,6 +603,7 @@ export function useShiftManagement() {
     compatibilityScores,
     employeeWorkScores,
     payrollSettings,
+    positions,
     exportMonths,
     activeExportMonth,
     setSelectedExportMonth,

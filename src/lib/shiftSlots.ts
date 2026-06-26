@@ -28,6 +28,8 @@ export type ShiftSlot = {
   date: string;
   startTime: string;
   endTime: string;
+  positionId: string;
+  positionName: string;
   capacity: number;
   requestCount: number;
 };
@@ -110,6 +112,8 @@ function toShiftSlot(snapshot: QueryDocumentSnapshot<DocumentData>): ShiftSlot {
     date: String(data.date ?? ""),
     startTime: String(data.startTime ?? ""),
     endTime: String(data.endTime ?? ""),
+    positionId: String(data.positionId ?? ""),
+    positionName: String(data.positionName ?? ""),
     capacity: Number(data.capacity ?? 0),
     requestCount:
       Number.isFinite(requestCount) && requestCount > 0 ? requestCount : 0,

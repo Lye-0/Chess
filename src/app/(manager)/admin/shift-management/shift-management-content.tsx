@@ -25,6 +25,7 @@ function AdminShiftManagementContent() {
     compatibilityScores,
     employeeWorkScores,
     payrollSettings,
+    positions,
     exportMonths,
     activeExportMonth,
     setSelectedExportMonth,
@@ -207,6 +208,7 @@ function AdminShiftManagementContent() {
         <ShiftFormModal
           editingId={editingId}
           form={form}
+          positions={positions}
           onFormChange={setForm}
           isEditingRequestedSlot={isEditingRequestedSlot}
           editedSlotStartsInFuture={editedSlotStartsInFuture}

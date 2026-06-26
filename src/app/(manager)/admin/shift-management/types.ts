@@ -4,6 +4,8 @@ export type ShiftForm = {
   date: string;
   startTime: string;
   endTime: string;
+  positionId: string;
+  positionName: string;
   capacity: string;
 };
 

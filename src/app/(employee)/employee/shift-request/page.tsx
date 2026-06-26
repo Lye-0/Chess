@@ -162,6 +162,10 @@ function sortSlots(slots: ShiftSlot[]) {
   });
 }
 
+function getSlotPositionLabel(slot: Pick<ShiftSlot, "positionName">) {
+  return slot.positionName || "ポジション未設定";
+}
+
 function EmployeeShiftRequestContent() {
   const router = useRouter();
   const sessionSnapshot = useSyncExternalStore(
@@ -483,7 +487,7 @@ function EmployeeShiftRequestContent() {
                         </option>
                         {availableSlotsForSelectedDate.map((slot) => (
                           <option key={slot.id} value={slot.id}>
-                            {formatShiftTimeRange(slot.startTime, slot.endTime)}（募集 {slot.capacity}人 / 希望{" "}
+                            {getSlotPositionLabel(slot)} / {formatShiftTimeRange(slot.startTime, slot.endTime)}（募集 {slot.capacity}人 / 希望{" "}
                             {slot.requestCount}人）
                           </option>
                         ))}
@@ -531,6 +535,9 @@ function EmployeeShiftRequestContent() {
                       >
                         <div>
                           <p className="font-semibold">{formatDateLabel(slot.date)}</p>
+                          <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
+                            {getSlotPositionLabel(slot)}
+                          </p>
                           <p className="mt-1 text-sm text-[#717182]">
                             {formatShiftTimeRange(slot.startTime, slot.endTime)}
                           </p>
@@ -591,7 +598,12 @@ function EmployeeShiftRequestContent() {
                   key={slot.id}
                   className="flex items-center justify-between rounded-lg bg-[#f7f8fb] px-4 py-3"
                 >
-                  <p className="font-semibold">{formatDateLabel(slot.date)}</p>
+                  <div>
+                    <p className="font-semibold">{formatDateLabel(slot.date)}</p>
+                    <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
+                      {getSlotPositionLabel(slot)}
+                    </p>
+                  </div>
                   <p className="text-sm text-[#475569]">
                     {formatShiftTimeRange(slot.startTime, slot.endTime)}
                   </p>

@@ -1,5 +1,10 @@
 import type { FormEvent } from "react";
-import { isFourDigitShiftDate, isOvernightShiftTime, isValidShiftTimeRange } from "@/lib/shiftSlots";
+import type { OrganizationPosition } from "@/lib/managerOrganizations";
+import {
+  isFourDigitShiftDate,
+  isOvernightShiftTime,
+  isValidShiftTimeRange,
+} from "@/lib/shiftSlots";
 import { normalizeDateInput } from "../date-utils";
 import type { ShiftForm } from "../types";
 import { XIcon } from "./icons";
@@ -7,6 +12,7 @@ import { XIcon } from "./icons";
 export function ShiftFormModal({
   editingId,
   form,
+  positions,
   onFormChange,
   isEditingRequestedSlot,
   editedSlotStartsInFuture,
@@ -21,6 +27,7 @@ export function ShiftFormModal({
 }: {
   editingId: string | null;
   form: ShiftForm;
+  positions: OrganizationPosition[];
   onFormChange: (form: ShiftForm) => void;
   isEditingRequestedSlot: boolean;
   editedSlotStartsInFuture: boolean;
@@ -49,7 +56,7 @@ export function ShiftFormModal({
             </p>
             {isEditingRequestedSlot && (
               <p className="mt-3 rounded-md bg-[#fff7ed] px-3 py-2 text-sm text-[#c2410c]">
-                希望者がいるため、日付・開始時刻・終了時刻は変更できません。募集人数のみ変更できます。
+                希望者がいるため、日付・開始時刻・終了時刻・ポジションは変更できません。募集人数のみ変更できます。
               </p>
             )}
           </div>
@@ -147,6 +154,43 @@ export function ShiftFormModal({
               このシフトは過去または開始済みのため更新できません。
             </p>
           )}
+          <div>
+            <label htmlFor="shift-position" className="block text-sm font-semibold">
+              ポジション
+            </label>
+            {positions.length === 0 ? (
+              <p className="mt-2 rounded-md bg-[#fff7ed] px-3 py-2 text-sm text-[#c2410c]">
+                ポジションが未登録です。従業員登録画面からポジションを追加してください。
+              </p>
+            ) : (
+              <select
+                id="shift-position"
+                value={form.positionId}
+                disabled={isEditingRequestedSlot}
+                onChange={(event) => {
+                  const selectedPosition = positions.find(
+                    (position) => position.id === event.target.value,
+                  );
+                  onFormChange({
+                    ...form,
+                    positionId: selectedPosition?.id ?? "",
+                    positionName: selectedPosition?.name ?? "",
+                  });
+                }}
+                className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm font-semibold shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#f0f1f4] disabled:text-[#717182]"
+              >
+                <option value="" disabled>
+                  ポジションを選択
+                </option>
+                {positions.map((position) => (
+                  <option key={position.id} value={position.id}>
+                    {position.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
 
           <div>
             <label htmlFor="shift-capacity" className="block text-sm font-semibold">

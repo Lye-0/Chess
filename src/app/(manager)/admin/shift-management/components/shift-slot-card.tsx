@@ -84,6 +84,9 @@ function ShiftSlotCard({
             <p className="font-semibold">
               {formatShiftTimeRange(slot.startTime, slot.endTime)}
             </p>
+            <span className="rounded-md bg-[#eef2ff] px-2.5 py-1 text-xs font-semibold text-[#1d4ed8]">
+              {slot.positionName || "ポジション未設定"}
+            </span>
             <p className="text-sm text-[#475569]">募集: {slot.capacity}人</p>
           </div>
           <SlotRequestStatus requestCount={displayedRequestCount} />

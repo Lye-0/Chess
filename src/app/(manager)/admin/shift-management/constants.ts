@@ -4,6 +4,8 @@ export const emptyForm: ShiftForm = {
   date: "",
   startTime: "",
   endTime: "",
+  positionId: "",
+  positionName: "",
   capacity: "1",
 };
 
