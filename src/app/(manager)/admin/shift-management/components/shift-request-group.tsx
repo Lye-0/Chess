@@ -1,9 +1,6 @@
 import { memo } from "react";
 import { calculateShiftPayroll, formatCurrency, type PayrollSettings } from "@/lib/payroll";
-import {
-  getShiftRequestPositionLabel,
-  type ShiftRequest,
-} from "@/lib/shiftRequests";
+import type { ShiftRequest } from "@/lib/shiftRequests";
 import { RequestStatusBadge } from "./request-status-badge";
 import { TrashIcon } from "./icons";
 
@@ -72,9 +69,6 @@ export const ShiftRequestGroup = memo(function ShiftRequestGroup({
                   </p>
                   <p className="mt-1 truncate text-xs text-[#717182]">
                     {request.employeeEmail} / {request.employmentType}
-                  </p>
-                  <p className="mt-1 truncate text-xs font-semibold text-[#1d4ed8]">
-                    {getShiftRequestPositionLabel(request)}
                   </p>
                   <p className="mt-1 text-xs font-semibold text-[#00a63e]">
                     {formatCurrency(payroll.totalPay)}
