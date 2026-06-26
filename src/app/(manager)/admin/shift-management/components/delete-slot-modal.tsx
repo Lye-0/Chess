@@ -36,6 +36,9 @@ export function DeleteSlotModal({
 
         <div className="mt-6 rounded-lg bg-[#f7f8fb] px-4 py-4">
           <p className="font-semibold">{getDateLabel(target.date)}</p>
+          <p className="mt-2 text-sm font-semibold text-[#1d4ed8]">
+            {target.positionName || "ポジション未設定"}
+          </p>
           <p className="mt-2 text-sm text-[#475569]">
             {formatShiftTimeRange(target.startTime, target.endTime)}
             <span className="ml-4">募集 {target.capacity}人</span>

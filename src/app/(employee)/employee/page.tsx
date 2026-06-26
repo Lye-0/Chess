@@ -26,7 +26,11 @@ import {
   sumShiftPay,
   type PayrollSettings,
 } from "@/lib/payroll";
-import { formatShiftTimeRange } from "@/lib/shiftSlots";
+import {
+  formatShiftTimeRange,
+  subscribeShiftSlots,
+  type ShiftSlot,
+} from "@/lib/shiftSlots";
 import { ShiftExportMenu } from "@/components/ui/shift-export-menu";
 import {
   buildMonthlyShiftExportData,
@@ -363,6 +367,7 @@ function EmployeePageContent() {
   );
   const employee = sessionEmployee;
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
     defaultPayrollSettings,
   );
@@ -404,6 +409,16 @@ function EmployeePageContent() {
       employee.organizationId,
     );
 
+    const unsubscribeSlots = subscribeShiftSlots(
+      (nextSlots) => {
+        setSlots(nextSlots);
+      },
+      (error) => {
+        console.error(error);
+      },
+      employee.organizationId,
+    );
+
     const unsubscribePayroll = subscribePayrollSettings(
       (settings) => {
         setPayrollSettings(settings);
@@ -418,17 +433,31 @@ function EmployeePageContent() {
 
     return () => {
       unsubscribeRequests();
+      unsubscribeSlots();
       unsubscribePayroll();
     };
   }, [employee]);
 
-  const exportMonths = useMemo(() => getShiftExportMonths(requests), [requests]);
+  const slotPositionNameById = useMemo(() => {
+    return slots.reduce<Record<string, string>>((positions, slot) => {
+      positions[slot.id] = slot.positionName;
+      return positions;
+    }, {});
+  }, [slots]);
+  const displayRequests = useMemo(() => {
+    return requests.map((request) => ({
+      ...request,
+      positionName:
+        request.positionName || slotPositionNameById[request.slotId] || "",
+    }));
+  }, [requests, slotPositionNameById]);
+  const exportMonths = useMemo(() => getShiftExportMonths(displayRequests), [displayRequests]);
   const activeExportMonth = exportMonths.includes(selectedExportMonth)
     ? selectedExportMonth
     : exportMonths[0];
 
 
-  const sortedRequests = useMemo(() => sortRequests(requests), [requests]);
+  const sortedRequests = useMemo(() => sortRequests(displayRequests), [displayRequests]);
   const pendingRequests = useMemo(
     () => sortedRequests.filter((request) => request.status !== "承認済"),
     [sortedRequests],
@@ -494,12 +523,12 @@ function EmployeePageContent() {
             department: employee.department,
             month: activeExportMonth,
             employees: [employee],
-            requests,
+            requests: displayRequests,
             payrollSettings,
             employeeId: employee.employeeId,
           })
         : null,
-    [employee, payrollSettings, requests, activeExportMonth],
+    [employee, payrollSettings, displayRequests, activeExportMonth],
   );
 
   function handleExport(format: ShiftExportFormat) {

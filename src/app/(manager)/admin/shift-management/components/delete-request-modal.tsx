@@ -1,23 +1,23 @@
-import {
-  getShiftRequestPositionLabel,
-  type ShiftRequest,
-} from "@/lib/shiftRequests";
+import type { ShiftRequest } from "@/lib/shiftRequests";
 import { getDateLabel } from "../date-utils";
 import { RequestStatusBadge } from "./request-status-badge";
 import { TrashIcon, WarningIcon, XIcon } from "./icons";
 
 export function DeleteRequestModal({
   target,
+  slotPositionName = "",
   isProcessing,
   onClose,
   onConfirm,
 }: {
   target: ShiftRequest;
+  slotPositionName?: string;
   isProcessing: boolean;
   onClose: () => void;
   onConfirm: () => void;
 }) {
   const isApproved = target.status === "承認済";
+  const positionName = target.positionName || slotPositionName || "ポジション未設定";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
@@ -60,7 +60,7 @@ export function DeleteRequestModal({
             <RequestStatusBadge status={target.status} />
           </div>
           <p className="mt-4 text-sm font-semibold text-[#1d4ed8]">
-            {getShiftRequestPositionLabel(target)}
+            {positionName}
           </p>
           <p className="mt-2 text-sm font-semibold text-[#475569]">
             {getDateLabel(target.date)}

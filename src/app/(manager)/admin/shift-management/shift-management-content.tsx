@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useMemo } from "react";
 import { BackHeader, Card, PlusIcon } from "../../_components/shift-ui";
 import { getDateLabel } from "./date-utils";
 import { getDisplayedRequestCount } from "./request-utils";
@@ -70,6 +70,18 @@ function AdminShiftManagementContent() {
     closeDeleteRequestModal,
     confirmDeleteRequest,
   } = useShiftManagement();
+  const deleteRequestSlotPositionName = useMemo(() => {
+    if (!deleteRequestTarget) return "";
+
+    for (const slots of Object.values(groupedSlots)) {
+      const slot = slots.find(
+        (candidate) => candidate.id === deleteRequestTarget.slotId,
+      );
+      if (slot) return slot.positionName;
+    }
+
+    return "";
+  }, [deleteRequestTarget, groupedSlots]);
 
   if (isCheckingOrganization || !currentOrganization) {
     return (
@@ -226,6 +238,7 @@ function AdminShiftManagementContent() {
       {deleteRequestTarget && (
         <DeleteRequestModal
           target={deleteRequestTarget}
+          slotPositionName={deleteRequestSlotPositionName}
           isProcessing={deletingRequestId === deleteRequestTarget.id}
           onClose={closeDeleteRequestModal}
           onConfirm={confirmDeleteRequest}
