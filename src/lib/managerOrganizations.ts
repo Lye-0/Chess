@@ -1,4 +1,5 @@
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
@@ -26,8 +27,26 @@ export type ManagerOrganizationInput = {
   department: string;
 };
 
+export type OrganizationPosition = {
+  id: string;
+  organizationId: string;
+  name: string;
+};
+
+export type PositionInput = {
+  name: string;
+};
+
 function getManagerOrganizationsCollection(managerUid: string) {
   return collection(db, "managers", managerUid, "organizations");
+}
+
+function getPositionsCollection(organizationId: string) {
+  return collection(db, "organizations", organizationId, "positions");
+}
+
+function normalizePositionName(name: string) {
+  return name.trim().replace(/\s+/g, " ");
 }
 
 function createOrganizationIdCandidate() {
@@ -58,6 +77,19 @@ function toManagerOrganization(
   };
 }
 
+function toOrganizationPosition(
+  snapshot: QueryDocumentSnapshot<DocumentData>,
+  organizationId: string,
+): OrganizationPosition {
+  const data = snapshot.data();
+
+  return {
+    id: snapshot.id,
+    organizationId,
+    name: String(data.name ?? ""),
+  };
+}
+
 export function subscribeManagerOrganizations(
   managerUid: string,
   onNext: (organizations: ManagerOrganization[]) => void,
@@ -73,6 +105,66 @@ export function subscribeManagerOrganizations(
     },
     onError,
   );
+}
+
+export function subscribePositions(
+  organizationId: string,
+  onNext: (positions: OrganizationPosition[]) => void,
+  onError?: (error: FirestoreError) => void,
+): Unsubscribe {
+  return onSnapshot(
+    getPositionsCollection(organizationId),
+    (snapshot) => {
+      const positions = snapshot.docs
+        .map((positionSnapshot) =>
+          toOrganizationPosition(positionSnapshot, organizationId),
+        )
+        .sort((a, b) => a.name.localeCompare(b.name));
+      onNext(positions);
+    },
+    onError,
+  );
+}
+
+export async function createPosition(
+  organizationId: string,
+  input: PositionInput,
+): Promise<OrganizationPosition> {
+  const trimmedOrganizationId = organizationId.trim();
+  const name = normalizePositionName(input.name);
+
+  if (!trimmedOrganizationId) {
+    throw new Error("ポジションを追加する組織が見つかりません。");
+  }
+
+  if (!name) {
+    throw new Error("ポジション名を入力してください。");
+  }
+
+  const snapshot = await getDocs(getPositionsCollection(trimmedOrganizationId));
+  const exists = snapshot.docs.some((positionSnapshot) => {
+    const existingName = normalizePositionName(
+      String(positionSnapshot.data().name ?? ""),
+    );
+
+    return existingName === name;
+  });
+
+  if (exists) {
+    throw new Error("同じ名前のポジションが既に登録されています。");
+  }
+
+  const positionRef = await addDoc(getPositionsCollection(trimmedOrganizationId), {
+    name,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return {
+    id: positionRef.id,
+    organizationId: trimmedOrganizationId,
+    name,
+  };
 }
 
 export async function getManagerOrganization(
@@ -175,6 +267,7 @@ export async function deleteManagerOrganization(
 
   const deletableCollectionNames = [
     "employees",
+    "positions",
     "shiftSlots",
     "shiftRequests",
     "compatibilities",

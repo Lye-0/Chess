@@ -13,11 +13,18 @@ import {
   type EmployeeProfile,
 } from "@/lib/people";
 import { employmentTypes } from "@/lib/payroll";
+import {
+  createPosition,
+  subscribePositions,
+  type OrganizationPosition,
+} from "@/lib/managerOrganizations";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   BackHeader,
+  BadgeIcon,
   Card,
   ChevronDownIcon,
+  PlusIcon,
   UserPlusIcon,
 } from "../../_components/shift-ui";
 
@@ -35,6 +42,14 @@ const emptyForm: EmployeeForm = {
   email: "",
   employmentType: employmentTypes[0],
   workScore: String(defaultWorkScore),
+};
+
+type PositionForm = {
+  name: string;
+};
+
+const emptyPositionForm: PositionForm = {
+  name: "",
 };
 
 function PencilIcon() {
@@ -155,9 +170,15 @@ function AdminEmployeeRegistrationContent() {
   const [editingEmployee, setEditingEmployee] = useState<EmployeeProfile | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<EmployeeProfile | null>(null);
   const [registeredEmployees, setRegisteredEmployees] = useState<EmployeeProfile[]>([]);
+  const [positions, setPositions] = useState<OrganizationPosition[]>([]);
+  const [positionForm, setPositionForm] = useState<PositionForm>(emptyPositionForm);
   const [createdEmployee, setCreatedEmployee] = useState<EmployeeProfile | null>(null);
+  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
+  const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPositionsLoading, setIsPositionsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingPosition, setIsSavingPosition] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -172,6 +193,7 @@ function AdminEmployeeRegistrationContent() {
     Boolean(editForm.firstName.trim()) &&
     Boolean(editForm.email.trim()) &&
     !isUpdating;
+  const canCreatePosition = Boolean(positionForm.name.trim()) && !isSavingPosition;
 
   useEffect(() => {
     if (!currentOrganization) return;
@@ -191,6 +213,24 @@ function AdminEmployeeRegistrationContent() {
     );
   }, [currentOrganization, organizationId]);
 
+  useEffect(() => {
+    if (!currentOrganization) return;
+
+    return subscribePositions(
+      organizationId,
+      (nextPositions) => {
+        setPositions(nextPositions);
+        setIsPositionsLoading(false);
+        setErrorMessage(null);
+      },
+      (error) => {
+        console.error(error);
+        setIsPositionsLoading(false);
+        setErrorMessage("ポジション一覧の読み込みに失敗しました。Firestoreの設定を確認してください。");
+      },
+    );
+  }, [currentOrganization, organizationId]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
@@ -203,6 +243,7 @@ function AdminEmployeeRegistrationContent() {
       setCreatedEmployee(employee);
       setSuccessMessage(`${employee.name}さんを登録しました。`);
       setForm(emptyForm);
+      setIsEmployeeModalOpen(false);
     } catch (error) {
       console.error(error);
       setErrorMessage(
@@ -212,6 +253,61 @@ function AdminEmployeeRegistrationContent() {
       );
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  function openEmployeeModal() {
+    setForm(emptyForm);
+    setCreatedEmployee(null);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIsEmployeeModalOpen(true);
+  }
+
+  function closeEmployeeModal() {
+    if (isSaving) return;
+
+    setIsEmployeeModalOpen(false);
+    setForm(emptyForm);
+  }
+
+  function openPositionModal() {
+    setPositionForm(emptyPositionForm);
+    setCreatedEmployee(null);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIsPositionModalOpen(true);
+  }
+
+  function closePositionModal() {
+    if (isSavingPosition) return;
+
+    setIsPositionModalOpen(false);
+    setPositionForm(emptyPositionForm);
+  }
+
+  async function handlePositionSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canCreatePosition) return;
+
+    try {
+      setIsSavingPosition(true);
+      setErrorMessage(null);
+      setSuccessMessage(null);
+      const position = await createPosition(organizationId, positionForm);
+      setCreatedEmployee(null);
+      setSuccessMessage(`ポジション「${position.name}」を追加しました。`);
+      setPositionForm(emptyPositionForm);
+      setIsPositionModalOpen(false);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "ポジションの追加に失敗しました。",
+      );
+    } finally {
+      setIsSavingPosition(false);
     }
   }
 
@@ -365,7 +461,141 @@ function AdminEmployeeRegistrationContent() {
             </div>
           )}
 
-          <form className="mt-8" onSubmit={handleSubmit}>
+          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={openEmployeeModal}
+              className="inline-flex h-11 items-center justify-center gap-3 rounded-md bg-[#030213] px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#171624]"
+            >
+              <UserPlusIcon className="h-4 w-4" />
+              従業員追加
+            </button>
+            <button
+              type="button"
+              onClick={openPositionModal}
+              className="inline-flex h-11 items-center justify-center gap-3 rounded-md border border-black/10 bg-white px-5 text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
+            >
+              <BadgeIcon className="h-4 w-4" />
+              ポジション追加
+            </button>
+          </div>
+        </Card>
+
+        <Card className="mt-6 min-h-[164px] p-6">
+          <h2 className="text-xl font-semibold">
+            登録済みポジション（{positions.length}件）
+          </h2>
+          <p className="mt-1 text-sm text-[#717182]">
+            シフト募集時に選択できるポジション
+          </p>
+
+          {isPositionsLoading ? (
+            <div className="flex min-h-20 items-center justify-center text-center text-[#717182]">
+              <p>ポジションを読み込んでいます</p>
+            </div>
+          ) : positions.length === 0 ? (
+            <div className="flex min-h-20 items-center justify-center text-center text-[#717182]">
+              <p>まだポジションが登録されていません</p>
+            </div>
+          ) : (
+            <div className="mt-5 flex flex-wrap gap-2">
+              {positions.map((position) => (
+                <span
+                  key={position.id}
+                  className="inline-flex min-h-8 items-center rounded-md bg-[#eef2ff] px-3 py-1 text-sm font-semibold text-[#1d4ed8]"
+                >
+                  {position.name}
+                </span>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card className="mt-6 min-h-[202px] p-6">
+          <h2 className="text-xl font-semibold">
+            登録済み従業員（{registeredEmployees.length}名）
+          </h2>
+          <p className="mt-1 text-sm text-[#717182]">この組織の従業員一覧</p>
+
+          {isLoading ? (
+            <div className="flex min-h-28 items-center justify-center text-center text-[#717182]">
+              <p>従業員を読み込んでいます</p>
+            </div>
+          ) : registeredEmployees.length === 0 ? (
+            <div className="flex min-h-28 items-center justify-center text-center text-[#717182]">
+              <p>まだ従業員が登録されていません</p>
+            </div>
+          ) : (
+            <div className="mt-5 space-y-3">
+              {registeredEmployees.map((employee) => (
+                <div
+                  key={employee.employeeId}
+                  className="rounded-lg border border-black/10 px-4 py-3"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-semibold">{employee.name}</p>
+                      <p className="mt-1 text-sm text-[#475569]">
+                        {employee.email}
+                        <span className="ml-4">{employee.employmentType}</span>
+                        <span className="ml-4 font-mono">
+                          業務スキル {formatScore(employee.workScore)}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="w-fit rounded-md bg-[#eef2ff] px-3 py-1 font-mono text-sm font-semibold text-[#1d4ed8]">
+                        {employee.employeeId}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(employee)}
+                        className="inline-flex h-8 items-center gap-2 rounded-md border border-black/10 bg-white px-3 text-xs font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
+                      >
+                        <PencilIcon />
+                        編集
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openDeleteModal(employee)}
+                        className="inline-flex h-8 items-center gap-2 rounded-md border border-[#ffd0d9] bg-white px-3 text-xs font-semibold text-[#db1741] shadow-sm transition hover:bg-[#fff1f4]"
+                      >
+                        <TrashIcon />
+                        削除
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {isEmployeeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
+          <form
+            className="w-full max-w-[560px] rounded-xl bg-white p-6 shadow-xl"
+            onSubmit={handleSubmit}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold">従業員追加</h2>
+                <p className="mt-1 text-sm text-[#717182]">
+                  選択中の組織に従業員を追加します
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="閉じる"
+                onClick={closeEmployeeModal}
+                className="rounded-md p-1 text-[#596074] transition hover:bg-[#f0f1f4] hover:text-[#030213]"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <div className="mt-6">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label htmlFor="last-name" className="block text-sm font-semibold">
@@ -454,69 +684,73 @@ function AdminEmployeeRegistrationContent() {
               <UserPlusIcon className="h-4 w-4" />
               {isSaving ? "登録中..." : "登録"}
             </button>
+            </div>
           </form>
-        </Card>
+        </div>
+      )}
 
-        <Card className="mt-6 min-h-[202px] p-6">
-          <h2 className="text-xl font-semibold">
-            登録済み従業員（{registeredEmployees.length}名）
-          </h2>
-          <p className="mt-1 text-sm text-[#717182]">この組織の従業員一覧</p>
+      {isPositionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
+          <form
+            onSubmit={handlePositionSubmit}
+            className="w-full max-w-[512px] rounded-xl bg-white p-6 shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold">ポジション追加</h2>
+                <p className="mt-1 text-sm text-[#717182]">
+                  シフト募集時に選択するポジションを追加します。
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="閉じる"
+                onClick={closePositionModal}
+                className="rounded-md p-1 text-[#596074] transition hover:bg-[#f0f1f4] hover:text-[#030213]"
+              >
+                <XIcon />
+              </button>
+            </div>
 
-          {isLoading ? (
-            <div className="flex min-h-28 items-center justify-center text-center text-[#717182]">
-              <p>従業員を読み込んでいます</p>
+            <label htmlFor="position-name" className="mt-6 block text-sm font-semibold">
+              ポジション名
+            </label>
+            <input
+              id="position-name"
+              value={positionForm.name}
+              onChange={(event) =>
+                setPositionForm({ ...positionForm, name: event.target.value })
+              }
+              placeholder="例：ホール"
+              className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none placeholder:text-[#717182] focus:border-[#030213]"
+            />
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={closePositionModal}
+                disabled={isSavingPosition}
+                className="h-10 rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed"
+              >
+                キャンセル
+              </button>
+              <button
+                type="submit"
+                disabled={!canCreatePosition}
+                className={[
+                  "inline-flex h-10 items-center justify-center gap-3 rounded-md text-sm font-semibold text-white transition",
+                  canCreatePosition
+                    ? "bg-[#030213] hover:bg-[#171624]"
+                    : "cursor-not-allowed bg-[#8e8d95]",
+                ].join(" ")}
+              >
+                <PlusIcon />
+                {isSavingPosition ? "追加中..." : "追加する"}
+              </button>
             </div>
-          ) : registeredEmployees.length === 0 ? (
-            <div className="flex min-h-28 items-center justify-center text-center text-[#717182]">
-              <p>まだ従業員が登録されていません</p>
-            </div>
-          ) : (
-            <div className="mt-5 space-y-3">
-              {registeredEmployees.map((employee) => (
-                <div
-                  key={employee.employeeId}
-                  className="rounded-lg border border-black/10 px-4 py-3"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="font-semibold">{employee.name}</p>
-                      <p className="mt-1 text-sm text-[#475569]">
-                        {employee.email}
-                        <span className="ml-4">{employee.employmentType}</span>
-                        <span className="ml-4 font-mono">
-                          業務スキル {formatScore(employee.workScore)}
-                        </span>
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="w-fit rounded-md bg-[#eef2ff] px-3 py-1 font-mono text-sm font-semibold text-[#1d4ed8]">
-                        {employee.employeeId}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => openEditModal(employee)}
-                        className="inline-flex h-8 items-center gap-2 rounded-md border border-black/10 bg-white px-3 text-xs font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
-                      >
-                        <PencilIcon />
-                        編集
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openDeleteModal(employee)}
-                        className="inline-flex h-8 items-center gap-2 rounded-md border border-[#ffd0d9] bg-white px-3 text-xs font-semibold text-[#db1741] shadow-sm transition hover:bg-[#fff1f4]"
-                      >
-                        <TrashIcon />
-                        削除
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
+          </form>
+        </div>
+      )}
 
       {editingEmployee && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
