@@ -50,6 +50,24 @@ type BuildDailyShiftExportDataInput = Omit<
 };
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+const shiftExportColors = [
+  { fill: "#dbeafe", stroke: "#60a5fa", text: "#1d4ed8" },
+  { fill: "#dcfce7", stroke: "#4ade80", text: "#166534" },
+  { fill: "#ede9fe", stroke: "#a78bfa", text: "#6d28d9" },
+  { fill: "#fef3c7", stroke: "#f59e0b", text: "#92400e" },
+  { fill: "#fce7f3", stroke: "#f472b6", text: "#be185d" },
+  { fill: "#cffafe", stroke: "#22d3ee", text: "#0e7490" },
+];
+
+function getShiftExportColor(positionName: string) {
+  const source = positionName || "ポジション未設定";
+  const hash = Array.from(source).reduce(
+    (total, character) => total + character.charCodeAt(0),
+    0,
+  );
+
+  return shiftExportColors[hash % shiftExportColors.length];
+}
 
 function padDatePart(value: number) {
   return String(value).padStart(2, "0");
@@ -240,6 +258,7 @@ function getEmployeeDisplayRows(data: MonthlyShiftExportData | DailyShiftExportD
   return data.employees.length > 0 ? data.employees : [null];
 }
 
+
 function drawFittedCenteredText(
   context: CanvasRenderingContext2D,
   text: string,
@@ -267,7 +286,77 @@ function drawFittedCenteredText(
   context.fillText(text, x + width / 2, y + height / 2);
   context.restore();
 }
+function drawShiftExportBlock(
+  context: CanvasRenderingContext2D,
+  row: MonthlyShiftExportRow,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const positionName = getShiftRequestPositionLabel(row.request);
+  const color = getShiftExportColor(positionName);
+  const timeLabel = `${row.request.startTime}-${row.request.endTime}`;
 
+  context.fillStyle = color.fill;
+  context.fillRect(x, y, width, height);
+  context.strokeStyle = color.stroke;
+  context.lineWidth = 1;
+  context.strokeRect(x, y, width, height);
+
+  context.save();
+  context.beginPath();
+  context.rect(x + 2, y + 2, Math.max(1, width - 4), Math.max(1, height - 4));
+  context.clip();
+  context.textAlign = "center";
+  context.fillStyle = color.text;
+
+  if (height >= 34 && width >= 54) {
+    context.font = "bold 12px Arial, sans-serif";
+    context.fillText(timeLabel, x + width / 2, y + height / 2 - 7);
+    context.font = "bold 10px Arial, sans-serif";
+    context.fillText(positionName, x + width / 2, y + height / 2 + 8);
+  } else {
+    context.font = "bold 10px Arial, sans-serif";
+    context.fillText(width >= 42 ? timeLabel : positionName.slice(0, 2), x + width / 2, y + height / 2);
+  }
+
+  context.restore();
+}
+
+
+function drawCompactShiftExportBlock(
+  context: CanvasRenderingContext2D,
+  row: MonthlyShiftExportRow,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const positionName = getShiftRequestPositionLabel(row.request);
+  const color = getShiftExportColor(positionName);
+  const timeLabel = `${row.request.startTime}-${row.request.endTime}`;
+  const topLineHeight = Math.max(9, Math.floor(height * 0.52));
+  const bottomLineHeight = Math.max(8, height - topLineHeight - 1);
+
+  context.fillStyle = color.fill;
+  context.fillRect(x, y, width, height);
+  context.strokeStyle = color.stroke;
+  context.lineWidth = 1;
+  context.strokeRect(x, y, width, height);
+  context.fillStyle = color.text;
+  drawFittedCenteredText(context, timeLabel, x + 2, y + 1, width - 4, topLineHeight, {
+    maxFontSize: 9,
+    minFontSize: 7,
+    fontWeight: "bold",
+  });
+  context.fillStyle = color.text;
+  drawFittedCenteredText(context, positionName, x + 2, y + topLineHeight, width - 4, bottomLineHeight, {
+    maxFontSize: 8,
+    minFontSize: 6,
+    fontWeight: "bold",
+  });
+}
 function drawEmployeeRoster(data: MonthlyShiftExportData) {
   const rows = data.rows;
   const width = 1100;
@@ -428,7 +517,7 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
       const dayRows = employeeRows.filter((row) => row.request.date === day.date);
 
       const visibleRows = dayRows.slice(0, 2);
-      const blockHeight = 22;
+      const blockHeight = 24;
       const blockGap = 4;
       const blockGroupHeight = visibleRows.length * blockHeight + Math.max(0, visibleRows.length - 1) * blockGap;
       const firstBlockY = y + rowHeight / 2 - blockGroupHeight / 2;
@@ -438,14 +527,7 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
         const blockY = firstBlockY + index * (blockHeight + blockGap);
         const blockWidth = dayWidth - 8;
 
-        context.fillStyle = "#fce7f3";
-        context.fillRect(blockX, blockY, blockWidth, blockHeight);
-        context.fillStyle = "#111827";
-        drawFittedCenteredText(context, `${row.request.startTime}-${row.request.endTime}`, blockX, blockY, blockWidth, blockHeight, {
-          maxFontSize: 13,
-          minFontSize: 11,
-          fontWeight: "bold",
-        });
+        drawCompactShiftExportBlock(context, row, blockX, blockY, blockWidth, blockHeight);
       });
       if (dayRows.length > 2) {
         context.fillStyle = "#111827";
@@ -504,15 +586,15 @@ function getDailyTimeRange(rows: MonthlyShiftExportRow[]) {
 }
 
 function drawDailyRoster(data: DailyShiftExportData) {
-  const rowHeight = 54;
-  const headerHeight = 132;
-  const timeHeaderHeight = 48;
+  const rowHeight = 68;
+  const headerHeight = 138;
+  const timeHeaderHeight = 56;
   const footerHeight = 52;
   const indexWidth = 46;
-  const nameWidth = 176;
-  const slotWidth = 28;
-  const totalWidth = 88;
-  const payWidth = 108;
+  const nameWidth = 190;
+  const slotWidth = 34;
+  const totalWidth = 90;
+  const payWidth = 112;
   const displayEmployees = getEmployeeDisplayRows(data);
   const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
     (groups, row) => {
@@ -563,7 +645,7 @@ function drawDailyRoster(data: DailyShiftExportData) {
   context.fillText("No.", 14, tableTop + timeHeaderHeight / 2);
   context.fillText("氏名", indexWidth + 14, tableTop + timeHeaderHeight / 2);
   context.fillText("合計", totalX + 22, tableTop + timeHeaderHeight / 2);
-  context.fillText("給与目安", totalX + totalWidth + 18, tableTop + timeHeaderHeight / 2);
+  context.fillText("給与目安", totalX + totalWidth + 14, tableTop + timeHeaderHeight / 2);
 
   for (let minute = start; minute < end; minute += 30) {
     const x = indexWidth + nameWidth + ((minute - start) / 30) * slotWidth;
@@ -606,18 +688,11 @@ function drawDailyRoster(data: DailyShiftExportData) {
       const blockEnd = Math.min(end, range.end);
       const x = indexWidth + nameWidth + ((blockStart - start) / 30) * slotWidth + 2;
       const blockWidth = Math.max(10, ((blockEnd - blockStart) / 30) * slotWidth - 4);
-      const blockHeight = 28;
+      const blockHeight = 46;
       const blockY = y + rowHeight / 2 - blockHeight / 2;
 
       if (blockEnd <= blockStart) return;
-      context.fillStyle = "#fce7f3";
-      context.fillRect(x, blockY, blockWidth, blockHeight);
-      context.fillStyle = "#111827";
-      drawFittedCenteredText(context, `${row.request.startTime}-${row.request.endTime}`, x, blockY, blockWidth, blockHeight, {
-        maxFontSize: 13,
-        minFontSize: 11,
-        fontWeight: "bold",
-      });
+      drawShiftExportBlock(context, row, x, blockY, blockWidth, blockHeight);
     });
 
     context.fillStyle = "#fef08a";
