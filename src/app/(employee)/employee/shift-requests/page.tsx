@@ -107,8 +107,8 @@ function ShiftRequestRow({
           <p>{weekdays[parsedDate.getDay()]}</p>
           <p className="font-semibold">{parsedDate.getDate()}</p>
         </div>
-        <div>
-          <p className="font-semibold">{formatDateOnly(request.date)}</p>
+        <div className="min-w-0">
+          <p className="truncate font-semibold">{formatDateOnly(request.date)}</p>
           <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
             {getShiftRequestPositionLabel(request)}
           </p>

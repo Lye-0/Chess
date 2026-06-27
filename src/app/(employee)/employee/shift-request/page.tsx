@@ -1100,15 +1100,15 @@ function EmployeeShiftRequestContent() {
               {draftSlots.map((slot) => (
                 <div
                   key={slot.id}
-                  className="flex items-center justify-between rounded-lg bg-[#f7f8fb] px-4 py-3"
+                  className="flex items-center justify-between gap-3 rounded-lg bg-[#f7f8fb] px-4 py-3"
                 >
-                  <div>
-                    <p className="font-semibold">{formatDateLabel(slot.date)}</p>
-                    <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">{formatDateLabel(slot.date)}</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
                       {getSlotPositionLabel(slot)}
                     </p>
                   </div>
-                  <p className="text-sm text-[#475569]">
+                  <p className="shrink-0 text-sm text-[#475569]">
                     {formatShiftTimeRange(slot.startTime, slot.endTime)}
                   </p>
                 </div>
