@@ -23,8 +23,12 @@ function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
   return collection(db, "organizations", organizationId, "shiftRequests");
 }
 
+function getShiftSlotsCollection(organizationId = defaultOrganizationId) {
+  return collection(db, "organizations", organizationId, "shiftSlots");
+}
+
 function getShiftSlotDocument(slotId: string, organizationId = defaultOrganizationId) {
-  return doc(db, "organizations", organizationId, "shiftSlots", slotId);
+  return doc(getShiftSlotsCollection(organizationId), slotId);
 }
 
 export type ShiftRequestStatus = "希望済" | "承認済";
@@ -48,6 +52,11 @@ export type ShiftRequest = {
 export type ShiftRequestInput = Omit<
   ShiftRequest,
   "id" | "status" | "submittedDate"
+>;
+
+export type EmployeeGeneratedShiftRequestInput = Omit<
+  ShiftRequestInput,
+  "slotId"
 >;
 
 type ShiftDateTime = {
@@ -261,6 +270,43 @@ export async function createShiftRequests(
     throw new Error(result?.error ?? "希望シフトの送信に失敗しました。");
   }
 }
+export async function createEmployeeGeneratedShiftRequests(
+  inputs: EmployeeGeneratedShiftRequestInput[],
+  organizationId = defaultOrganizationId,
+) {
+  if (inputs.length === 0) return;
+
+  const firstInput = inputs[0];
+  const token = await getEmployeeRequestToken({
+    organizationId,
+    employeeId: firstInput.employeeId,
+    employeeEmail: firstInput.employeeEmail,
+  });
+
+  const response = await fetch("/api/employee/shift-requests", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      organizationId,
+      employeeGeneratedRequests: inputs.map((input) => ({
+        date: input.date,
+        startTime: input.startTime,
+        endTime: input.endTime,
+        positionId: input.positionId,
+      })),
+    }),
+  });
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(result?.error ?? "希望シフトの送信に失敗しました。");
+  }
+}
 
 export async function withdrawEmployeeShiftRequest(
   requestId: string,
@@ -332,8 +378,41 @@ export async function approveShiftRequest(
   if (!requestSnapshot.exists()) return;
   if (normalizeShiftRequestStatus(requestSnapshot.data().status) === "承認済") return;
 
-  const slotId = String(requestSnapshot.data().slotId ?? "");
-  if (!slotId) throw new Error("Shift request slot is invalid.");
+  const requestData = requestSnapshot.data();
+  const slotId = String(requestData.slotId ?? "");
+
+  if (!slotId) {
+    if (!isShiftStartInFuture({
+      date: String(requestData.date ?? ""),
+      startTime: String(requestData.startTime ?? ""),
+    })) {
+      throw new Error("Shift request is not in the future.");
+    }
+
+    const slotRef = doc(getShiftSlotsCollection(organizationId));
+    const batch = writeBatch(db);
+
+    batch.set(slotRef, {
+      date: String(requestData.date ?? ""),
+      startTime: String(requestData.startTime ?? ""),
+      endTime: String(requestData.endTime ?? ""),
+      positionId: String(requestData.positionId ?? ""),
+      positionName: String(requestData.positionName ?? ""),
+      capacity: 1,
+      requestCount: 1,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(requestRef, {
+      slotId: slotRef.id,
+      status: "承認済",
+      approvedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    await batch.commit();
+    return;
+  }
 
   const slotSnapshot = await getDoc(getShiftSlotDocument(slotId, organizationId));
   if (!slotSnapshot.exists()) throw new Error("Shift slot is not available.");

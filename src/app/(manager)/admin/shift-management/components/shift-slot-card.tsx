@@ -71,6 +71,7 @@ function ShiftSlotCard({
   const remainingApprovalCount = Math.max(0, slot.capacity - approvedCount);
   const isApprovalLimitReached = remainingApprovalCount === 0;
   const isPastSlot = isShiftEnded(slot);
+  const isEmployeeGeneratedSlot = slot.id.startsWith("employee-generated:");
 
   const recommendedCombination = useMemo(
     () =>
@@ -111,35 +112,39 @@ function ShiftSlotCard({
           <SlotRequestStatus requestCount={displayedRequestCount} />
         </div>
 
-        <div className="flex items-center gap-5 self-end sm:self-auto">
-          <button
-            type="button"
-            aria-label="シフト枠を編集"
-            onClick={handleEdit}
-            className="text-[#596074] transition hover:text-[#030213]"
-          >
-            <PencilIcon />
-          </button>
-          <button
-            type="button"
-            aria-label="シフト枠を削除"
-            onClick={handleDelete}
-            className="text-[#ff003d] transition hover:text-[#cc0031]"
-          >
-            <TrashIcon />
-          </button>
-        </div>
+        {!isEmployeeGeneratedSlot && (
+          <div className="flex items-center gap-5 self-end sm:self-auto">
+            <button
+              type="button"
+              aria-label="シフト枠を編集"
+              onClick={handleEdit}
+              className="text-[#596074] transition hover:text-[#030213]"
+            >
+              <PencilIcon />
+            </button>
+            <button
+              type="button"
+              aria-label="シフト枠を削除"
+              onClick={handleDelete}
+              className="text-[#ff003d] transition hover:text-[#cc0031]"
+            >
+              <TrashIcon />
+            </button>
+          </div>
+        )}
       </div>
 
-      <RecommendedCombinationPanel
-        recommendedCombination={recommendedCombination}
-        capacity={slot.capacity}
-        weights={weights}
-        remainingApprovalCount={remainingApprovalCount}
-        isApproving={isApprovingRecommended}
-        isDisabled={isPastSlot}
-        onApprove={handleApproveRecommended}
-      />
+      {!isEmployeeGeneratedSlot && (
+        <RecommendedCombinationPanel
+          recommendedCombination={recommendedCombination}
+          capacity={slot.capacity}
+          weights={weights}
+          remainingApprovalCount={remainingApprovalCount}
+          isApproving={isApprovingRecommended}
+          isDisabled={isPastSlot}
+          onApprove={handleApproveRecommended}
+        />
+      )}
 
       {requests.length > 0 && (
         <div className="mt-4 grid gap-3 border-t border-black/10 pt-3 lg:grid-cols-2">
@@ -149,7 +154,7 @@ function ShiftSlotCard({
             approvingRequestId={approvingRequestId}
             deletingRequestId={deletingRequestId}
             payrollSettings={payrollSettings}
-            isApprovalLimitReached={isApprovalLimitReached}
+            isApprovalLimitReached={isEmployeeGeneratedSlot ? false : isApprovalLimitReached}
             isPastSlot={isPastSlot}
             onApprove={handleApprove}
             onRemove={onRemoveRequest}

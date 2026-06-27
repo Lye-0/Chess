@@ -70,6 +70,23 @@ function getShiftEndAt(shift: Pick<ShiftSlot, "date" | "startTime" | "endTime">)
   return endAt;
 }
 
+function getRequestGroupKey(request: ShiftRequest) {
+  return request.slotId || `employee-generated:${request.id}`;
+}
+
+function toEmployeeGeneratedSlot(request: ShiftRequest): ShiftSlot {
+  return {
+    id: getRequestGroupKey(request),
+    date: request.date,
+    startTime: request.startTime,
+    endTime: request.endTime,
+    positionId: request.positionId,
+    positionName: request.positionName,
+    capacity: 1,
+    requestCount: 1,
+  };
+}
+
 function isShiftEnded(shift: Pick<ShiftSlot, "date" | "startTime" | "endTime">) {
   const endAt = getShiftEndAt(shift);
 
@@ -283,9 +300,17 @@ export function useShiftManagement() {
     [dailyExportData, monthlyExportData, selectedExportScope],
   );
 
+  const displaySlots = useMemo(() => {
+    const employeeGeneratedSlots = requests
+      .filter((request) => !request.slotId)
+      .map(toEmployeeGeneratedSlot);
+
+    return [...slots, ...employeeGeneratedSlots];
+  }, [requests, slots]);
+
   const [groupedSlots, setGroupedSlots] = useState<Record<string, ShiftSlot[]>>({});
   {
-    const sortedSlots = [...slots].sort((a, b) => {
+    const sortedSlots = [...displaySlots].sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       return a.startTime.localeCompare(b.startTime);
     });
@@ -304,7 +329,8 @@ export function useShiftManagement() {
   const [requestCountBySlot, setRequestCountBySlot] = useState<Record<string, number>>({});
   {
     const nextCounts = requests.reduce<Record<string, number>>((counts, request) => {
-      counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
+      const groupKey = getRequestGroupKey(request);
+      counts[groupKey] = (counts[groupKey] ?? 0) + 1;
       return counts;
     }, {});
 
@@ -319,7 +345,8 @@ export function useShiftManagement() {
     const nextCounts = requests.reduce<Record<string, number>>((counts, request) => {
       if (request.status !== "承認済") return counts;
 
-      counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
+      const groupKey = getRequestGroupKey(request);
+      counts[groupKey] = (counts[groupKey] ?? 0) + 1;
       return counts;
     }, {});
 
@@ -369,7 +396,8 @@ export function useShiftManagement() {
   const [requestsBySlot, setRequestsBySlot] = useState<Record<string, ShiftRequest[]>>({});
   {
     const nextGroups = requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
-      groups[request.slotId] = [...(groups[request.slotId] ?? []), request];
+      const groupKey = getRequestGroupKey(request);
+      groups[groupKey] = [...(groups[groupKey] ?? []), request];
       return groups;
     }, {});
 
@@ -516,19 +544,21 @@ export function useShiftManagement() {
       if (request.status === "承認済") return;
 
       const slot = slotsRef.current.find((candidate) => candidate.id === slotId);
-      if (!slot) return;
-      if (isShiftEnded(slot)) {
+      if (!slot && request.slotId) return;
+      if (isShiftEnded(slot ?? request)) {
         setErrorMessage("過去のシフト希望は承認できません。");
         return;
       }
 
-      const approvedCount = (requestsBySlotRef.current[slotId] ?? []).filter(
-        (slotRequest) => slotRequest.status === "承認済",
-      ).length;
+      if (slot) {
+        const approvedCount = (requestsBySlotRef.current[slotId] ?? []).filter(
+          (slotRequest) => slotRequest.status === "承認済",
+        ).length;
 
-      if (approvedCount >= slot.capacity) {
-        setErrorMessage("募集人数に達しているため、これ以上承認できません。");
-        return;
+        if (approvedCount >= slot.capacity) {
+          setErrorMessage("募集人数に達しているため、これ以上承認できません。");
+          return;
+        }
       }
 
       try {
