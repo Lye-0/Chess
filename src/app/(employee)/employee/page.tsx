@@ -1066,9 +1066,12 @@ function EmployeePageContent() {
                 </p>
               </div>
             </div>
-            <p className="mt-4 text-sm text-[#717182]">
-              日付ごとの詳細は下のマイカレンダーで確認できます
-            </p>
+            <Link
+              href="/employee/shift-requests"
+              className="mt-4 flex h-10 w-full items-center justify-center rounded-md border border-black/10 bg-white px-4 text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
+            >
+              一覧を開く
+            </Link>
           </EmployeeFeatureCard>
         </section>
 
