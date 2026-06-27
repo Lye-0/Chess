@@ -406,14 +406,22 @@ function SelectedDayShiftTimeline({
   date,
   slots,
   requestedSlotIds,
+  approvedSlotIds,
+  pendingRequestBySlotId,
   draftSlotIds,
+  withdrawingRequestId,
   onAddSlot,
+  onWithdraw,
 }: {
   date: string;
   slots: ShiftSlot[];
   requestedSlotIds: Set<string>;
+  approvedSlotIds: Set<string>;
+  pendingRequestBySlotId: Record<string, ShiftRequest>;
   draftSlotIds: Set<string>;
+  withdrawingRequestId: string | null;
   onAddSlot: (slot: ShiftSlot) => void;
+  onWithdraw: (request: ShiftRequest) => void;
 }) {
   if (slots.length === 0) {
     return (
@@ -482,6 +490,7 @@ function SelectedDayShiftTimeline({
               const width = Math.max(((end - start) / totalMinutes) * 100, 4);
               const positionName = getSlotPositionLabel(slot);
               const requested = requestedSlotIds.has(slot.id);
+              const approved = approvedSlotIds.has(slot.id);
               const drafted = draftSlotIds.has(slot.id);
               const disabled = requested || drafted;
 
@@ -515,7 +524,9 @@ function SelectedDayShiftTimeline({
                     {disabled
                       ? drafted
                         ? "追加済み"
-                        : "希望済み"
+                        : approved
+                          ? "承認済み"
+                          : "希望済み"
                       : `募集 ${slot.capacity}人 / 希望 ${slot.requestCount}人`}
                   </span>
                 </button>
@@ -528,8 +539,18 @@ function SelectedDayShiftTimeline({
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {slots.map((slot) => {
           const requested = requestedSlotIds.has(slot.id);
+          const approved = approvedSlotIds.has(slot.id);
+          const pendingRequest = pendingRequestBySlotId[slot.id];
           const drafted = draftSlotIds.has(slot.id);
-          const disabled = requested || drafted;
+          const withdrawing = pendingRequest?.id === withdrawingRequestId;
+          const statusLabel = drafted
+            ? "追加済み"
+            : approved
+              ? "承認済み"
+              : pendingRequest
+                ? "希望済み"
+                : null;
+          const disabled = drafted || withdrawing || approved;
 
           return (
             <div
@@ -544,120 +565,37 @@ function SelectedDayShiftTimeline({
                   {getSlotPositionLabel(slot)} / 募集 {slot.capacity}人 / 希望 {slot.requestCount}人
                 </p>
               </div>
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => onAddSlot(slot)}
-                className={[
-                  "h-9 shrink-0 rounded-md px-3 text-xs font-semibold transition",
-                  disabled
-                    ? "cursor-not-allowed bg-[#eef0f4] text-[#717182]"
-                    : "bg-[#030213] text-white hover:bg-[#171624]",
-                ].join(" ")}
-              >
-                {drafted ? "追加済み" : requested ? "希望済み" : "追加"}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function ShiftRequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
-  const approved = status === "承認済";
-
-  return (
-    <span
-      className={[
-        "rounded-md px-2 py-1 text-xs font-semibold",
-        approved
-          ? "bg-[#dcfce7] text-[#15803d]"
-          : "bg-[#dbeafe] text-[#1d4ed8]",
-      ].join(" ")}
-    >
-      {status}
-    </span>
-  );
-}
-
-function getShiftRequestPositionLabel(request: Pick<ShiftRequest, "positionName">) {
-  return request.positionName || "ポジション未設定";
-}
-
-function sortRequests(requests: ShiftRequest[]) {
-  return [...requests].sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
-    return a.startTime.localeCompare(b.startTime);
-  });
-}
-
-function SubmittedShiftRequestsPanel({
-  requests,
-  withdrawingRequestId,
-  onWithdraw,
-}: {
-  requests: ShiftRequest[];
-  withdrawingRequestId: string | null;
-  onWithdraw: (request: ShiftRequest) => void;
-}) {
-  return (
-    <section className="rounded-lg border border-black/10 bg-white p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold">提出済みの希望</h2>
-          <p className="mt-1 text-xs text-[#717182]">
-            未承認の希望はここから撤回できます
-          </p>
-        </div>
-        <span className="rounded-md bg-[#eef2f7] px-2 py-1 text-xs font-semibold text-[#475569]">
-          {requests.length}件
-        </span>
-      </div>
-
-      {requests.length === 0 ? (
-        <div className="mt-3 flex min-h-24 items-center justify-center rounded-lg border border-dashed border-black/10 text-center text-sm text-[#717182]">
-          提出済みの希望はありません
-        </div>
-      ) : (
-        <div className="mt-3 space-y-3">
-          {requests.map((request) => {
-            const approved = request.status === "承認済";
-            const withdrawing = withdrawingRequestId === request.id;
-
-            return (
-              <div
-                key={request.id}
-                className="rounded-lg border border-black/10 px-4 py-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold">{formatDateLabel(request.date)}</p>
-                    <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
-                      {getShiftRequestPositionLabel(request)}
-                    </p>
-                    <p className="mt-1 text-sm text-[#717182]">
-                      {formatShiftTimeRange(request.startTime, request.endTime)}
-                    </p>
-                  </div>
-                  <ShiftRequestStatusBadge status={request.status} />
-                </div>
-                {!approved && (
+              <div className="flex shrink-0 items-center gap-2">
+                {pendingRequest && (
                   <button
                     type="button"
                     disabled={withdrawing}
-                    onClick={() => onWithdraw(request)}
-                    className="mt-3 h-9 w-full rounded-md border border-[#fecaca] text-sm font-semibold text-[#b91c1c] transition hover:bg-[#fff1f1] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182]"
+                    onClick={() => onWithdraw(pendingRequest)}
+                    className="h-9 rounded-md border border-[#fecaca] px-3 text-xs font-semibold text-[#b91c1c] transition hover:bg-[#fff1f1] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182]"
                   >
                     {withdrawing ? "撤回中..." : "撤回"}
                   </button>
                 )}
+                {statusLabel && (
+                  <span className="inline-flex h-9 items-center rounded-md bg-[#eef0f4] px-3 text-xs font-semibold text-[#717182]">
+                    {statusLabel}
+                  </span>
+                )}
+                {!requested && !drafted && (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onAddSlot(slot)}
+                    className="h-9 rounded-md bg-[#030213] px-3 text-xs font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#eef0f4] disabled:text-[#717182]"
+                  >
+                    追加
+                  </button>
+                )}
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -681,6 +619,7 @@ function EmployeeShiftRequestContent() {
   const [draftSlots, setDraftSlots] = useState<ShiftSlot[]>([]);
   const [now, setNow] = useState(() => new Date());
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [withdrawConfirmRequest, setWithdrawConfirmRequest] = useState<ShiftRequest | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [withdrawingRequestId, setWithdrawingRequestId] = useState<string | null>(null);
   const [isSlotsLoading, setIsSlotsLoading] = useState(true);
@@ -744,6 +683,24 @@ function EmployeeShiftRequestContent() {
     () => new Set(requests.map((request) => request.slotId)),
     [requests],
   );
+  const approvedSlotIds = useMemo(
+    () =>
+      new Set(
+        requests
+          .filter((request) => request.status === "承認済")
+          .map((request) => request.slotId),
+      ),
+    [requests],
+  );
+  const pendingRequestBySlotId = useMemo(() => {
+    return requests.reduce<Record<string, ShiftRequest>>((requestBySlotId, request) => {
+      if (request.status !== "承認済" && request.slotId) {
+        requestBySlotId[request.slotId] = request;
+      }
+
+      return requestBySlotId;
+    }, {});
+  }, [requests]);
   const draftSlotIds = useMemo(
     () => new Set(draftSlots.map((slot) => slot.id)),
     [draftSlots],
@@ -778,7 +735,6 @@ function EmployeeShiftRequestContent() {
       return summaries;
     }, {});
   }, [draftSlotIds, requestableSlots, requestedSlotIds]);
-  const submittedRequests = useMemo(() => sortRequests(requests), [requests]);
   const selectedDateSlots = useMemo(() => {
     if (!selectedDate) return [];
 
@@ -820,25 +776,25 @@ function EmployeeShiftRequestContent() {
     setDraftSlots((current) => current.filter((slot) => slot.id !== slotId));
   }
 
-  async function withdrawRequest(request: ShiftRequest) {
+  function openWithdrawConfirm(request: ShiftRequest) {
     if (request.status === "承認済") return;
 
-    const confirmed = window.confirm(
-      `${formatDateLabel(request.date)} ${formatShiftTimeRange(request.startTime, request.endTime)} の希望を撤回しますか？`,
-    );
+    setWithdrawConfirmRequest(request);
+  }
 
-    if (!confirmed) return;
+  async function withdrawRequest() {
+    if (!employee || !withdrawConfirmRequest) return;
 
     try {
-      setWithdrawingRequestId(request.id);
+      setWithdrawingRequestId(withdrawConfirmRequest.id);
       setErrorMessage(null);
-      if (!employee) return;
 
-      await withdrawEmployeeShiftRequest(request.id, {
+      await withdrawEmployeeShiftRequest(withdrawConfirmRequest.id, {
         organizationId: employee.organizationId,
         employeeId: employee.employeeId,
         employeeEmail: employee.email,
       });
+      setWithdrawConfirmRequest(null);
     } catch (error) {
       console.error(error);
       setErrorMessage(
@@ -955,8 +911,12 @@ function EmployeeShiftRequestContent() {
                   date={selectedDate}
                   slots={selectedDateSlots}
                   requestedSlotIds={requestedSlotIds}
+                  approvedSlotIds={approvedSlotIds}
+                  pendingRequestBySlotId={pendingRequestBySlotId}
                   draftSlotIds={draftSlotIds}
+                  withdrawingRequestId={withdrawingRequestId}
                   onAddSlot={addDraftSlot}
+                  onWithdraw={openWithdrawConfirm}
                 />
               ) : (
                 <section className="rounded-lg border border-black/10 bg-white p-4 text-sm text-[#717182]">
@@ -1027,15 +987,74 @@ function EmployeeShiftRequestContent() {
                 </div>
               )}
             </section>
-              <SubmittedShiftRequestsPanel
-                requests={submittedRequests}
-                withdrawingRequestId={withdrawingRequestId}
-                onWithdraw={withdrawRequest}
-              />
             </div>
           </div>
         </section>
       </div>
+
+
+      {withdrawConfirmRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
+          <section className="w-full max-w-[512px] rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <WarningIcon />
+                <h2 className="text-xl font-semibold">撤回の確認</h2>
+              </div>
+              <button
+                type="button"
+                aria-label="閉じる"
+                disabled={withdrawingRequestId === withdrawConfirmRequest.id}
+                onClick={() => setWithdrawConfirmRequest(null)}
+                className="rounded-md p-1 text-[#596074] transition hover:bg-[#f0f1f4] hover:text-[#030213] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <XIcon />
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-[#717182]">
+              このシフト希望を撤回します。撤回後は、もう一度希望を出し直せます。
+            </p>
+
+            <div className="mt-6 flex items-center justify-between rounded-lg bg-[#f7f8fb] px-4 py-3">
+              <div>
+                <p className="font-semibold">{formatDateLabel(withdrawConfirmRequest.date)}</p>
+                <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
+                  {getSlotPositionLabel(withdrawConfirmRequest)}
+                </p>
+              </div>
+              <p className="text-sm text-[#475569]">
+                {formatShiftTimeRange(
+                  withdrawConfirmRequest.startTime,
+                  withdrawConfirmRequest.endTime,
+                )}
+              </p>
+            </div>
+
+            <p className="mt-6 text-sm text-[#717182]">
+              ※ 承認済みのシフトは撤回できません。
+            </p>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={withdrawingRequestId === withdrawConfirmRequest.id}
+                onClick={() => setWithdrawConfirmRequest(null)}
+                className="h-10 rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={withdrawingRequestId === withdrawConfirmRequest.id}
+                onClick={withdrawRequest}
+                className="inline-flex h-10 items-center justify-center rounded-md bg-[#b91c1c] text-sm font-semibold text-white transition hover:bg-[#991b1b] disabled:cursor-not-allowed disabled:bg-[#8e8d95]"
+              >
+                {withdrawingRequestId === withdrawConfirmRequest.id ? "撤回中..." : "撤回する"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {isConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
