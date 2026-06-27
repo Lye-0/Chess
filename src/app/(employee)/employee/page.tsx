@@ -516,15 +516,15 @@ function EmployeeMyCalendar({
   onSelectDate: (date: string) => void;
 }) {
   return (
-    <section className="rounded-xl border border-black/10 bg-white p-4 shadow-sm sm:p-6">
+    <section className="rounded-xl border border-black/10 bg-white p-3 shadow-sm sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">マイカレンダー</h2>
-          <p className="mt-1 text-sm text-[#717182]">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold sm:text-xl">マイカレンダー</h2>
+          <p className="mt-1 text-xs text-[#717182] sm:text-sm">
             自分の希望・確定シフトを月ごとに確認できます
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 sm:w-auto">
           <button
             type="button"
             onClick={() => onMonthChange(-1)}
@@ -532,7 +532,7 @@ function EmployeeMyCalendar({
           >
             前月
           </button>
-          <p className="min-w-32 text-center text-sm font-semibold">
+          <p className="min-w-0 text-center text-sm font-semibold sm:min-w-32">
             {monthFormatter.format(displayMonth)}
           </p>
           <button
@@ -545,9 +545,9 @@ function EmployeeMyCalendar({
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-7 border-l border-t border-black/10 text-center text-xs font-semibold text-[#717182]">
+      <div className="mt-4 grid grid-cols-7 border-l border-t border-black/10 text-center text-xs font-semibold text-[#717182] sm:mt-5">
         {weekdays.map((weekday) => (
-          <div key={weekday} className="border-b border-r border-black/10 py-2">
+          <div key={weekday} className="border-b border-r border-black/10 py-1.5 sm:py-2">
             {weekday}
           </div>
         ))}
@@ -562,7 +562,7 @@ function EmployeeMyCalendar({
               type="button"
               onClick={() => onSelectDate(day.date)}
               className={[
-                "flex min-h-24 flex-col items-start justify-start border-b border-r border-black/10 p-2 text-left transition",
+                "flex min-h-[68px] flex-col items-start justify-start border-b border-r border-black/10 p-1 text-left transition sm:min-h-24 sm:p-2",
                 selected
                   ? "bg-[#eef2ff] ring-2 ring-inset ring-[#1d4ed8]"
                   : day.outside
@@ -570,23 +570,23 @@ function EmployeeMyCalendar({
                     : "bg-white hover:bg-[#f7f8fb]",
               ].join(" ")}
             >
-              <div className="flex w-full items-center justify-between gap-1">
+              <div className="flex w-full items-start justify-between gap-0.5 sm:items-center sm:gap-1">
                 <span
                   className={[
-                    "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+                    "inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold sm:h-6 sm:w-6",
                     isToday ? "bg-[#030213] text-white" : "",
                   ].join(" ")}
                 >
                   {day.day}
                 </span>
                 {summary && (
-                  <span className="rounded-full bg-[#eef2f7] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
+                  <span className="whitespace-nowrap rounded-full bg-[#eef2f7] px-1 py-0.5 text-[10px] font-semibold leading-tight text-[#475569] sm:px-2 sm:text-[11px]">
                     {summary.totalCount}件
                   </span>
                 )}
               </div>
               {summary && (
-                <div className="mt-2 space-y-1 text-[11px] font-semibold">
+                <div className="mt-1 space-y-0.5 text-[10px] font-semibold leading-tight sm:mt-2 sm:space-y-1 sm:text-[11px]">
                   {summary.pendingCount > 0 && (
                     <p className="truncate text-[#1d4ed8]">希望 {summary.pendingCount}</p>
                   )}
@@ -1182,6 +1182,32 @@ function EmployeePageContent() {
           </EmployeeFeatureCard>
         </section>
 
+        <section className="mt-6 space-y-4">
+          {withdrawErrorMessage && (
+            <div className="rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
+              {withdrawErrorMessage}
+            </div>
+          )}
+
+          <EmployeeMyCalendar
+            displayMonth={displayMonth}
+            days={calendarDays}
+            selectedDate={selectedDate}
+            todayDate={todayDate}
+            summaryByDate={calendarSummaryByDate}
+            onMonthChange={changeDisplayMonth}
+            onSelectDate={setSelectedDate}
+          />
+
+          <SelectedDayTimeline
+            date={selectedDate}
+            requests={selectedDateRequests}
+            payrollSettings={payrollSettings}
+            onWithdraw={handleWithdrawRequest}
+            withdrawingRequestId={withdrawingRequestId}
+          />
+        </section>
+
         <section className="mt-6 grid gap-6 lg:grid-cols-2">
           <WorkHoursCard
             title="今月の勤務時間"
@@ -1207,32 +1233,6 @@ function EmployeePageContent() {
             description={`${currentYear}年1月1日〜12月31日の終了済みシフト`}
             amount={yearlyPay}
             isLoading={isPayrollLoading}
-          />
-        </section>
-
-        <section className="mt-6 space-y-4">
-          {withdrawErrorMessage && (
-            <div className="rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
-              {withdrawErrorMessage}
-            </div>
-          )}
-
-          <EmployeeMyCalendar
-            displayMonth={displayMonth}
-            days={calendarDays}
-            selectedDate={selectedDate}
-            todayDate={todayDate}
-            summaryByDate={calendarSummaryByDate}
-            onMonthChange={changeDisplayMonth}
-            onSelectDate={setSelectedDate}
-          />
-
-          <SelectedDayTimeline
-            date={selectedDate}
-            requests={selectedDateRequests}
-            payrollSettings={payrollSettings}
-            onWithdraw={handleWithdrawRequest}
-            withdrawingRequestId={withdrawingRequestId}
           />
         </section>
       </div>
