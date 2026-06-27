@@ -102,17 +102,17 @@ function ShiftRequestRow({
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-black/10 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-8">
+      <div className="flex min-w-0 items-center gap-4 sm:gap-8">
         <div className="text-center text-sm text-[#030213]">
           <p>{weekdays[parsedDate.getDay()]}</p>
           <p className="font-semibold">{parsedDate.getDate()}</p>
         </div>
         <div>
           <p className="font-semibold">{formatDateOnly(request.date)}</p>
-          <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
+          <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
             {getShiftRequestPositionLabel(request)}
           </p>
-          <p className="mt-1 text-sm text-[#475569]">
+          <p className="mt-1 truncate text-sm text-[#475569]">
             {formatShiftTimeRange(request.startTime, request.endTime)}
           </p>
           <p className="mt-1 text-sm font-semibold text-[#00a63e]">
@@ -319,7 +319,7 @@ function EmployeeShiftRequestsContent() {
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <header className="border-b border-black/10 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-[1248px] items-center justify-between px-4 py-4 sm:px-6 lg:px-0">
+        <div className="mx-auto flex max-w-[1248px] items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-0">
           <Link
             href="/employee"
             className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
@@ -327,7 +327,7 @@ function EmployeeShiftRequestsContent() {
             <BackIcon />
             戻る
           </Link>
-          <p className="text-sm text-[#717182]">
+          <p className="min-w-0 truncate text-sm text-[#717182]">
             {employee.organization} - {employee.department}
           </p>
         </div>

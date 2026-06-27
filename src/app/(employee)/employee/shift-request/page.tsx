@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   getEmployeeSessionServerSnapshot,
   getEmployeeSessionSnapshot,
@@ -423,20 +423,35 @@ function SelectedDayShiftTimeline({
   onAddSlot: (slot: ShiftSlot) => void;
   onWithdraw: (request: ShiftRequest) => void;
 }) {
-  if (slots.length === 0) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const timelineSlots = useMemo(() => assignLanes(slots), [slots]);
+  const hasSlots = timelineSlots.length > 0;
+  const laneCount = hasSlots
+    ? Math.max(...timelineSlots.map((item) => item.lane)) + 1
+    : 1;
+  const { startMinutes, endMinutes, hours } = hasSlots
+    ? getTimelineRange(timelineSlots)
+    : { startMinutes: 0, endMinutes: 60, hours: [] };
+  const totalMinutes = endMinutes - startMinutes;
+  const timelineWidth = Math.max(720, Math.max(1, hours.length - 1) * 72);
+  const bodyHeight = Math.max(112, laneCount * timelineLaneHeight + 20);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !hasSlots) return;
+
+    const firstStart = Math.min(...timelineSlots.map((item) => item.startMinutes));
+    const scrollRatio = Math.max(0, (firstStart - startMinutes) / totalMinutes);
+    container.scrollLeft = scrollRatio * (container.scrollWidth - container.clientWidth);
+  }, [hasSlots, startMinutes, timelineSlots, totalMinutes]);
+
+  if (!hasSlots) {
     return (
       <section className="rounded-lg border border-black/10 bg-white p-4 text-sm text-[#717182]">
         {formatDateLabel(date)} の募集シフト枠はありません
       </section>
     );
   }
-
-  const timelineSlots = assignLanes(slots);
-  const laneCount = Math.max(...timelineSlots.map((item) => item.lane)) + 1;
-  const { startMinutes, endMinutes, hours } = getTimelineRange(timelineSlots);
-  const totalMinutes = endMinutes - startMinutes;
-  const timelineWidth = Math.max(720, (hours.length - 1) * 72);
-  const bodyHeight = Math.max(112, laneCount * timelineLaneHeight + 20);
 
   return (
     <section className="rounded-lg border border-black/10 bg-white p-3 sm:p-4">
@@ -450,7 +465,7 @@ function SelectedDayShiftTimeline({
         <p className="text-xs text-[#717182]">横にスクロールできます</p>
       </div>
 
-      <div className="mt-3 overflow-x-auto pb-2">
+      <div ref={scrollContainerRef} className="mt-3 overflow-x-auto pb-2">
         <div style={{ width: timelineWidth }}>
           <div className="relative h-7 border-b border-black/10 text-[11px] font-semibold text-[#717182]">
             {hours.map((hour) => {
@@ -842,7 +857,11 @@ function EmployeeShiftRequestContent() {
       setIsConfirmOpen(false);
     } catch (error) {
       console.error(error);
-      setErrorMessage("希望シフトの送信に失敗しました。Firestore Rulesを確認してください。");
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "希望シフトの送信に失敗しました。",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -859,7 +878,7 @@ function EmployeeShiftRequestContent() {
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <header className="border-b border-black/10 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-[1248px] items-center justify-between px-4 py-4 sm:px-6 lg:px-0">
+        <div className="mx-auto flex max-w-[1248px] items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-0">
           <Link
             href="/employee"
             className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
@@ -867,7 +886,7 @@ function EmployeeShiftRequestContent() {
             <BackIcon />
             戻る
           </Link>
-          <p className="text-sm text-[#717182]">
+          <p className="min-w-0 truncate text-sm text-[#717182]">
             {employee.organization} - {employee.department}
           </p>
         </div>
@@ -994,8 +1013,8 @@ function EmployeeShiftRequestContent() {
 
 
       {withdrawConfirmRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
-          <section className="w-full max-w-[512px] rounded-xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 px-4 py-8 sm:items-center">
+          <section className="max-h-[calc(100vh-2rem)] w-full max-w-[512px] overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-2">
                 <WarningIcon />
@@ -1057,8 +1076,8 @@ function EmployeeShiftRequestContent() {
       )}
 
       {isConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
-          <section className="w-full max-w-[512px] rounded-xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 px-4 py-8 sm:items-center">
+          <section className="max-h-[calc(100vh-2rem)] w-full max-w-[512px] overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-2">
                 <WarningIcon />

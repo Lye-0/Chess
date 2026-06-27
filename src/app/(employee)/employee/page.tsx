@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import {
@@ -345,17 +345,17 @@ function ShiftRequestRow({
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-black/10 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-8">
+      <div className="flex min-w-0 items-center gap-4 sm:gap-8">
         <div className="text-center text-sm text-[#030213]">
           <p>{weekdays[parsedDate.getDay()]}</p>
           <p className="font-semibold">{parsedDate.getDate()}</p>
         </div>
         <div>
           <p className="font-semibold">{formatDateOnly(request.date)}</p>
-          <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
+          <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
             {getShiftRequestPositionLabel(request)}
           </p>
-          <p className="mt-1 text-sm text-[#475569]">
+          <p className="mt-1 truncate text-sm text-[#475569]">
             {formatShiftTimeRange(request.startTime, request.endTime)}
           </p>
           <p className="mt-1 text-sm font-semibold text-[#00a63e]">
@@ -562,6 +562,16 @@ function SelectedDayTimeline({
     { length: Math.floor(totalMinutes / 60) + 1 },
     (_, index) => timelineStart + index * 60,
   );
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || timelineItems.length === 0) return;
+
+    const firstStart = Math.min(...timelineItems.map((item) => item.startMinutes));
+    const scrollRatio = Math.max(0, (firstStart - timelineStart) / totalMinutes);
+    container.scrollLeft = scrollRatio * (container.scrollWidth - container.clientWidth);
+  }, [timelineItems, timelineStart, totalMinutes]);
 
   return (
     <section className="rounded-xl border border-black/10 bg-white p-4 shadow-sm sm:p-6">
@@ -583,7 +593,7 @@ function SelectedDayTimeline({
         </div>
       ) : (
         <>
-          <div className="mt-5 overflow-x-auto pb-2">
+          <div ref={scrollContainerRef} className="mt-5 overflow-x-auto pb-2">
             <div style={{ width: timelineWidth }}>
               <div className="relative h-7 border-b border-black/10 text-[11px] font-semibold text-[#717182]">
                 {hours.map((hour) => (
@@ -993,10 +1003,10 @@ function EmployeePageContent() {
               ) : nearestRequest ? (
                 <div className="rounded-lg bg-[#f7f8fb] px-4 py-3">
                   <p className="font-semibold">{formatDateLabel(nearestRequest.date)}</p>
-                  <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
+                  <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
                     {getShiftRequestPositionLabel(nearestRequest)}
                   </p>
-                  <p className="mt-1 text-sm text-[#475569]">
+                  <p className="mt-1 truncate text-sm text-[#475569]">
                     {formatShiftTimeRange(
                       nearestRequest.startTime,
                       nearestRequest.endTime,

@@ -41,10 +41,10 @@ export function ShiftFormModal({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 px-4 py-8 sm:items-center">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-[512px] rounded-xl bg-white p-6 shadow-xl"
+        className="max-h-[calc(100vh-2rem)] w-full max-w-[512px] overflow-y-auto rounded-xl bg-white p-6 shadow-xl"
       >
         <div className="flex items-start justify-between gap-4">
           <div>

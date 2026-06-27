@@ -213,12 +213,8 @@ export async function DELETE(request: Request) {
     batch.delete(requestRef);
 
     if (slotRef && slotSnapshot?.exists) {
-      const currentRequestCount = Number(slotSnapshot.data()?.requestCount ?? 0);
       batch.update(slotRef, {
-        requestCount:
-          Number.isFinite(currentRequestCount) && currentRequestCount > 0
-            ? currentRequestCount - 1
-            : 0,
+        requestCount: FieldValue.increment(-1),
         updatedAt: Timestamp.now(),
       });
     }
