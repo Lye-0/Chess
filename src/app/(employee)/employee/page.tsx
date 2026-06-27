@@ -16,6 +16,7 @@ import {
 import {
   getShiftRequestPositionLabel,
   subscribeEmployeeShiftRequests,
+  withdrawEmployeeShiftRequest,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import {
@@ -278,15 +279,19 @@ function PayCard({
 function ShiftRequestRow({
   request,
   payrollSettings,
+  onWithdraw,
+  isWithdrawing = false,
 }: {
   request: ShiftRequest;
   payrollSettings: PayrollSettings;
+  onWithdraw?: (request: ShiftRequest) => void;
+  isWithdrawing?: boolean;
 }) {
   const parsedDate = new Date(`${request.date}T00:00:00`);
   const payroll = calculateShiftPayroll(request, payrollSettings);
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-black/10 px-6 py-4">
+    <div className="flex flex-col gap-4 rounded-lg border border-black/10 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-8">
         <div className="text-center text-sm text-[#030213]">
           <p>{weekdays[parsedDate.getDay()]}</p>
@@ -305,7 +310,19 @@ function ShiftRequestRow({
           </p>
         </div>
       </div>
-      <RequestStatusBadge status={request.status} />
+      <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
+        <RequestStatusBadge status={request.status} />
+        {request.status !== "承認済" && onWithdraw && (
+          <button
+            type="button"
+            disabled={isWithdrawing}
+            onClick={() => onWithdraw(request)}
+            className="h-9 rounded-md border border-[#fecaca] px-3 text-sm font-semibold text-[#b91c1c] transition hover:bg-[#fff1f1] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182]"
+          >
+            {isWithdrawing ? "撤回中..." : "撤回"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -316,12 +333,16 @@ function ShiftRequestGroup({
   requests,
   emptyText,
   payrollSettings,
+  onWithdraw,
+  withdrawingRequestId,
 }: {
   title: string;
   description: string;
   requests: ShiftRequest[];
   emptyText: string;
   payrollSettings: PayrollSettings;
+  onWithdraw?: (request: ShiftRequest) => void;
+  withdrawingRequestId?: string | null;
 }) {
   return (
     <section className="rounded-md border border-black/10 bg-white px-4 py-4">
@@ -346,6 +367,8 @@ function ShiftRequestGroup({
               key={request.id}
               request={request}
               payrollSettings={payrollSettings}
+              onWithdraw={onWithdraw}
+              isWithdrawing={withdrawingRequestId === request.id}
             />
           ))}
         </div>
@@ -353,7 +376,6 @@ function ShiftRequestGroup({
     </section>
   );
 }
-
 function EmployeePageContent() {
   const router = useRouter();
   const sessionSnapshot = useSyncExternalStore(
@@ -377,6 +399,8 @@ function EmployeePageContent() {
   const [selectedExportMonth, setSelectedExportMonth] = useState(
     () => getShiftExportMonths([])[0],
   );
+  const [withdrawingRequestId, setWithdrawingRequestId] = useState<string | null>(null);
+  const [withdrawErrorMessage, setWithdrawErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
@@ -544,6 +568,30 @@ function EmployeePageContent() {
     }
   }
 
+  async function handleWithdrawRequest(request: ShiftRequest) {
+    if (request.status === "承認済") return;
+
+    const confirmed = window.confirm(
+      `${formatDateLabel(request.date)} ${formatShiftTimeRange(request.startTime, request.endTime)} の希望を撤回しますか？`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setWithdrawingRequestId(request.id);
+      setWithdrawErrorMessage(null);
+      await withdrawEmployeeShiftRequest(request.id);
+    } catch (error) {
+      console.error(error);
+      setWithdrawErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "シフト希望の撤回に失敗しました。",
+      );
+    } finally {
+      setWithdrawingRequestId(null);
+    }
+  }
   async function handleLogout() {
     clearEmployeeSession();
     await signOut(auth);
@@ -709,6 +757,11 @@ function EmployeePageContent() {
           <div className="p-6">
             <h2 className="text-xl font-semibold">シフト希望一覧</h2>
             <p className="mt-1 text-sm text-[#717182]">提出済みの希望シフト</p>
+            {withdrawErrorMessage && (
+              <div className="mt-4 rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
+                {withdrawErrorMessage}
+              </div>
+            )}
           </div>
           {isLoading ? (
             <div className="flex min-h-40 items-center justify-center px-6 pb-6 text-center text-[#717182]">
@@ -729,6 +782,8 @@ function EmployeePageContent() {
                 requests={pendingRequests}
                 emptyText="承認待ちのシフト希望はありません"
                 payrollSettings={payrollSettings}
+                onWithdraw={handleWithdrawRequest}
+                withdrawingRequestId={withdrawingRequestId}
               />
               <ShiftRequestGroup
                 title="承認済み"

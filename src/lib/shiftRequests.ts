@@ -190,6 +190,28 @@ export async function createShiftRequests(
   }
 }
 
+
+export async function withdrawEmployeeShiftRequest(requestId: string) {
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error("従業員ログインが必要です。");
+
+  const response = await fetch("/api/employee/shift-requests", {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ requestId }),
+  });
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(result?.error ?? "シフト希望の撤回に失敗しました。");
+  }
+}
+
 export async function removeShiftRequest(
   requestId: string,
   organizationId = defaultOrganizationId,
