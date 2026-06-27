@@ -236,6 +236,74 @@ function formatTimelineHour(totalMinutes: number) {
 
   return `${hour}:00`;
 }
+
+type MyCalendarTimelineItem = {
+  request: ShiftRequest;
+  startMinutes: number;
+  endMinutes: number;
+  lane: number;
+};
+
+function toTimelineItem(request: ShiftRequest) {
+  const startMinutes = parseTimeToMinutes(request.startTime);
+  const rawEndMinutes = parseTimeToMinutes(request.endTime);
+  const endMinutes = rawEndMinutes > startMinutes
+    ? rawEndMinutes
+    : rawEndMinutes + 24 * 60;
+
+  return { request, startMinutes, endMinutes };
+}
+
+function assignMyCalendarLanes(requests: ShiftRequest[]): MyCalendarTimelineItem[] {
+  const groups = new Map<string, ReturnType<typeof toTimelineItem>[]>();
+
+  requests
+    .map(toTimelineItem)
+    .sort((a, b) => {
+      if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+      return a.endMinutes - b.endMinutes;
+    })
+    .forEach((item) => {
+      const positionKey = getShiftRequestPositionLabel(item.request);
+      const group = groups.get(positionKey) ?? [];
+      group.push(item);
+      groups.set(positionKey, group);
+    });
+
+  const placedItems: MyCalendarTimelineItem[] = [];
+  let nextBaseLane = 0;
+
+  Array.from(groups.values())
+    .sort((a, b) => {
+      const aFirst = Math.min(...a.map((item) => item.startMinutes));
+      const bFirst = Math.min(...b.map((item) => item.startMinutes));
+      if (aFirst !== bFirst) return aFirst - bFirst;
+
+      return getShiftRequestPositionLabel(a[0].request).localeCompare(
+        getShiftRequestPositionLabel(b[0].request),
+        "ja",
+      );
+    })
+    .forEach((items) => {
+      const laneEndMinutes: number[] = [];
+
+      items.forEach((item) => {
+        const lane = laneEndMinutes.findIndex(
+          (endMinutes) => endMinutes <= item.startMinutes,
+        );
+        const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
+        laneEndMinutes[nextLane] = item.endMinutes;
+        placedItems.push({ ...item, lane: nextBaseLane + nextLane });
+      });
+
+      nextBaseLane += Math.max(1, laneEndMinutes.length);
+    });
+
+  return placedItems.sort((a, b) => {
+    if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+    return a.endMinutes - b.endMinutes;
+  });
+}
 function calculateWorkMinutes(request: ShiftRequest) {
   const start = parseTimeToMinutes(request.startTime);
   const end = parseTimeToMinutes(request.endTime);
@@ -548,27 +616,35 @@ function SelectedDayTimeline({
   onWithdraw: (request: ShiftRequest) => void;
   withdrawingRequestId: string | null;
 }) {
-  const timelineItems = requests.map((request) => {
-    const startMinutes = parseTimeToMinutes(request.startTime);
-    const rawEndMinutes = parseTimeToMinutes(request.endTime);
-    const endMinutes = rawEndMinutes > startMinutes
-      ? rawEndMinutes
-      : rawEndMinutes + 24 * 60;
-
-    return { request, startMinutes, endMinutes };
-  });
-  const timelineStart = timelineItems.length > 0
+  const timelineItems = useMemo(() => assignMyCalendarLanes(requests), [requests]);
+  const minimumTimelineMinutes = 9 * 60;
+  const rawTimelineStart = timelineItems.length > 0
     ? Math.max(0, Math.floor(Math.min(...timelineItems.map((item) => item.startMinutes)) / 60) * 60)
     : 0;
-  const timelineEnd = timelineItems.length > 0
+  const rawTimelineEnd = timelineItems.length > 0
     ? Math.ceil(Math.max(...timelineItems.map((item) => item.endMinutes)) / 60) * 60
     : 24 * 60;
-  const totalMinutes = Math.max(60, timelineEnd - timelineStart);
+  const rawTimelineMinutes = Math.max(60, rawTimelineEnd - rawTimelineStart);
+  const timelinePadding = Math.max(0, minimumTimelineMinutes - rawTimelineMinutes);
+  const timelineStart = Math.max(
+    0,
+    Math.floor((rawTimelineStart - timelinePadding / 2) / 60) * 60,
+  );
+  const timelineEnd = Math.max(
+    rawTimelineEnd,
+    timelineStart + Math.max(rawTimelineMinutes, minimumTimelineMinutes),
+  );
+  const totalMinutes = timelineEnd - timelineStart;
   const timelineWidth = Math.max(720, Math.ceil(totalMinutes / 60) * 72);
   const hours = Array.from(
     { length: Math.floor(totalMinutes / 60) + 1 },
     (_, index) => timelineStart + index * 60,
   );
+  const laneCount = timelineItems.length > 0
+    ? Math.max(...timelineItems.map((item) => item.lane)) + 1
+    : 1;
+  const timelineLaneHeight = 56;
+  const bodyHeight = Math.max(112, laneCount * timelineLaneHeight + 28);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -576,8 +652,10 @@ function SelectedDayTimeline({
     if (!container || timelineItems.length === 0) return;
 
     const firstStart = Math.min(...timelineItems.map((item) => item.startMinutes));
-    const scrollRatio = Math.max(0, (firstStart - timelineStart) / totalMinutes);
-    container.scrollLeft = scrollRatio * (container.scrollWidth - container.clientWidth);
+    const firstStartRatio = Math.max(0, (firstStart - timelineStart) / totalMinutes);
+    const firstStartLeft = firstStartRatio * container.scrollWidth;
+    const scrollPadding = 24;
+    container.scrollLeft = Math.max(0, firstStartLeft - scrollPadding);
   }, [timelineItems, timelineStart, totalMinutes]);
 
   return (
@@ -590,11 +668,11 @@ function SelectedDayTimeline({
           </p>
         </div>
         <span className="rounded-full bg-[#eef2f7] px-3 py-1 text-sm font-semibold text-[#475569]">
-          {requests.length}件
+          {timelineItems.length}件
         </span>
       </div>
 
-      {requests.length === 0 ? (
+      {timelineItems.length === 0 ? (
         <div className="mt-5 flex min-h-32 items-center justify-center rounded-lg border border-dashed border-black/10 text-sm text-[#717182]">
           この日のシフト希望はありません
         </div>
@@ -613,7 +691,10 @@ function SelectedDayTimeline({
                   </span>
                 ))}
               </div>
-              <div className="relative min-h-28 rounded-b-md bg-[#f8fafc] py-4">
+              <div
+                className="relative min-h-28 rounded-b-md bg-[#f8fafc] py-4"
+                style={{ height: bodyHeight }}
+              >
                 {hours.map((hour) => (
                   <span
                     key={hour}
@@ -622,7 +703,7 @@ function SelectedDayTimeline({
                     style={{ left: `${((hour - timelineStart) / totalMinutes) * 100}%` }}
                   />
                 ))}
-                {timelineItems.map(({ request, startMinutes, endMinutes }, index) => {
+                {timelineItems.map(({ request, startMinutes, endMinutes, lane }) => {
                   const left = ((startMinutes - timelineStart) / totalMinutes) * 100;
                   const width = Math.max(((endMinutes - startMinutes) / totalMinutes) * 100, 4);
                   const approved = request.status === "承認済";
@@ -638,7 +719,7 @@ function SelectedDayTimeline({
                       ].join(" ")}
                       style={{
                         left: `${left}%`,
-                        top: 14 + index * 56,
+                        top: 14 + lane * timelineLaneHeight,
                         width: `${width}%`,
                       }}
                     >
@@ -656,27 +737,30 @@ function SelectedDayTimeline({
                     </div>
                   );
                 })}
-                <div style={{ height: Math.max(56, timelineItems.length * 56) }} />
+
               </div>
             </div>
           </div>
 
-          <div className="mt-5 space-y-3">
-            {requests.map((request) => (
-              <ShiftRequestRow
-                key={request.id}
-                request={request}
-                payrollSettings={payrollSettings}
-                onWithdraw={request.status === "承認済" ? undefined : onWithdraw}
-                isWithdrawing={withdrawingRequestId === request.id}
-              />
-            ))}
-          </div>
+          {requests.length > 0 && (
+            <div className="mt-5 space-y-3">
+              {requests.map((request) => (
+                <ShiftRequestRow
+                  key={request.id}
+                  request={request}
+                  payrollSettings={payrollSettings}
+                  onWithdraw={request.status === "承認済" ? undefined : onWithdraw}
+                  isWithdrawing={withdrawingRequestId === request.id}
+                />
+              ))}
+            </div>
+          )}
         </>
       )}
     </section>
   );
 }
+
 function EmployeePageContent() {
   const router = useRouter();
   const sessionSnapshot = useSyncExternalStore(
@@ -1155,6 +1239,7 @@ function EmployeePageContent() {
     </main>
   );
 }
+
 export default function EmployeePage() {
   return (
     <Suspense>

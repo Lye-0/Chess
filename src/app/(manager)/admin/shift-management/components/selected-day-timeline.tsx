@@ -63,23 +63,53 @@ function getTimelineRange(timelineSlots: ReturnType<typeof toTimelineSlot>[]) {
 }
 
 function assignLanes(slots: ShiftSlot[]): TimelineSlot[] {
-  const laneEndMinutes: number[] = [];
+  const groups = new Map<string, ReturnType<typeof toTimelineSlot>[]>();
 
-  return slots
+  slots
     .map(toTimelineSlot)
     .sort((a, b) => {
       if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
       return a.endMinutes - b.endMinutes;
     })
-    .map((item) => {
-      const lane = laneEndMinutes.findIndex(
-        (endMinutes) => endMinutes <= item.startMinutes,
-      );
-      const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
-      laneEndMinutes[nextLane] = item.endMinutes;
-
-      return { ...item, lane: nextLane };
+    .forEach((item) => {
+      const positionKey = item.slot.positionId || item.slot.positionName || "ポジション未設定";
+      const group = groups.get(positionKey) ?? [];
+      group.push(item);
+      groups.set(positionKey, group);
     });
+
+  const placedItems: TimelineSlot[] = [];
+  let nextBaseLane = 0;
+
+  Array.from(groups.values())
+    .sort((a, b) => {
+      const aFirst = Math.min(...a.map((item) => item.startMinutes));
+      const bFirst = Math.min(...b.map((item) => item.startMinutes));
+      if (aFirst !== bFirst) return aFirst - bFirst;
+
+      const aPosition = a[0]?.slot.positionName || "ポジション未設定";
+      const bPosition = b[0]?.slot.positionName || "ポジション未設定";
+      return aPosition.localeCompare(bPosition, "ja");
+    })
+    .forEach((items) => {
+      const laneEndMinutes: number[] = [];
+
+      items.forEach((item) => {
+        const lane = laneEndMinutes.findIndex(
+          (endMinutes) => endMinutes <= item.startMinutes,
+        );
+        const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
+        laneEndMinutes[nextLane] = item.endMinutes;
+        placedItems.push({ ...item, lane: nextBaseLane + nextLane });
+      });
+
+      nextBaseLane += Math.max(1, laneEndMinutes.length);
+    });
+
+  return placedItems.sort((a, b) => {
+    if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+    return a.endMinutes - b.endMinutes;
+  });
 }
 
 function formatHourLabel(hour: number) {
