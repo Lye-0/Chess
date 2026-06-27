@@ -69,6 +69,29 @@ function sortRequests(requests: ShiftRequest[]) {
   });
 }
 
+function parseTimeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+
+  return hour * 60 + minute;
+}
+
+function getRequestEndAt(request: ShiftRequest) {
+  const endAt = new Date(`${request.date}T${request.endTime}:00`);
+
+  if (parseTimeToMinutes(request.endTime) <= parseTimeToMinutes(request.startTime)) {
+    endAt.setDate(endAt.getDate() + 1);
+  }
+
+  return endAt;
+}
+
+function isRequestUpcoming(request: ShiftRequest) {
+  const endAt = getRequestEndAt(request);
+
+  return !Number.isNaN(endAt.getTime()) && endAt > new Date();
+}
 function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
   const approved = status === "承認済";
 
@@ -269,7 +292,10 @@ function EmployeeShiftRequestsContent() {
         request.positionName || slotPositionNameById[request.slotId] || "",
     }));
   }, [requests, slotPositionNameById]);
-  const sortedRequests = useMemo(() => sortRequests(displayRequests), [displayRequests]);
+  const sortedRequests = useMemo(
+    () => sortRequests(displayRequests.filter(isRequestUpcoming)),
+    [displayRequests],
+  );
   const pendingRequests = useMemo(
     () => sortedRequests.filter((request) => request.status !== "承認済"),
     [sortedRequests],

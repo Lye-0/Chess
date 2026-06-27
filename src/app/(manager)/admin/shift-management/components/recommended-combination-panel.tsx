@@ -7,6 +7,7 @@ export const RecommendedCombinationPanel = memo(function RecommendedCombinationP
   weights,
   remainingApprovalCount,
   isApproving,
+  isDisabled = false,
   onApprove,
 }: {
   recommendedCombination: RecommendedCombination | null;
@@ -14,6 +15,7 @@ export const RecommendedCombinationPanel = memo(function RecommendedCombinationP
   weights: RecommendationWeightOption;
   remainingApprovalCount: number;
   isApproving: boolean;
+  isDisabled?: boolean;
   onApprove: () => void;
 }) {
   if (!recommendedCombination) return null;
@@ -22,6 +24,7 @@ export const RecommendedCombinationPanel = memo(function RecommendedCombinationP
     (request) => request.status !== "承認済",
   );
   const canApproveRecommended =
+    !isDisabled &&
     pendingRecommendedRequests.length > 0 &&
     pendingRecommendedRequests.length <= remainingApprovalCount;
 
@@ -65,17 +68,20 @@ export const RecommendedCombinationPanel = memo(function RecommendedCombinationP
             type="button"
             disabled={isApproving || !canApproveRecommended}
             onClick={onApprove}
+            title={isDisabled ? "過去のシフト希望は承認できません" : undefined}
             className="h-9 rounded-md bg-[#1763ff] px-4 text-xs font-semibold text-white transition hover:bg-[#0f4ed8] disabled:cursor-not-allowed disabled:bg-[#cbd5e1] disabled:text-white"
           >
-            {pendingRecommendedRequests.length === 0
-              ? "承認済み"
-              : isApproving
-                ? "承認中..."
-                : remainingApprovalCount <= 0
-                  ? "募集人数に達しました"
-                  : pendingRecommendedRequests.length > remainingApprovalCount
-                    ? "承認枠不足"
-                : "おすすめを一括承認"}
+            {isDisabled
+              ? "過去のシフト"
+              : pendingRecommendedRequests.length === 0
+                ? "承認済み"
+                : isApproving
+                  ? "承認中..."
+                  : remainingApprovalCount <= 0
+                    ? "募集人数に達しました"
+                    : pendingRecommendedRequests.length > remainingApprovalCount
+                      ? "承認枠不足"
+                      : "おすすめを一括承認"}
           </button>
         </div>
       </div>

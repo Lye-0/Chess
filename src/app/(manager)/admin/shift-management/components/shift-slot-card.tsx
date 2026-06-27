@@ -11,6 +11,24 @@ import { RecommendedCombinationPanel } from "./recommended-combination-panel";
 import { ShiftRequestGroup } from "./shift-request-group";
 import { PencilIcon, TrashIcon } from "./icons";
 
+function parseTimeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+
+  return hour * 60 + minute;
+}
+
+function isShiftEnded(slot: Pick<ShiftSlot, "date" | "startTime" | "endTime">) {
+  const endAt = new Date(`${slot.date}T${slot.endTime}:00`);
+
+  if (parseTimeToMinutes(slot.endTime) <= parseTimeToMinutes(slot.startTime)) {
+    endAt.setDate(endAt.getDate() + 1);
+  }
+
+  return !Number.isNaN(endAt.getTime()) && endAt <= new Date();
+}
+
 function ShiftSlotCard({
   slot,
   requests,
@@ -52,6 +70,7 @@ function ShiftSlotCard({
   ).length;
   const remainingApprovalCount = Math.max(0, slot.capacity - approvedCount);
   const isApprovalLimitReached = remainingApprovalCount === 0;
+  const isPastSlot = isShiftEnded(slot);
 
   const recommendedCombination = useMemo(
     () =>
@@ -118,6 +137,7 @@ function ShiftSlotCard({
         weights={weights}
         remainingApprovalCount={remainingApprovalCount}
         isApproving={isApprovingRecommended}
+        isDisabled={isPastSlot}
         onApprove={handleApproveRecommended}
       />
 
@@ -130,6 +150,7 @@ function ShiftSlotCard({
             deletingRequestId={deletingRequestId}
             payrollSettings={payrollSettings}
             isApprovalLimitReached={isApprovalLimitReached}
+            isPastSlot={isPastSlot}
             onApprove={handleApprove}
             onRemove={onRemoveRequest}
           />
@@ -139,6 +160,7 @@ function ShiftSlotCard({
             approvingRequestId={approvingRequestId}
             deletingRequestId={deletingRequestId}
             payrollSettings={payrollSettings}
+            isPastSlot={isPastSlot}
             onApprove={handleApprove}
             onRemove={onRemoveRequest}
           />

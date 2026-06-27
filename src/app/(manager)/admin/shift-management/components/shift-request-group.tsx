@@ -18,6 +18,7 @@ export const ShiftRequestGroup = memo(function ShiftRequestGroup({
   deletingRequestId,
   payrollSettings,
   isApprovalLimitReached = false,
+  isPastSlot = false,
   onApprove,
   onRemove,
 }: {
@@ -27,6 +28,7 @@ export const ShiftRequestGroup = memo(function ShiftRequestGroup({
   deletingRequestId: string | null;
   payrollSettings: PayrollSettings;
   isApprovalLimitReached?: boolean;
+  isPastSlot?: boolean;
   onApprove: (request: ShiftRequest) => void;
   onRemove: (request: ShiftRequest) => void;
 }) {
@@ -55,7 +57,7 @@ export const ShiftRequestGroup = memo(function ShiftRequestGroup({
             const approving = approvingRequestId === request.id;
             const deleting = deletingRequestId === request.id;
             const approvalDisabled =
-              approving || deleting || isApprovalLimitReached;
+              approving || deleting || isApprovalLimitReached || isPastSlot;
             const payroll = calculateShiftPayroll(request, payrollSettings);
 
             return (
@@ -82,9 +84,11 @@ export const ShiftRequestGroup = memo(function ShiftRequestGroup({
                       disabled={approvalDisabled}
                       onClick={() => onApprove(request)}
                       title={
-                        isApprovalLimitReached
-                          ? "募集人数に達しているため承認できません"
-                          : undefined
+                        isPastSlot
+                          ? "過去のシフト希望は承認できません"
+                          : isApprovalLimitReached
+                            ? "募集人数に達しているため承認できません"
+                            : undefined
                       }
                       className="h-8 rounded-md bg-[#030213] px-3 text-xs font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#d1d5db] disabled:text-white"
                     >
@@ -98,8 +102,15 @@ export const ShiftRequestGroup = memo(function ShiftRequestGroup({
                         ? `${request.employeeName}の承認を取り消す`
                         : `${request.employeeName}のシフト希望を削除`
                     }
-                    disabled={deleting}
+                    disabled={deleting || isPastSlot}
                     onClick={() => onRemove(request)}
+                    title={
+                      isPastSlot
+                        ? approved
+                          ? "過去の承認済みシフトは承認待ちに戻せません"
+                          : "過去のシフト希望は削除できません"
+                        : undefined
+                    }
                     className="flex h-8 w-8 items-center justify-center rounded-md text-[#ff003d] transition hover:bg-[#ffe8ee] hover:text-[#cc0031] disabled:cursor-not-allowed disabled:text-[#c56c7f]"
                   >
                     <TrashIcon />
