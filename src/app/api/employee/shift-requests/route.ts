@@ -177,66 +177,54 @@ export async function DELETE(request: Request) {
       .doc(employeeAuth.organizationId);
     const requestRef = organizationRef.collection("shiftRequests").doc(requestId);
 
-    const result = await adminDb.runTransaction(async (transaction) => {
-      const requestSnapshot = await transaction.get(requestRef);
+    const requestSnapshot = await requestRef.get();
 
-      if (!requestSnapshot.exists) {
-        return "not-found" as const;
-      }
-
-      const requestData = requestSnapshot.data() ?? {};
-      const requestEmployeeId = String(requestData.employeeId ?? "");
-
-      if (requestEmployeeId !== employeeAuth.employeeId) {
-        return "forbidden" as const;
-      }
-
-      if (normalizeShiftRequestStatus(requestData.status) === "承認済") {
-        return "approved" as const;
-      }
-
-      const slotId = String(requestData.slotId ?? "");
-      const slotRef = slotId
-        ? organizationRef.collection("shiftSlots").doc(slotId)
-        : null;
-      const slotSnapshot = slotRef ? await transaction.get(slotRef) : null;
-
-      transaction.delete(requestRef);
-
-      if (slotRef && slotSnapshot?.exists) {
-        const currentRequestCount = Number(slotSnapshot.data()?.requestCount ?? 0);
-        transaction.update(slotRef, {
-          requestCount:
-            Number.isFinite(currentRequestCount) && currentRequestCount > 0
-              ? currentRequestCount - 1
-              : 0,
-          updatedAt: Timestamp.now(),
-        });
-      }
-
-      return "withdrawn" as const;
-    });
-
-    if (result === "not-found") {
+    if (!requestSnapshot.exists) {
       return NextResponse.json(
         { error: "シフト希望が見つかりません。" },
         { status: 404 },
       );
     }
 
-    if (result === "forbidden") {
+    const requestData = requestSnapshot.data() ?? {};
+    const requestEmployeeId = String(requestData.employeeId ?? "");
+
+    if (requestEmployeeId !== employeeAuth.employeeId) {
       return NextResponse.json(
         { error: "このシフト希望は撤回できません。" },
         { status: 403 },
       );
     }
 
-    if (result === "approved") {
+    if (normalizeShiftRequestStatus(requestData.status) === "承認済") {
       return NextResponse.json(
         { error: "承認済みのシフトは撤回できません。" },
         { status: 409 },
       );
     }
+
+    const slotId = String(requestData.slotId ?? "");
+    const slotRef = slotId
+      ? organizationRef.collection("shiftSlots").doc(slotId)
+      : null;
+    const slotSnapshot = slotRef ? await slotRef.get() : null;
+    const batch = adminDb.batch();
+
+    batch.delete(requestRef);
+
+    if (slotRef && slotSnapshot?.exists) {
+      const currentRequestCount = Number(slotSnapshot.data()?.requestCount ?? 0);
+      batch.update(slotRef, {
+        requestCount:
+          Number.isFinite(currentRequestCount) && currentRequestCount > 0
+            ? currentRequestCount - 1
+            : 0,
+        updatedAt: Timestamp.now(),
+      });
+    }
+
+    await batch.commit();
+
 
     return NextResponse.json({ ok: true });
   } catch (error) {

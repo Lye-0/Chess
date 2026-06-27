@@ -569,7 +569,7 @@ function EmployeePageContent() {
   }
 
   async function handleWithdrawRequest(request: ShiftRequest) {
-    if (request.status === "承認済") return;
+    if (!employee || request.status === "承認済") return;
 
     const confirmed = window.confirm(
       `${formatDateLabel(request.date)} ${formatShiftTimeRange(request.startTime, request.endTime)} の希望を撤回しますか？`,
@@ -580,7 +580,11 @@ function EmployeePageContent() {
     try {
       setWithdrawingRequestId(request.id);
       setWithdrawErrorMessage(null);
-      await withdrawEmployeeShiftRequest(request.id);
+      await withdrawEmployeeShiftRequest(request.id, {
+        organizationId: employee.organizationId,
+        employeeId: employee.employeeId,
+        employeeEmail: employee.email,
+      });
     } catch (error) {
       console.error(error);
       setWithdrawErrorMessage(

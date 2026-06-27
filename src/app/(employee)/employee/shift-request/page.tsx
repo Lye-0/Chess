@@ -19,6 +19,7 @@ import {
   createShiftRequests,
   isShiftStartInFuture,
   subscribeEmployeeShiftRequests,
+  withdrawEmployeeShiftRequest,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 
@@ -564,6 +565,103 @@ function SelectedDayShiftTimeline({
   );
 }
 
+function ShiftRequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
+  const approved = status === "承認済";
+
+  return (
+    <span
+      className={[
+        "rounded-md px-2 py-1 text-xs font-semibold",
+        approved
+          ? "bg-[#dcfce7] text-[#15803d]"
+          : "bg-[#dbeafe] text-[#1d4ed8]",
+      ].join(" ")}
+    >
+      {status}
+    </span>
+  );
+}
+
+function getShiftRequestPositionLabel(request: Pick<ShiftRequest, "positionName">) {
+  return request.positionName || "ポジション未設定";
+}
+
+function sortRequests(requests: ShiftRequest[]) {
+  return [...requests].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.startTime.localeCompare(b.startTime);
+  });
+}
+
+function SubmittedShiftRequestsPanel({
+  requests,
+  withdrawingRequestId,
+  onWithdraw,
+}: {
+  requests: ShiftRequest[];
+  withdrawingRequestId: string | null;
+  onWithdraw: (request: ShiftRequest) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-black/10 bg-white p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">提出済みの希望</h2>
+          <p className="mt-1 text-xs text-[#717182]">
+            未承認の希望はここから撤回できます
+          </p>
+        </div>
+        <span className="rounded-md bg-[#eef2f7] px-2 py-1 text-xs font-semibold text-[#475569]">
+          {requests.length}件
+        </span>
+      </div>
+
+      {requests.length === 0 ? (
+        <div className="mt-3 flex min-h-24 items-center justify-center rounded-lg border border-dashed border-black/10 text-center text-sm text-[#717182]">
+          提出済みの希望はありません
+        </div>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {requests.map((request) => {
+            const approved = request.status === "承認済";
+            const withdrawing = withdrawingRequestId === request.id;
+
+            return (
+              <div
+                key={request.id}
+                className="rounded-lg border border-black/10 px-4 py-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold">{formatDateLabel(request.date)}</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
+                      {getShiftRequestPositionLabel(request)}
+                    </p>
+                    <p className="mt-1 text-sm text-[#717182]">
+                      {formatShiftTimeRange(request.startTime, request.endTime)}
+                    </p>
+                  </div>
+                  <ShiftRequestStatusBadge status={request.status} />
+                </div>
+                {!approved && (
+                  <button
+                    type="button"
+                    disabled={withdrawing}
+                    onClick={() => onWithdraw(request)}
+                    className="mt-3 h-9 w-full rounded-md border border-[#fecaca] text-sm font-semibold text-[#b91c1c] transition hover:bg-[#fff1f1] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182]"
+                  >
+                    {withdrawing ? "撤回中..." : "撤回"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function EmployeeShiftRequestContent() {
   const router = useRouter();
   const sessionSnapshot = useSyncExternalStore(
@@ -584,6 +682,7 @@ function EmployeeShiftRequestContent() {
   const [now, setNow] = useState(() => new Date());
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [withdrawingRequestId, setWithdrawingRequestId] = useState<string | null>(null);
   const [isSlotsLoading, setIsSlotsLoading] = useState(true);
   const [isRequestsLoading, setIsRequestsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -679,6 +778,7 @@ function EmployeeShiftRequestContent() {
       return summaries;
     }, {});
   }, [draftSlotIds, requestableSlots, requestedSlotIds]);
+  const submittedRequests = useMemo(() => sortRequests(requests), [requests]);
   const selectedDateSlots = useMemo(() => {
     if (!selectedDate) return [];
 
@@ -689,6 +789,7 @@ function EmployeeShiftRequestContent() {
     [displayMonth],
   );
   const todayDate = useMemo(() => toDateString(new Date()), []);
+
   function changeDisplayMonth(offset: number) {
     setDisplayMonth((currentMonth) => {
       return new Date(
@@ -719,6 +820,36 @@ function EmployeeShiftRequestContent() {
     setDraftSlots((current) => current.filter((slot) => slot.id !== slotId));
   }
 
+  async function withdrawRequest(request: ShiftRequest) {
+    if (request.status === "承認済") return;
+
+    const confirmed = window.confirm(
+      `${formatDateLabel(request.date)} ${formatShiftTimeRange(request.startTime, request.endTime)} の希望を撤回しますか？`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setWithdrawingRequestId(request.id);
+      setErrorMessage(null);
+      if (!employee) return;
+
+      await withdrawEmployeeShiftRequest(request.id, {
+        organizationId: employee.organizationId,
+        employeeId: employee.employeeId,
+        employeeEmail: employee.email,
+      });
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "シフト希望の撤回に失敗しました。",
+      );
+    } finally {
+      setWithdrawingRequestId(null);
+    }
+  }
   async function submitRequests() {
     if (!employee || draftSlots.length === 0) return;
 
@@ -834,19 +965,20 @@ function EmployeeShiftRequestContent() {
               )}
             </div>
 
-            <section className="rounded-lg border border-black/10 bg-white p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold">追加したシフト希望</h2>
-                  <p className="mt-1 text-xs text-[#717182]">
-                    送信前の希望を確認できます
-                  </p>
+            <div className="space-y-4">
+              <section className="rounded-lg border border-black/10 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-semibold">追加したシフト希望</h2>
+                    <p className="mt-1 text-xs text-[#717182]">
+                      送信前の希望を確認できます
+                    </p>
+                  </div>
+                  <span className="rounded-md bg-[#eef2ff] px-2 py-1 text-xs font-semibold text-[#1d4ed8]">
+                    {draftSlots.length}件
+                  </span>
                 </div>
-                <span className="rounded-md bg-[#eef2ff] px-2 py-1 text-xs font-semibold text-[#1d4ed8]">
-                  {draftSlots.length}件
-                </span>
-              </div>
-              {draftSlots.length === 0 ? (
+                {draftSlots.length === 0 ? (
                 <div className="flex min-h-72 flex-col items-center justify-center text-center text-[#717182]">
                   <p>まだシフト希望がありません</p>
                   <p className="mt-1 text-sm">
@@ -895,6 +1027,12 @@ function EmployeeShiftRequestContent() {
                 </div>
               )}
             </section>
+              <SubmittedShiftRequestsPanel
+                requests={submittedRequests}
+                withdrawingRequestId={withdrawingRequestId}
+                onWithdraw={withdrawRequest}
+              />
+            </div>
           </div>
         </section>
       </div>
