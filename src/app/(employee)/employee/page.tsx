@@ -16,7 +16,6 @@ import {
 import {
   getShiftRequestPositionLabel,
   subscribeEmployeeShiftRequests,
-  withdrawEmployeeShiftRequest,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import {
@@ -607,14 +606,10 @@ function SelectedDayTimeline({
   date,
   requests,
   payrollSettings,
-  onWithdraw,
-  withdrawingRequestId,
 }: {
   date: string;
   requests: ShiftRequest[];
   payrollSettings: PayrollSettings;
-  onWithdraw: (request: ShiftRequest) => void;
-  withdrawingRequestId: string | null;
 }) {
   const timelineItems = useMemo(() => assignMyCalendarLanes(requests), [requests]);
   const minimumTimelineMinutes = 9 * 60;
@@ -749,8 +744,6 @@ function SelectedDayTimeline({
                   key={request.id}
                   request={request}
                   payrollSettings={payrollSettings}
-                  onWithdraw={request.status === "承認済" ? undefined : onWithdraw}
-                  isWithdrawing={withdrawingRequestId === request.id}
                 />
               ))}
             </div>
@@ -785,8 +778,6 @@ function EmployeePageContent() {
   const [selectedDate, setSelectedDate] = useState(() => toDateString(new Date()));  const [selectedExportMonth, setSelectedExportMonth] = useState(
     () => getShiftExportMonths([])[0],
   );
-  const [withdrawingRequestId, setWithdrawingRequestId] = useState<string | null>(null);
-  const [withdrawErrorMessage, setWithdrawErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
@@ -1004,34 +995,6 @@ function EmployeePageContent() {
     }
   }
 
-  async function handleWithdrawRequest(request: ShiftRequest) {
-    if (!employee || request.status === "承認済") return;
-
-    const confirmed = window.confirm(
-      `${formatDateLabel(request.date)} ${formatShiftTimeRange(request.startTime, request.endTime)} の希望を撤回しますか？`,
-    );
-
-    if (!confirmed) return;
-
-    try {
-      setWithdrawingRequestId(request.id);
-      setWithdrawErrorMessage(null);
-      await withdrawEmployeeShiftRequest(request.id, {
-        organizationId: employee.organizationId,
-        employeeId: employee.employeeId,
-        employeeEmail: employee.email,
-      });
-    } catch (error) {
-      console.error(error);
-      setWithdrawErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "シフト希望の撤回に失敗しました。",
-      );
-    } finally {
-      setWithdrawingRequestId(null);
-    }
-  }
   async function handleLogout() {
     clearEmployeeSession();
     await signOut(auth);
@@ -1183,12 +1146,6 @@ function EmployeePageContent() {
         </section>
 
         <section className="mt-6 space-y-4">
-          {withdrawErrorMessage && (
-            <div className="rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
-              {withdrawErrorMessage}
-            </div>
-          )}
-
           <EmployeeMyCalendar
             displayMonth={displayMonth}
             days={calendarDays}
@@ -1203,8 +1160,6 @@ function EmployeePageContent() {
             date={selectedDate}
             requests={selectedDateRequests}
             payrollSettings={payrollSettings}
-            onWithdraw={handleWithdrawRequest}
-            withdrawingRequestId={withdrawingRequestId}
           />
         </section>
 

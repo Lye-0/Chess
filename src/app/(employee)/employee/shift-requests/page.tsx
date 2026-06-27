@@ -186,12 +186,12 @@ function ShiftRequestGroup({
 }) {
   return (
     <section className="rounded-md border border-black/10 bg-white px-4 py-4">
-      <div className="flex items-end justify-between gap-3">
-        <div>
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+        <div className="min-w-0">
           <h3 className="text-base font-semibold">{title}</h3>
-          <p className="mt-1 text-sm text-[#717182]">{description}</p>
+          <p className="mt-1 text-xs leading-relaxed text-[#717182] sm:text-sm">{description}</p>
         </div>
-        <span className="rounded-full bg-[#eef2f7] px-3 py-1 text-sm font-semibold text-[#475569]">
+        <span className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-[#eef2f7] px-2 text-center text-sm font-semibold leading-tight text-[#475569]">
           {requests.length}件
         </span>
       </div>
