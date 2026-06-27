@@ -236,13 +236,17 @@ function AdminEmployeeListContent() {
       ),
     [allSelectedRequests, requestView],
   );
-  const totalWorkMinutes = selectedRequests.reduce(
+  const approvedSelectedRequests = useMemo(
+    () => selectedRequests.filter((request) => request.status === "承認済"),
+    [selectedRequests],
+  );
+  const totalWorkMinutes = approvedSelectedRequests.reduce(
     (total, request) => total + calculateWorkMinutes(request),
     0,
   );
   const totalPay = useMemo(
-    () => sumShiftPay(selectedRequests, payrollSettings),
-    [payrollSettings, selectedRequests],
+    () => sumShiftPay(approvedSelectedRequests, payrollSettings),
+    [approvedSelectedRequests, payrollSettings],
   );
 
   if (isCheckingOrganization || !currentOrganization) {
@@ -410,7 +414,10 @@ function AdminEmployeeListContent() {
               ) : (
                 <div className="mt-4 space-y-3">
                   {selectedRequests.map((request) => {
-                    const payroll = calculateShiftPayroll(request, payrollSettings);
+                    const payroll =
+                      request.status === "承認済"
+                        ? calculateShiftPayroll(request, payrollSettings)
+                        : null;
                     const positionLabel = getShiftRequestPositionLabel({
                       positionName:
                         request.positionName || slotPositionNameById[request.slotId] || "",
@@ -437,9 +444,15 @@ function AdminEmployeeListContent() {
                             </p>
                           </div>
                           <div className="shrink-0 text-left sm:text-right">
-                            <p className="text-sm font-semibold text-[#00a63e]">
-                              {formatCurrency(payroll.totalPay)}
-                            </p>
+                            {payroll ? (
+                              <p className="text-sm font-semibold text-[#00a63e]">
+                                {formatCurrency(payroll.totalPay)}
+                              </p>
+                            ) : (
+                              <p className="text-xs font-semibold text-[#717182]">
+                                承認後に給与計算
+                              </p>
+                            )}
                             <span
                               className={[
                                 "mt-2 inline-flex rounded-md px-2.5 py-1 text-xs font-semibold",
@@ -469,13 +482,13 @@ function AdminEmployeeListContent() {
                   <p className="text-2xl font-semibold text-[#00a63e]">
                     {formatWorkHours(totalWorkMinutes)}
                   </p>
-                  <p className="mt-1 text-sm text-[#00a63e]">希望合計時間</p>
+                  <p className="mt-1 text-sm text-[#00a63e]">承認済み合計時間</p>
                 </div>
                 <div className="rounded-lg bg-[#fff7ed] p-5 text-center">
                   <p className="text-2xl font-semibold text-[#c2410c]">
                     {formatCurrency(totalPay)}
                   </p>
-                  <p className="mt-1 text-sm text-[#c2410c]">給与合計</p>
+                  <p className="mt-1 text-sm text-[#c2410c]">承認済み給与合計</p>
                 </div>
               </section>
             </>

@@ -772,13 +772,21 @@ function EmployeePageContent() {
 
 
   const sortedRequests = useMemo(() => sortRequests(displayRequests), [displayRequests]);
+  const upcomingRequests = useMemo(
+    () => sortedRequests.filter((request) => !isCompletedRequest(request, now)),
+    [sortedRequests, now],
+  );
   const pendingRequests = useMemo(
-    () => sortedRequests.filter((request) => request.status !== "承認済"),
-    [sortedRequests],
+    () => upcomingRequests.filter((request) => request.status !== "承認済"),
+    [upcomingRequests],
   );
   const approvedRequests = useMemo(
     () => sortedRequests.filter((request) => request.status === "承認済"),
     [sortedRequests],
+  );
+  const upcomingApprovedRequests = useMemo(
+    () => upcomingRequests.filter((request) => request.status === "承認済"),
+    [upcomingRequests],
   );
   const completedApprovedRequests = useMemo(
     () => approvedRequests.filter((request) => isCompletedRequest(request, now)),
@@ -1058,7 +1066,7 @@ function EmployeePageContent() {
               <div className="rounded-lg bg-[#f0fdf4] px-4 py-3">
                 <p className="text-xs font-semibold text-[#15803d]">承認済み</p>
                 <p className="mt-2 text-2xl font-semibold text-[#15803d]">
-                  {approvedRequests.length}件
+                  {upcomingApprovedRequests.length}件
                 </p>
               </div>
             </div>
