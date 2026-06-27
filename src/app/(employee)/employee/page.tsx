@@ -494,7 +494,7 @@ function EmployeeMyCalendar({
               type="button"
               onClick={() => onSelectDate(day.date)}
               className={[
-                "min-h-24 border-b border-r border-black/10 p-2 text-left transition",
+                "flex min-h-24 flex-col items-start justify-start border-b border-r border-black/10 p-2 text-left transition",
                 selected
                   ? "bg-[#eef2ff] ring-2 ring-inset ring-[#1d4ed8]"
                   : day.outside
@@ -502,7 +502,7 @@ function EmployeeMyCalendar({
                     : "bg-white hover:bg-[#f7f8fb]",
               ].join(" ")}
             >
-              <div className="flex items-center justify-between gap-1">
+              <div className="flex w-full items-center justify-between gap-1">
                 <span
                   className={[
                     "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",

@@ -117,6 +117,7 @@ export function AdminShiftCalendar({
           const hasSlots = Boolean(summary && summary.slotCount > 0);
           const selected = selectedDate === day.date;
           const disabled = day.outside || !hasSlots;
+          const isToday = todayDate === day.date;
 
           return (
             <button
@@ -130,18 +131,26 @@ export function AdminShiftCalendar({
                   : `${getDateLabel(day.date)}、シフトなし`
               }
               className={[
-                "min-h-[68px] rounded-md border p-1 text-left transition sm:min-h-24 sm:p-2",
+                "flex min-h-[68px] flex-col items-start justify-start rounded-md border p-1 text-left transition sm:min-h-24 sm:p-2",
                 selected
                   ? "border-[#030213] bg-[#030213] text-white shadow-sm"
                   : disabled
                     ? "cursor-not-allowed border-black/10 bg-[#f7f8fb] text-[#b4b7c0]"
                     : getSummaryTone(summary),
-                day.date === todayDate && !selected && !disabled
-                  ? "ring-2 ring-[#030213]/20"
-                  : "",
               ].join(" ")}
             >
-              <span className="block text-xs font-semibold sm:text-sm">{day.value}</span>
+              <span
+                className={[
+                  "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold sm:text-sm",
+                  isToday
+                    ? selected
+                      ? "bg-white text-[#030213]"
+                      : "bg-[#030213] text-white"
+                    : "",
+                ].join(" ")}
+              >
+                {day.value}
+              </span>
               {hasSlots && summary ? (
                 <span className="mt-1 grid gap-0.5 text-[10px] leading-tight sm:mt-2 sm:gap-1 sm:text-[11px]">
                   <span className={selected ? "text-white" : "text-current"}>
