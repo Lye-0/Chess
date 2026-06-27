@@ -35,6 +35,14 @@ function normalizeSlotIds(value: unknown) {
   return [...new Set(value.map((slotId) => String(slotId).trim()).filter(Boolean))];
 }
 
+function normalizeRequestId(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function normalizeShiftRequestStatus(status: unknown) {
+  return status === "承認済" ? "承認済" : "希望済";
+}
+
 export async function POST(request: Request) {
   try {
     const employeeAuth = await verifyEmployeeRequest(request);
@@ -146,6 +154,79 @@ export async function POST(request: Request) {
     console.error(error);
     return NextResponse.json(
       { error: "希望シフトの送信に失敗しました。" },
+      { status: 500 },
+    );
+  }
+}
+export async function DELETE(request: Request) {
+  try {
+    const employeeAuth = await verifyEmployeeRequest(request);
+    const adminDb = await getAdminDb();
+    const body = (await request.json().catch(() => ({}))) as { requestId?: unknown };
+    const requestId = normalizeRequestId(body.requestId);
+
+    if (!requestId) {
+      return NextResponse.json(
+        { error: "撤回するシフト希望を選択してください。" },
+        { status: 400 },
+      );
+    }
+
+    const organizationRef = adminDb
+      .collection("organizations")
+      .doc(employeeAuth.organizationId);
+    const requestRef = organizationRef.collection("shiftRequests").doc(requestId);
+
+    const requestSnapshot = await requestRef.get();
+
+    if (!requestSnapshot.exists) {
+      return NextResponse.json(
+        { error: "シフト希望が見つかりません。" },
+        { status: 404 },
+      );
+    }
+
+    const requestData = requestSnapshot.data() ?? {};
+    const requestEmployeeId = String(requestData.employeeId ?? "");
+
+    if (requestEmployeeId !== employeeAuth.employeeId) {
+      return NextResponse.json(
+        { error: "このシフト希望は撤回できません。" },
+        { status: 403 },
+      );
+    }
+
+    if (normalizeShiftRequestStatus(requestData.status) === "承認済") {
+      return NextResponse.json(
+        { error: "承認済みのシフトは撤回できません。" },
+        { status: 409 },
+      );
+    }
+
+    const slotId = String(requestData.slotId ?? "");
+    const slotRef = slotId
+      ? organizationRef.collection("shiftSlots").doc(slotId)
+      : null;
+    const slotSnapshot = slotRef ? await slotRef.get() : null;
+    const batch = adminDb.batch();
+
+    batch.delete(requestRef);
+
+    if (slotRef && slotSnapshot?.exists) {
+      batch.update(slotRef, {
+        requestCount: FieldValue.increment(-1),
+        updatedAt: Timestamp.now(),
+      });
+    }
+
+    await batch.commit();
+
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      { error: "シフト希望の撤回に失敗しました。" },
       { status: 500 },
     );
   }

@@ -11,7 +11,11 @@ import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
-import { formatShiftTimeRange } from "@/lib/shiftSlots";
+import {
+  formatShiftTimeRange,
+  subscribeShiftSlots,
+  type ShiftSlot,
+} from "@/lib/shiftSlots";
 import {
   calculateShiftPayroll,
   defaultPayrollSettings,
@@ -44,10 +48,10 @@ function formatSubmittedDate(date: string) {
   return `${parsedDate.getFullYear()}/${parsedDate.getMonth() + 1}/${parsedDate.getDate()}`;
 }
 
-function sortRequests(requests: ShiftRequest[]) {
+function sortRequestsDescending(requests: ShiftRequest[]) {
   return [...requests].sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
-    return a.startTime.localeCompare(b.startTime);
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return b.startTime.localeCompare(a.startTime);
   });
 }
 
@@ -67,6 +71,28 @@ function calculateWorkMinutes(request: ShiftRequest) {
   return diff >= 0 ? diff : diff + 24 * 60;
 }
 
+function getRequestEndAt(request: ShiftRequest) {
+  const endAt = new Date(`${request.date}T${request.endTime}:00`);
+
+  if (parseTimeToMinutes(request.endTime) <= parseTimeToMinutes(request.startTime)) {
+    endAt.setDate(endAt.getDate() + 1);
+  }
+
+  return endAt;
+}
+
+function isRequestCompleted(request: ShiftRequest) {
+  const endAt = getRequestEndAt(request);
+
+  return !Number.isNaN(endAt.getTime()) && endAt <= new Date();
+}
+
+function getStatusBadgeClass(status: ShiftRequest["status"]) {
+  return status === "承認済"
+    ? "bg-[#dcfce7] text-[#15803d]"
+    : "bg-[#dbeafe] text-[#1d4ed8]";
+}
+
 function formatWorkHours(minutes: number) {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
@@ -83,16 +109,20 @@ function AdminEmployeeListContent() {
   } = useManagerOrganizationAccess();
   const [registeredEmployees, setRegisteredEmployees] = useState<EmployeeProfile[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [shiftSlots, setShiftSlots] = useState<ShiftSlot[]>([]);
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
     defaultPayrollSettings,
   );
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [requestView, setRequestView] = useState<"upcoming" | "completed">("upcoming");
   const [searchQuery, setSearchQuery] = useState("");
   const [isEmployeesLoading, setIsEmployeesLoading] = useState(true);
   const [isRequestsLoading, setIsRequestsLoading] = useState(true);
+  const [isShiftSlotsLoading, setIsShiftSlotsLoading] = useState(true);
   const [isPayrollLoading, setIsPayrollLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const isLoading = isEmployeesLoading || isRequestsLoading || isPayrollLoading;
+  const isLoading =
+    isEmployeesLoading || isRequestsLoading || isShiftSlotsLoading || isPayrollLoading;
 
   useEffect(() => {
     if (!currentOrganization) return;
@@ -141,13 +171,33 @@ function AdminEmployeeListContent() {
       },
       organizationId,
     );
+    const unsubscribeShiftSlots = subscribeShiftSlots(
+      (nextShiftSlots) => {
+        setShiftSlots(nextShiftSlots);
+        setIsShiftSlotsLoading(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsShiftSlotsLoading(false);
+        setErrorMessage("シフト枠の読み込みに失敗しました。");
+      },
+      organizationId,
+    );
 
     return () => {
       unsubscribeEmployees();
       unsubscribeRequests();
       unsubscribePayroll();
+      unsubscribeShiftSlots();
     };
   }, [currentOrganization, organizationId]);
+
+  const slotPositionNameById = useMemo(() => {
+    return shiftSlots.reduce<Record<string, string>>((namesById, slot) => {
+      namesById[slot.id] = slot.positionName;
+      return namesById;
+    }, {});
+  }, [shiftSlots]);
 
   const requestsByEmployee = useMemo(() => {
     return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
@@ -170,20 +220,33 @@ function AdminEmployeeListContent() {
   const selectedEmployee =
     registeredEmployees.find((employee) => employee.employeeId === selectedEmployeeId) ??
     null;
-  const selectedRequests = useMemo(
+  const allSelectedRequests = useMemo(
     () =>
       selectedEmployee
-        ? sortRequests(requestsByEmployee[selectedEmployee.employeeId] ?? [])
+        ? sortRequestsDescending(requestsByEmployee[selectedEmployee.employeeId] ?? [])
         : [],
     [requestsByEmployee, selectedEmployee],
   );
-  const totalWorkMinutes = selectedRequests.reduce(
+  const selectedRequests = useMemo(
+    () =>
+      allSelectedRequests.filter((request) =>
+        requestView === "completed"
+          ? isRequestCompleted(request)
+          : !isRequestCompleted(request),
+      ),
+    [allSelectedRequests, requestView],
+  );
+  const approvedSelectedRequests = useMemo(
+    () => selectedRequests.filter((request) => request.status === "承認済"),
+    [selectedRequests],
+  );
+  const totalWorkMinutes = approvedSelectedRequests.reduce(
     (total, request) => total + calculateWorkMinutes(request),
     0,
   );
   const totalPay = useMemo(
-    () => sumShiftPay(selectedRequests, payrollSettings),
-    [payrollSettings, selectedRequests],
+    () => sumShiftPay(approvedSelectedRequests, payrollSettings),
+    [approvedSelectedRequests, payrollSettings],
   );
 
   if (isCheckingOrganization || !currentOrganization) {
@@ -310,7 +373,35 @@ function AdminEmployeeListContent() {
 
               <div className="my-6 h-px bg-black/10" />
 
-              <p className="text-sm text-[#717182]">シフト希望一覧</p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-[#717182]">シフト希望一覧</p>
+                <div className="inline-flex rounded-md border border-black/10 bg-white p-1 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setRequestView("upcoming")}
+                    className={[
+                      "h-8 rounded px-3 text-xs font-semibold transition",
+                      requestView === "upcoming"
+                        ? "bg-[#030213] text-white"
+                        : "text-[#475569] hover:bg-[#f7f8fb]",
+                    ].join(" ")}
+                  >
+                    勤務予定
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRequestView("completed")}
+                    className={[
+                      "h-8 rounded px-3 text-xs font-semibold transition",
+                      requestView === "completed"
+                        ? "bg-[#030213] text-white"
+                        : "text-[#475569] hover:bg-[#f7f8fb]",
+                    ].join(" ")}
+                  >
+                    勤務済み
+                  </button>
+                </div>
+              </div>
 
               {isLoading ? (
                 <div className="flex min-h-28 items-center justify-center text-center text-[#717182]">
@@ -318,22 +409,29 @@ function AdminEmployeeListContent() {
                 </div>
               ) : selectedRequests.length === 0 ? (
                 <div className="flex min-h-28 items-center justify-center text-center text-[#717182]">
-                  <p>この従業員のシフト希望はありません</p>
+                  <p>{requestView === "upcoming" ? "勤務予定のシフト希望はありません" : "勤務済みのシフト希望はありません"}</p>
                 </div>
               ) : (
                 <div className="mt-4 space-y-3">
                   {selectedRequests.map((request) => {
-                    const payroll = calculateShiftPayroll(request, payrollSettings);
+                    const payroll =
+                      request.status === "承認済"
+                        ? calculateShiftPayroll(request, payrollSettings)
+                        : null;
+                    const positionLabel = getShiftRequestPositionLabel({
+                      positionName:
+                        request.positionName || slotPositionNameById[request.slotId] || "",
+                    });
 
                     return (
                       <div key={request.id} className="rounded-lg bg-[#f7f8fb] p-4">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
+                          <div className="min-w-0">
                             <p className="font-semibold">
                               {formatDateLabel(request.date)}
                             </p>
-                            <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
-                              {getShiftRequestPositionLabel(request)}
+                            <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
+                              {positionLabel}
                             </p>
                             <p className="mt-1 text-sm text-[#475569]">
                               {formatShiftTimeRange(
@@ -345,13 +443,24 @@ function AdminEmployeeListContent() {
                               提出: {formatSubmittedDate(request.submittedDate)}
                             </p>
                           </div>
-                          <div className="text-left sm:text-right">
-                            <p className="text-sm font-semibold text-[#00a63e]">
-                              {formatCurrency(payroll.totalPay)}
-                            </p>
-                            <p className="mt-1 text-xs text-[#717182]">
+                          <div className="shrink-0 text-left sm:text-right">
+                            {payroll ? (
+                              <p className="text-sm font-semibold text-[#00a63e]">
+                                {formatCurrency(payroll.totalPay)}
+                              </p>
+                            ) : (
+                              <p className="text-xs font-semibold text-[#717182]">
+                                承認後に給与計算
+                              </p>
+                            )}
+                            <span
+                              className={[
+                                "mt-2 inline-flex rounded-md px-2.5 py-1 text-xs font-semibold",
+                                getStatusBadgeClass(request.status),
+                              ].join(" ")}
+                            >
                               {request.status}
-                            </p>
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -373,13 +482,13 @@ function AdminEmployeeListContent() {
                   <p className="text-2xl font-semibold text-[#00a63e]">
                     {formatWorkHours(totalWorkMinutes)}
                   </p>
-                  <p className="mt-1 text-sm text-[#00a63e]">希望合計時間</p>
+                  <p className="mt-1 text-sm text-[#00a63e]">承認済み合計時間</p>
                 </div>
                 <div className="rounded-lg bg-[#fff7ed] p-5 text-center">
                   <p className="text-2xl font-semibold text-[#c2410c]">
                     {formatCurrency(totalPay)}
                   </p>
-                  <p className="mt-1 text-sm text-[#c2410c]">給与合計</p>
+                  <p className="mt-1 text-sm text-[#c2410c]">承認済み給与合計</p>
                 </div>
               </section>
             </>

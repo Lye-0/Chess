@@ -15,6 +15,7 @@ import {
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
+import { signInWithCustomToken } from "firebase/auth";
 import { auth, db } from "./firebase";
 import { defaultOrganizationId } from "./people";
 
@@ -54,6 +55,73 @@ type ShiftDateTime = {
   startTime: string;
 };
 
+type EmployeeRequestAuthContext = {
+  organizationId: string;
+  employeeId: string;
+  employeeEmail: string;
+};
+
+type EmployeeLoginResponse = {
+  customToken?: string;
+  error?: string;
+};
+
+function getEmployeeUid(organizationId: string, employeeId: string) {
+  return `employee:${organizationId}:${employeeId}`;
+}
+
+function isEmployeeAuthUser(
+  context: EmployeeRequestAuthContext,
+  claims: Record<string, unknown>,
+) {
+  return (
+    auth.currentUser?.uid === getEmployeeUid(context.organizationId, context.employeeId) &&
+    claims.role === "employee" &&
+    claims.organizationId === context.organizationId &&
+    claims.employeeId === context.employeeId
+  );
+}
+
+async function refreshEmployeeAuth(context: EmployeeRequestAuthContext) {
+  const response = await fetch("/api/employee/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      organizationId: context.organizationId,
+      email: context.employeeEmail,
+    }),
+  });
+  const result = (await response.json().catch(() => null)) as
+    | EmployeeLoginResponse
+    | null;
+
+  if (!response.ok || !result?.customToken) {
+    throw new Error(result?.error ?? "従業員ログインを確認できませんでした。");
+  }
+
+  await signInWithCustomToken(auth, result.customToken);
+}
+
+async function getEmployeeRequestToken(context: EmployeeRequestAuthContext) {
+  if (auth.currentUser) {
+    const tokenResult = await auth.currentUser.getIdTokenResult(true);
+
+    if (isEmployeeAuthUser(context, tokenResult.claims)) {
+      return tokenResult.token;
+    }
+  }
+
+  await refreshEmployeeAuth(context);
+
+  const tokenResult = await auth.currentUser?.getIdTokenResult(true);
+  if (!tokenResult || !isEmployeeAuthUser(context, tokenResult.claims)) {
+    throw new Error("従業員ログインを確認できませんでした。");
+  }
+
+  return tokenResult.token;
+}
 function normalizeShiftRequestStatus(status: unknown): ShiftRequestStatus {
   return status === "承認済" ? "承認済" : "希望済";
 }
@@ -167,8 +235,12 @@ export async function createShiftRequests(
 ) {
   if (inputs.length === 0) return;
 
-  const token = await auth.currentUser?.getIdToken();
-  if (!token) throw new Error("従業員ログインが必要です。");
+  const firstInput = inputs[0];
+  const token = await getEmployeeRequestToken({
+    organizationId,
+    employeeId: firstInput.employeeId,
+    employeeEmail: firstInput.employeeEmail,
+  });
 
   const response = await fetch("/api/employee/shift-requests", {
     method: "POST",
@@ -187,6 +259,29 @@ export async function createShiftRequests(
       error?: string;
     } | null;
     throw new Error(result?.error ?? "希望シフトの送信に失敗しました。");
+  }
+}
+
+export async function withdrawEmployeeShiftRequest(
+  requestId: string,
+  context: EmployeeRequestAuthContext,
+) {
+  const token = await getEmployeeRequestToken(context);
+
+  const response = await fetch("/api/employee/shift-requests", {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ requestId }),
+  });
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(result?.error ?? "シフト希望の撤回に失敗しました。");
   }
 }
 

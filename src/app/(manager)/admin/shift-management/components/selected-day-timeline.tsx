@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef } from "react";
 import { formatShiftTimeRange, type ShiftSlot } from "@/lib/shiftSlots";
 import type { ShiftRequest } from "@/lib/shiftRequests";
 import { getDisplayedRequestCount } from "../request-utils";
@@ -97,14 +98,29 @@ export function SelectedDayTimeline({
   requestsBySlot: Record<string, ShiftRequest[]>;
   requestCountBySlot: Record<string, number>;
 }) {
-  if (slots.length === 0) return null;
-
-  const timelineSlots = assignLanes(slots);
-  const laneCount = Math.max(...timelineSlots.map((item) => item.lane)) + 1;
-  const { startMinutes, endMinutes, hours } = getTimelineRange(timelineSlots);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const timelineSlots = useMemo(() => assignLanes(slots), [slots]);
+  const hasSlots = timelineSlots.length > 0;
+  const laneCount = hasSlots
+    ? Math.max(...timelineSlots.map((item) => item.lane)) + 1
+    : 1;
+  const { startMinutes, endMinutes, hours } = hasSlots
+    ? getTimelineRange(timelineSlots)
+    : { startMinutes: 0, endMinutes: 60, hours: [] };
   const totalMinutes = endMinutes - startMinutes;
-  const timelineWidth = Math.max(720, (hours.length - 1) * 72);
+  const timelineWidth = Math.max(720, Math.max(1, hours.length - 1) * 72);
   const bodyHeight = Math.max(104, laneCount * laneHeight + 20);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !hasSlots) return;
+
+    const firstStart = Math.min(...timelineSlots.map((item) => item.startMinutes));
+    const scrollRatio = Math.max(0, (firstStart - startMinutes) / totalMinutes);
+    container.scrollLeft = scrollRatio * (container.scrollWidth - container.clientWidth);
+  }, [hasSlots, startMinutes, timelineSlots, totalMinutes]);
+
+  if (!hasSlots) return null;
 
   return (
     <section className="mt-4 rounded-lg border border-black/10 bg-white p-3 sm:p-4">
@@ -113,7 +129,7 @@ export function SelectedDayTimeline({
         <p className="text-xs text-[#717182]">横にスクロールできます</p>
       </div>
 
-      <div className="mt-3 overflow-x-auto pb-2">
+      <div ref={scrollContainerRef} className="mt-3 overflow-x-auto pb-2">
         <div style={{ width: timelineWidth }}>
           <div className="relative h-7 border-b border-black/10 text-[11px] font-semibold text-[#717182]">
             {hours.map((hour) => {

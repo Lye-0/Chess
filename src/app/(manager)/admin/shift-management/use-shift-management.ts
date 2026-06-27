@@ -52,6 +52,30 @@ import { stabilizeGroupedArrays, stabilizeRecord } from "./group-utils";
 import { getDisplayedRequestCount } from "./request-utils";
 import type { RecommendedCombination, RecommendationWeightOption, ShiftForm } from "./types";
 
+function parseTimeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+
+  return hour * 60 + minute;
+}
+
+function getShiftEndAt(shift: Pick<ShiftSlot, "date" | "startTime" | "endTime">) {
+  const endAt = new Date(`${shift.date}T${shift.endTime}:00`);
+
+  if (parseTimeToMinutes(shift.endTime) <= parseTimeToMinutes(shift.startTime)) {
+    endAt.setDate(endAt.getDate() + 1);
+  }
+
+  return endAt;
+}
+
+function isShiftEnded(shift: Pick<ShiftSlot, "date" | "startTime" | "endTime">) {
+  const endAt = getShiftEndAt(shift);
+
+  return !Number.isNaN(endAt.getTime()) && endAt <= new Date();
+}
+
 export function useShiftManagement() {
   const {
     organizationId,
@@ -493,6 +517,10 @@ export function useShiftManagement() {
 
       const slot = slotsRef.current.find((candidate) => candidate.id === slotId);
       if (!slot) return;
+      if (isShiftEnded(slot)) {
+        setErrorMessage("過去のシフト希望は承認できません。");
+        return;
+      }
 
       const approvedCount = (requestsBySlotRef.current[slotId] ?? []).filter(
         (slotRequest) => slotRequest.status === "承認済",
@@ -526,6 +554,10 @@ export function useShiftManagement() {
 
       const slot = slotsRef.current.find((candidate) => candidate.id === slotId);
       if (!slot) return;
+      if (isShiftEnded(slot)) {
+        setErrorMessage("過去のシフト希望は承認できません。");
+        return;
+      }
 
       const approvedCount = (requestsBySlotRef.current[slotId] ?? []).filter(
         (slotRequest) => slotRequest.status === "承認済",
@@ -556,6 +588,15 @@ export function useShiftManagement() {
   );
 
   const openDeleteRequestModal = useCallback((request: ShiftRequest) => {
+    if (isShiftEnded(request)) {
+      setErrorMessage(
+        request.status === "承認済"
+          ? "過去の承認済みシフトは承認待ちに戻せません。"
+          : "過去のシフト希望は削除できません。",
+      );
+      return;
+    }
+
     setDeleteRequestTarget(request);
   }, []);
 
@@ -569,6 +610,16 @@ export function useShiftManagement() {
     if (!deleteRequestTarget) return;
 
     const isApproved = deleteRequestTarget.status === "承認済";
+    if (isShiftEnded(deleteRequestTarget)) {
+      setErrorMessage(
+        isApproved
+          ? "過去の承認済みシフトは承認待ちに戻せません。"
+          : "過去のシフト希望は削除できません。",
+      );
+      setDeleteRequestTarget(null);
+      return;
+    }
+
     try {
       setDeletingRequestId(deleteRequestTarget.id);
       setErrorMessage(null);
