@@ -3,8 +3,8 @@ import { formatShiftTimeRange, type ShiftSlot } from "@/lib/shiftSlots";
 import type { ShiftRequest } from "@/lib/shiftRequests";
 import { getDisplayedRequestCount } from "../request-utils";
 
-const laneHeight = 76;
-const slotBarHeight = 64;
+const laneHeight = 88;
+const slotBarHeight = 76;
 
 const positionColorClasses = [
   "border-[#93c5fd] bg-[#dbeafe] text-[#1d4ed8]",
@@ -176,12 +176,13 @@ export function SelectedDayTimeline({
                 requestCountBySlot,
               );
               const positionName = slot.positionName || "ポジション未設定";
+              const isEmployeeGeneratedSlot = slot.employeeGenerated || slot.id.startsWith("employee-generated:");
 
               return (
                 <div
                   key={slot.id}
                   className={[
-                    "absolute min-w-24 overflow-hidden rounded-md border px-2 py-1 shadow-sm",
+                    "absolute min-w-24 overflow-hidden rounded-md border px-2 py-1.5 shadow-sm",
                     getPositionColor(positionName),
                   ].join(" ")}
                   style={{
@@ -192,11 +193,16 @@ export function SelectedDayTimeline({
                   }}
                   title={`${formatShiftTimeRange(slot.startTime, slot.endTime)} / ${positionName}`}
                 >
-                  <p className="truncate text-xs font-semibold">
+                  <p className="truncate text-xs font-semibold leading-tight">
                     {formatShiftTimeRange(slot.startTime, slot.endTime)}
                   </p>
-                  <p className="truncate text-[11px] font-semibold">{positionName}</p>
-                  <p className="truncate text-[10px] opacity-80">
+                  {isEmployeeGeneratedSlot && (
+                    <p className="truncate text-[10px] font-semibold leading-tight text-[#c2410c]">
+                      従業員追加枠
+                    </p>
+                  )}
+                  <p className="truncate text-[11px] font-semibold leading-tight">{positionName}</p>
+                  <p className="truncate text-[10px] leading-tight opacity-80">
                     希望 {displayedRequestCount} / 承認 {approvedCount}/{slot.capacity}
                   </p>
                 </div>

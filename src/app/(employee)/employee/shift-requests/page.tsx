@@ -135,8 +135,15 @@ function ShiftRequestRow({
           <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
             {getShiftRequestPositionLabel(request)}
           </p>
-          <p className="mt-1 truncate text-sm text-[#475569]">
-            {formatShiftTimeRange(request.startTime, request.endTime)}
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#475569]">
+            <span className="truncate">
+              {formatShiftTimeRange(request.startTime, request.endTime)}
+            </span>
+            {(request.employeeGenerated || !request.slotId) && (
+              <span className="shrink-0 rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                自主追加枠
+              </span>
+            )}
           </p>
           <p className="mt-1 text-sm font-semibold text-[#00a63e]">
             {formatCurrency(payroll.totalPay)}

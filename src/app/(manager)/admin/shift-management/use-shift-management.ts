@@ -82,6 +82,7 @@ function toEmployeeGeneratedSlot(request: ShiftRequest): ShiftSlot {
     endTime: request.endTime,
     positionId: request.positionId,
     positionName: request.positionName,
+    employeeGenerated: true,
     capacity: 1,
     requestCount: 1,
   };

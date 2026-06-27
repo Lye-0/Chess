@@ -45,13 +45,14 @@ export type ShiftRequest = {
   endTime: string;
   positionId: string;
   positionName: string;
+  employeeGenerated: boolean;
   status: ShiftRequestStatus;
   submittedDate: string;
 };
 
 export type ShiftRequestInput = Omit<
   ShiftRequest,
-  "id" | "status" | "submittedDate"
+  "id" | "status" | "submittedDate" | "employeeGenerated"
 >;
 
 export type EmployeeGeneratedShiftRequestInput = Omit<
@@ -175,6 +176,7 @@ function toShiftRequest(
     endTime: String(data.endTime ?? ""),
     positionId: String(data.positionId ?? ""),
     positionName: String(data.positionName ?? ""),
+    employeeGenerated: data.employeeGenerated === true,
     status: normalizeShiftRequestStatus(data.status),
     submittedDate: String(data.submittedDate ?? ""),
   };

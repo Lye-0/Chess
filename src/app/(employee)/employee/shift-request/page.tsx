@@ -845,6 +845,7 @@ function EmployeeShiftRequestContent() {
       endTime: customDraftForm.endTime,
       positionId: selectedPosition?.id ?? "",
       positionName: selectedPosition?.name ?? "",
+      employeeGenerated: true,
       capacity: 1,
       requestCount: 0,
       isEmployeeGenerated: true,
@@ -1170,8 +1171,13 @@ function EmployeeShiftRequestContent() {
                           <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
                             {getSlotPositionLabel(slot)}
                           </p>
-                          <p className="mt-1 text-sm text-[#717182]">
-                            {formatShiftTimeRange(slot.startTime, slot.endTime)}
+                          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#717182]">
+                            <span>{formatShiftTimeRange(slot.startTime, slot.endTime)}</span>
+                            {slot.isEmployeeGenerated && (
+                              <span className="rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                                自主追加枠
+                              </span>
+                            )}
                           </p>
                         </div>
                         <button
@@ -1234,12 +1240,19 @@ function EmployeeShiftRequestContent() {
                   {getSlotPositionLabel(withdrawConfirmRequest)}
                 </p>
               </div>
-              <p className="text-sm text-[#475569]">
-                {formatShiftTimeRange(
-                  withdrawConfirmRequest.startTime,
-                  withdrawConfirmRequest.endTime,
+              <div className="flex flex-wrap items-center justify-end gap-2 text-sm text-[#475569]">
+                <span>
+                  {formatShiftTimeRange(
+                    withdrawConfirmRequest.startTime,
+                    withdrawConfirmRequest.endTime,
+                  )}
+                </span>
+                {(withdrawConfirmRequest.employeeGenerated || !withdrawConfirmRequest.slotId) && (
+                  <span className="rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                    自主追加枠
+                  </span>
                 )}
-              </p>
+              </div>
             </div>
 
             <p className="mt-6 text-sm text-[#717182]">
@@ -1301,9 +1314,14 @@ function EmployeeShiftRequestContent() {
                       {getSlotPositionLabel(slot)}
                     </p>
                   </div>
-                  <p className="shrink-0 text-sm text-[#475569]">
-                    {formatShiftTimeRange(slot.startTime, slot.endTime)}
-                  </p>
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 text-sm text-[#475569]">
+                    <span>{formatShiftTimeRange(slot.startTime, slot.endTime)}</span>
+                    {slot.isEmployeeGenerated && (
+                      <span className="rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                        自主追加枠
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

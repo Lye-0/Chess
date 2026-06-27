@@ -71,7 +71,8 @@ function ShiftSlotCard({
   const remainingApprovalCount = Math.max(0, slot.capacity - approvedCount);
   const isApprovalLimitReached = remainingApprovalCount === 0;
   const isPastSlot = isShiftEnded(slot);
-  const isEmployeeGeneratedSlot = slot.id.startsWith("employee-generated:");
+  const isEmployeeGeneratedSlot =
+    slot.employeeGenerated || slot.id.startsWith("employee-generated:");
 
   const recommendedCombination = useMemo(
     () =>
@@ -104,6 +105,11 @@ function ShiftSlotCard({
             <p className="font-semibold">
               {formatShiftTimeRange(slot.startTime, slot.endTime)}
             </p>
+            {isEmployeeGeneratedSlot && (
+              <span className="rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                従業員追加枠
+              </span>
+            )}
             <span className="rounded-md bg-[#eef2ff] px-2.5 py-1 text-xs font-semibold text-[#1d4ed8]">
               {slot.positionName || "ポジション未設定"}
             </span>
