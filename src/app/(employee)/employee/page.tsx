@@ -403,36 +403,22 @@ function EmployeeFeatureCard({
   toneClassName: string;
   children?: ReactNode;
 }) {
-  const content = (
-    <>
+  return (
+    <section className="min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm">
       <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${toneClassName}`}>
         {icon}
       </div>
       <h2 className="mt-3 text-xl font-semibold">{title}</h2>
       <p className="mt-1 text-sm text-[#717182]">{description}</p>
       {children}
-      {actionLabel && (
-        <div className="mt-5 rounded-md border border-black/10 bg-white px-4 py-2.5 text-center text-sm font-semibold shadow-sm transition group-hover:bg-[#f7f8fb]">
-          {actionLabel}
-        </div>
+      {href && actionLabel && (
+        <Link
+          href={href}
+          className="mt-5 flex rounded-md border border-black/10 bg-white px-4 py-2.5 text-center text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
+        >
+          <span className="w-full">{actionLabel}</span>
+        </Link>
       )}
-    </>
-  );
-
-  if (href) {
-    return (
-      <Link
-        href={href}
-        className="group min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm transition hover:shadow-md"
-      >
-        {content}
-      </Link>
-    );
-  }
-
-  return (
-    <section className="min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm">
-      {content}
     </section>
   );
 }
