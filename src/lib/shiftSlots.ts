@@ -30,11 +30,14 @@ export type ShiftSlot = {
   endTime: string;
   positionId: string;
   positionName: string;
+  employeeGenerated: boolean;
   capacity: number;
   requestCount: number;
 };
 
-export type ShiftSlotInput = Omit<ShiftSlot, "id" | "requestCount">;
+export type ShiftSlotInput = Omit<ShiftSlot, "id" | "requestCount" | "employeeGenerated"> & {
+  employeeGenerated?: boolean;
+};
 
 const fourDigitDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
@@ -114,6 +117,7 @@ function toShiftSlot(snapshot: QueryDocumentSnapshot<DocumentData>): ShiftSlot {
     endTime: String(data.endTime ?? ""),
     positionId: String(data.positionId ?? ""),
     positionName: String(data.positionName ?? ""),
+    employeeGenerated: data.employeeGenerated === true,
     capacity: Number(data.capacity ?? 0),
     requestCount:
       Number.isFinite(requestCount) && requestCount > 0 ? requestCount : 0,

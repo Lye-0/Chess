@@ -16,12 +16,17 @@ import {
   type ShiftSlot,
 } from "@/lib/shiftSlots";
 import {
+  createEmployeeGeneratedShiftRequests,
   createShiftRequests,
   isShiftStartInFuture,
   subscribeEmployeeShiftRequests,
   withdrawEmployeeShiftRequest,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
+import {
+  subscribePositions,
+  type OrganizationPosition,
+} from "@/lib/managerOrganizations";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 const monthFormatter = new Intl.DateTimeFormat("ja-JP", {
@@ -51,6 +56,10 @@ type TimelineSlot = {
   startMinutes: number;
   endMinutes: number;
   lane: number;
+};
+
+type DraftShift = ShiftSlot & {
+  isEmployeeGenerated?: boolean;
 };
 
 function BackIcon() {
@@ -196,6 +205,18 @@ function parseTimeToMinutes(time: string) {
   return hour * 60 + minute;
 }
 
+function isValidShiftTime(time: string) {
+  if (!/^\d{2}:\d{2}$/.test(time)) return false;
+
+  const [hour, minute] = time.split(":").map(Number);
+
+  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+}
+
+function isValidShiftTimeRange(startTime: string, endTime: string) {
+  return isValidShiftTime(startTime) && isValidShiftTime(endTime) && startTime !== endTime;
+}
+
 function toTimelineSlot(slot: ShiftSlot) {
   const startMinutes = parseTimeToMinutes(slot.startTime);
   const rawEndMinutes = parseTimeToMinutes(slot.endTime);
@@ -231,23 +252,53 @@ function getTimelineRange(timelineSlots: ReturnType<typeof toTimelineSlot>[]) {
 }
 
 function assignLanes(slots: ShiftSlot[]): TimelineSlot[] {
-  const laneEndMinutes: number[] = [];
+  const groups = new Map<string, ReturnType<typeof toTimelineSlot>[]>();
 
-  return slots
+  slots
     .map(toTimelineSlot)
     .sort((a, b) => {
       if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
       return a.endMinutes - b.endMinutes;
     })
-    .map((item) => {
-      const lane = laneEndMinutes.findIndex(
-        (endMinutes) => endMinutes <= item.startMinutes,
-      );
-      const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
-      laneEndMinutes[nextLane] = item.endMinutes;
-
-      return { ...item, lane: nextLane };
+    .forEach((item) => {
+      const positionKey = item.slot.positionId || item.slot.positionName || "ポジション未設定";
+      const group = groups.get(positionKey) ?? [];
+      group.push(item);
+      groups.set(positionKey, group);
     });
+
+  const placedItems: TimelineSlot[] = [];
+  let nextBaseLane = 0;
+
+  Array.from(groups.values())
+    .sort((a, b) => {
+      const aFirst = Math.min(...a.map((item) => item.startMinutes));
+      const bFirst = Math.min(...b.map((item) => item.startMinutes));
+      if (aFirst !== bFirst) return aFirst - bFirst;
+
+      const aPosition = a[0]?.slot.positionName || "ポジション未設定";
+      const bPosition = b[0]?.slot.positionName || "ポジション未設定";
+      return aPosition.localeCompare(bPosition, "ja");
+    })
+    .forEach((items) => {
+      const laneEndMinutes: number[] = [];
+
+      items.forEach((item) => {
+        const lane = laneEndMinutes.findIndex(
+          (endMinutes) => endMinutes <= item.startMinutes,
+        );
+        const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
+        laneEndMinutes[nextLane] = item.endMinutes;
+        placedItems.push({ ...item, lane: nextBaseLane + nextLane });
+      });
+
+      nextBaseLane += Math.max(1, laneEndMinutes.length);
+    });
+
+  return placedItems.sort((a, b) => {
+    if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+    return a.endMinutes - b.endMinutes;
+  });
 }
 
 function formatHourLabel(hour: number) {
@@ -300,15 +351,15 @@ function EmployeeShiftCalendar({
   onSelectDate: (date: string) => void;
 }) {
   return (
-    <section className="rounded-lg border border-black/10 bg-white p-3 sm:p-4">
+    <section className="w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-white p-3 sm:p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold">カレンダーで日付を選択</h2>
           <p className="mt-1 text-xs text-[#717182]">
             日付ごとの募集枠と選択状況を確認できます
           </p>
         </div>
-        <div className="flex items-center justify-between gap-3 sm:justify-end">
+        <div className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 sm:w-auto sm:flex sm:justify-end sm:gap-3">
           <button
             type="button"
             aria-label="前の月へ"
@@ -317,7 +368,7 @@ function EmployeeShiftCalendar({
           >
             <ChevronIcon direction="left" />
           </button>
-          <p className="min-w-28 text-center text-sm font-semibold">
+          <p className="min-w-0 text-center text-sm font-semibold sm:min-w-28">
             {monthFormatter.format(displayMonth)}
           </p>
           <button
@@ -331,20 +382,21 @@ function EmployeeShiftCalendar({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-7 gap-0.5 text-center text-xs font-semibold text-[#717182] sm:gap-1">
+      <div className="mt-4 grid w-full max-w-full min-w-0 grid-cols-[repeat(7,minmax(0,1fr))] gap-0.5 text-center text-xs font-semibold text-[#717182] sm:gap-1">
         {weekdays.map((day) => (
-          <span key={day} className="py-1">
+          <span key={day} className="min-w-0 py-1">
             {day}
           </span>
         ))}
       </div>
 
-      <div className="mt-1 grid grid-cols-7 gap-0.5 sm:gap-1">
+      <div className="mt-1 grid w-full max-w-full min-w-0 grid-cols-[repeat(7,minmax(0,1fr))] gap-0.5 sm:gap-1">
         {days.map((day, index) => {
           const summary = summaryByDate[day.date];
           const hasSlots = Boolean(summary && summary.slotCount > 0);
           const selected = selectedDate === day.date;
-          const disabled = day.outside || !hasSlots;
+          const disabled = day.outside || day.date < todayDate;
+          const isToday = todayDate === day.date;
 
           return (
             <button
@@ -358,20 +410,28 @@ function EmployeeShiftCalendar({
                   : `${getCalendarDayLabel(day.date)}、募集なし`
               }
               className={[
-                "min-h-[68px] rounded-md border p-1 text-left transition sm:min-h-24 sm:p-2",
+                "flex min-h-[60px] w-full max-w-full min-w-0 flex-col items-start justify-start overflow-hidden rounded-md border p-1 text-left transition sm:min-h-24 sm:p-2",
                 selected
                   ? "border-[#030213] bg-[#030213] text-white shadow-sm"
                   : disabled
                     ? "cursor-not-allowed border-black/10 bg-[#f7f8fb] text-[#b4b7c0]"
                     : getCalendarSummaryTone(summary),
-                day.date === todayDate && !selected && !disabled
-                  ? "ring-2 ring-[#030213]/20"
-                  : "",
               ].join(" ")}
             >
-              <span className="block text-xs font-semibold sm:text-sm">{day.value}</span>
+              <span
+                className={[
+                  "inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold sm:h-6 sm:w-6 sm:text-sm",
+                  isToday
+                    ? selected
+                      ? "bg-white text-[#030213]"
+                      : "bg-[#030213] text-white"
+                    : "",
+                ].join(" ")}
+              >
+                {day.value}
+              </span>
               {hasSlots && summary ? (
-                <span className="mt-1 grid gap-0.5 text-[10px] leading-tight sm:mt-2 sm:gap-1 sm:text-[11px]">
+                <span className="mt-1 grid max-w-full min-w-0 gap-0.5 overflow-hidden text-[9px] leading-tight sm:mt-2 sm:gap-1 sm:text-[11px]">
                   <span className={selected ? "text-white" : "text-current"}>
                     <span className="sm:hidden">募{summary.slotCount}</span>
                     <span className="hidden sm:inline">募集 {summary.slotCount}</span>
@@ -392,7 +452,7 @@ function EmployeeShiftCalendar({
                   )}
                 </span>
               ) : (
-                <span className="mt-1 block text-[10px] leading-tight sm:mt-2 sm:text-[11px]">-</span>
+                <span className="mt-1 block text-[9px] leading-tight sm:mt-2 sm:text-[11px]">-</span>
               )}
             </button>
           );
@@ -433,7 +493,7 @@ function SelectedDayShiftTimeline({
     ? getTimelineRange(timelineSlots)
     : { startMinutes: 0, endMinutes: 60, hours: [] };
   const totalMinutes = endMinutes - startMinutes;
-  const timelineWidth = Math.max(720, Math.max(1, hours.length - 1) * 72);
+  const timelineWidth = Math.max(560, Math.max(1, hours.length - 1) * 64);
   const bodyHeight = Math.max(112, laneCount * timelineLaneHeight + 20);
 
   useEffect(() => {
@@ -447,25 +507,25 @@ function SelectedDayShiftTimeline({
 
   if (!hasSlots) {
     return (
-      <section className="rounded-lg border border-black/10 bg-white p-4 text-sm text-[#717182]">
+      <section className="w-full max-w-full min-w-0 rounded-lg border border-black/10 bg-white p-3 text-xs text-[#717182] sm:p-4 sm:text-sm">
         {formatDateLabel(date)} の募集シフト枠はありません
       </section>
     );
   }
 
   return (
-    <section className="rounded-lg border border-black/10 bg-white p-3 sm:p-4">
+    <section className="w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-white p-3 sm:p-4">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold">{formatDateLabel(date)} の時間ビュー</h2>
           <p className="mt-1 text-xs text-[#717182]">
             募集枠を選んで希望に追加できます
           </p>
         </div>
-        <p className="text-xs text-[#717182]">横にスクロールできます</p>
+        <p className="text-xs text-[#717182] sm:text-right">横にスクロールできます</p>
       </div>
 
-      <div ref={scrollContainerRef} className="mt-3 overflow-x-auto pb-2">
+      <div ref={scrollContainerRef} className="mt-3 w-full overflow-x-auto pb-2">
         <div style={{ width: timelineWidth }}>
           <div className="relative h-7 border-b border-black/10 text-[11px] font-semibold text-[#717182]">
             {hours.map((hour) => {
@@ -516,7 +576,7 @@ function SelectedDayShiftTimeline({
                   disabled={disabled}
                   onClick={() => onAddSlot(slot)}
                   className={[
-                    "absolute min-w-32 overflow-hidden rounded-md border px-2 py-1 text-left shadow-sm transition",
+                    "absolute min-w-28 overflow-hidden rounded-md border px-2 py-1 text-left shadow-sm transition",
                     disabled
                       ? "cursor-not-allowed border-black/10 bg-[#eef0f4] text-[#717182] opacity-80"
                       : getPositionColor(positionName),
@@ -570,7 +630,7 @@ function SelectedDayShiftTimeline({
           return (
             <div
               key={slot.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-black/10 px-3 py-2"
+              className="flex flex-col gap-3 rounded-md border border-black/10 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold">
@@ -580,7 +640,7 @@ function SelectedDayShiftTimeline({
                   {getSlotPositionLabel(slot)} / 募集 {slot.capacity}人 / 希望 {slot.requestCount}人
                 </p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
                 {pendingRequest && (
                   <button
                     type="button"
@@ -592,7 +652,7 @@ function SelectedDayShiftTimeline({
                   </button>
                 )}
                 {statusLabel && (
-                  <span className="inline-flex h-9 items-center rounded-md bg-[#eef0f4] px-3 text-xs font-semibold text-[#717182]">
+                  <span className="inline-flex h-9 items-center whitespace-nowrap rounded-md bg-[#eef0f4] px-3 text-xs font-semibold text-[#717182]">
                     {statusLabel}
                   </span>
                 )}
@@ -629,9 +689,10 @@ function EmployeeShiftRequestContent() {
   const employee = sessionEmployee;
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [positions, setPositions] = useState<OrganizationPosition[]>([]);
   const [displayMonth, setDisplayMonth] = useState(() => getMonthStart(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [draftSlots, setDraftSlots] = useState<ShiftSlot[]>([]);
+  const [draftSlots, setDraftSlots] = useState<DraftShift[]>([]);
   const [now, setNow] = useState(() => new Date());
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [withdrawConfirmRequest, setWithdrawConfirmRequest] = useState<ShiftRequest | null>(null);
@@ -639,8 +700,14 @@ function EmployeeShiftRequestContent() {
   const [withdrawingRequestId, setWithdrawingRequestId] = useState<string | null>(null);
   const [isSlotsLoading, setIsSlotsLoading] = useState(true);
   const [isRequestsLoading, setIsRequestsLoading] = useState(true);
+  const [isPositionsLoading, setIsPositionsLoading] = useState(true);
+  const [customDraftForm, setCustomDraftForm] = useState({
+    startTime: "",
+    endTime: "",
+    positionId: "",
+  });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const isLoading = isSlotsLoading || isRequestsLoading;
+  const isLoading = isSlotsLoading || isRequestsLoading || isPositionsLoading;
 
 
   useEffect(() => {
@@ -687,10 +754,23 @@ function EmployeeShiftRequestContent() {
       },
       employee.organizationId,
     );
+    const unsubscribePositions = subscribePositions(
+      employee.organizationId,
+      (nextPositions) => {
+        setPositions(nextPositions);
+        setIsPositionsLoading(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsPositionsLoading(false);
+        setErrorMessage("ポジションの読み込みに失敗しました。");
+      },
+    );
 
     return () => {
       unsubscribeSlots();
       unsubscribeRequests();
+      unsubscribePositions();
     };
   }, [employee]);
 
@@ -787,6 +867,60 @@ function EmployeeShiftRequestContent() {
     setDraftSlots((current) => sortSlots([...current, slot]));
     setErrorMessage(null);
   }
+
+  function addEmployeeGeneratedDraft() {
+    if (!selectedDate) {
+      setErrorMessage("日付を選択してください。");
+      return;
+    }
+
+    const selectedPosition = positions.find(
+      (position) => position.id === customDraftForm.positionId,
+    );
+    const draft: DraftShift = {
+      id: `employee-generated:${selectedDate}:${customDraftForm.startTime}:${customDraftForm.endTime}:${customDraftForm.positionId}`,
+      date: selectedDate,
+      startTime: customDraftForm.startTime,
+      endTime: customDraftForm.endTime,
+      positionId: selectedPosition?.id ?? "",
+      positionName: selectedPosition?.name ?? "",
+      employeeGenerated: true,
+      capacity: 1,
+      requestCount: 0,
+      isEmployeeGenerated: true,
+    };
+
+    if (!isValidShiftTimeRange(draft.startTime, draft.endTime) || !selectedPosition) {
+      setErrorMessage("時間とポジションを正しく入力してください。");
+      return;
+    }
+
+    if (!isShiftStartInFuture(draft)) {
+      setErrorMessage("過去または開始済みのシフトには希望を提出できません。");
+      return;
+    }
+
+    const duplicateDraft = draftSlots.some((currentDraft) =>
+      currentDraft.date === draft.date &&
+      currentDraft.startTime === draft.startTime &&
+      currentDraft.endTime === draft.endTime &&
+      currentDraft.positionId === draft.positionId
+    );
+    const duplicateRequest = requests.some((request) =>
+      request.date === draft.date &&
+      request.startTime === draft.startTime &&
+      request.endTime === draft.endTime &&
+      request.positionId === draft.positionId
+    );
+
+    if (duplicateDraft || duplicateRequest) {
+      setErrorMessage("同じ日時・ポジションの希望は既に追加されています。");
+      return;
+    }
+
+    setDraftSlots((current) => sortSlots([...current, draft]));
+    setErrorMessage(null);
+  }
   function removeDraftSlot(slotId: string) {
     setDraftSlots((current) => current.filter((slot) => slot.id !== slotId));
   }
@@ -838,21 +972,47 @@ function EmployeeShiftRequestContent() {
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
-      await createShiftRequests(
-        requestableDraftSlots.map((slot) => ({
-          employeeId: employee.employeeId,
-          employeeName: employee.name,
-          employeeEmail: employee.email,
-          employmentType: employee.employmentType,
-          slotId: slot.id,
-          date: slot.date,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          positionId: slot.positionId,
-          positionName: slot.positionName,
-        })),
-        employee.organizationId,
+      const slotDrafts = requestableDraftSlots.filter(
+        (slot) => !slot.isEmployeeGenerated,
       );
+      const employeeGeneratedDrafts = requestableDraftSlots.filter(
+        (slot) => slot.isEmployeeGenerated,
+      );
+
+      if (slotDrafts.length > 0) {
+        await createShiftRequests(
+          slotDrafts.map((slot) => ({
+            employeeId: employee.employeeId,
+            employeeName: employee.name,
+            employeeEmail: employee.email,
+            employmentType: employee.employmentType,
+            slotId: slot.id,
+            date: slot.date,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            positionId: slot.positionId,
+            positionName: slot.positionName,
+          })),
+          employee.organizationId,
+        );
+      }
+
+      if (employeeGeneratedDrafts.length > 0) {
+        await createEmployeeGeneratedShiftRequests(
+          employeeGeneratedDrafts.map((slot) => ({
+            employeeId: employee.employeeId,
+            employeeName: employee.name,
+            employeeEmail: employee.email,
+            employmentType: employee.employmentType,
+            date: slot.date,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            positionId: slot.positionId,
+            positionName: slot.positionName,
+          })),
+          employee.organizationId,
+        );
+      }
       setDraftSlots([]);
       setIsConfirmOpen(false);
     } catch (error) {
@@ -876,9 +1036,9 @@ function EmployeeShiftRequestContent() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
+    <main className="min-h-screen overflow-x-hidden bg-[#f4f7fa] text-[#030213]">
       <header className="border-b border-black/10 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-[1248px] items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-0">
+        <div className="mx-auto flex w-full max-w-[1248px] min-w-0 items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-0">
           <Link
             href="/employee"
             className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
@@ -892,11 +1052,11 @@ function EmployeeShiftRequestContent() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
-        <section className="rounded-xl border border-black/10 bg-white p-6 shadow-sm">
+      <div className="mx-auto w-full max-w-[1248px] min-w-0 px-3 py-6 sm:px-6 sm:py-8 lg:px-0">
+        <section className="w-full max-w-full min-w-0 overflow-hidden rounded-xl border border-black/10 bg-white p-4 shadow-sm sm:p-6">
           <header>
-            <h1 className="text-xl font-semibold">希望シフト入力</h1>
-            <p className="mt-1 text-sm text-[#717182]">
+            <h1 className="text-lg font-semibold sm:text-xl">希望シフト入力</h1>
+            <p className="mt-1 text-xs leading-relaxed text-[#717182] sm:text-sm">
               {employee.organization} {employee.department}の募集シフト枠から希望を選択してください
             </p>
           </header>
@@ -907,8 +1067,8 @@ function EmployeeShiftRequestContent() {
             </div>
           )}
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <div className="space-y-4">
+          <div className="mt-5 grid min-w-0 gap-4 sm:mt-6 sm:gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="min-w-0 space-y-4">
               <EmployeeShiftCalendar
                 displayMonth={displayMonth}
                 days={calendarDays}
@@ -926,65 +1086,143 @@ function EmployeeShiftRequestContent() {
               )}
 
               {selectedDate ? (
-                <SelectedDayShiftTimeline
-                  date={selectedDate}
-                  slots={selectedDateSlots}
-                  requestedSlotIds={requestedSlotIds}
-                  approvedSlotIds={approvedSlotIds}
-                  pendingRequestBySlotId={pendingRequestBySlotId}
-                  draftSlotIds={draftSlotIds}
-                  withdrawingRequestId={withdrawingRequestId}
-                  onAddSlot={addDraftSlot}
-                  onWithdraw={openWithdrawConfirm}
-                />
+                <>
+                  <SelectedDayShiftTimeline
+                    date={selectedDate}
+                    slots={selectedDateSlots}
+                    requestedSlotIds={requestedSlotIds}
+                    approvedSlotIds={approvedSlotIds}
+                    pendingRequestBySlotId={pendingRequestBySlotId}
+                    draftSlotIds={draftSlotIds}
+                    withdrawingRequestId={withdrawingRequestId}
+                    onAddSlot={addDraftSlot}
+                    onWithdraw={openWithdrawConfirm}
+                  />
+                  <section className="w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-white p-3 sm:p-4">
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-semibold">募集枠なしで希望を追加</h2>
+                      <p className="mt-1 text-xs text-[#717182]">
+                        募集されていない時間でも、管理者に希望として送信できます
+                      </p>
+                    </div>
+                    <div className="mt-4 grid gap-3 min-[520px]:grid-cols-2 sm:grid-cols-[1fr_1fr_minmax(0,1.5fr)_auto] sm:items-end">
+                      <label className="grid gap-1 text-xs font-semibold text-[#475569]">
+                        開始
+                        <input
+                          type="time"
+                          value={customDraftForm.startTime}
+                          onChange={(event) =>
+                            setCustomDraftForm((current) => ({
+                              ...current,
+                              startTime: event.target.value,
+                            }))
+                          }
+                          className="h-10 rounded-md border border-black/10 px-3 text-sm text-[#030213]"
+                        />
+                      </label>
+                      <label className="grid gap-1 text-xs font-semibold text-[#475569]">
+                        終了
+                        <input
+                          type="time"
+                          value={customDraftForm.endTime}
+                          onChange={(event) =>
+                            setCustomDraftForm((current) => ({
+                              ...current,
+                              endTime: event.target.value,
+                            }))
+                          }
+                          className="h-10 rounded-md border border-black/10 px-3 text-sm text-[#030213]"
+                        />
+                      </label>
+                      <label className="grid min-w-0 gap-1 text-xs font-semibold text-[#475569]">
+                        ポジション
+                        <select
+                          value={customDraftForm.positionId}
+                          onChange={(event) =>
+                            setCustomDraftForm((current) => ({
+                              ...current,
+                              positionId: event.target.value,
+                            }))
+                          }
+                          className="h-10 min-w-0 rounded-md border border-black/10 px-3 text-sm text-[#030213]"
+                        >
+                          <option value="">選択してください</option>
+                          {positions.map((position) => (
+                            <option key={position.id} value={position.id}>
+                              {position.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={addEmployeeGeneratedDraft}
+                        disabled={positions.length === 0}
+                        className="h-10 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#eef0f4] disabled:text-[#717182] min-[520px]:col-span-2 sm:col-span-1"
+                      >
+                        追加
+                      </button>
+                    </div>
+                    {positions.length === 0 && !isPositionsLoading && (
+                      <p className="mt-3 text-xs text-[#b91c1c]">
+                        管理者がポジションを登録すると、募集枠なしの希望を追加できます。
+                      </p>
+                    )}
+                  </section>
+                </>
               ) : (
-                <section className="rounded-lg border border-black/10 bg-white p-4 text-sm text-[#717182]">
+                <section className="w-full max-w-full min-w-0 rounded-lg border border-black/10 bg-white p-3 text-xs text-[#717182] sm:p-4 sm:text-sm">
                   カレンダーから日付を選択してください
                 </section>
               )}
             </div>
 
-            <div className="space-y-4">
-              <section className="rounded-lg border border-black/10 bg-white p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
+            <div className="min-w-0 space-y-4">
+              <section className="w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-white p-3 sm:p-4">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+                  <div className="min-w-0">
                     <h2 className="font-semibold">追加したシフト希望</h2>
                     <p className="mt-1 text-xs text-[#717182]">
                       送信前の希望を確認できます
                     </p>
                   </div>
-                  <span className="rounded-md bg-[#eef2ff] px-2 py-1 text-xs font-semibold text-[#1d4ed8]">
+                  <span className="inline-flex h-8 min-w-10 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#eef2ff] px-2 text-xs font-semibold text-[#1d4ed8]">
                     {draftSlots.length}件
                   </span>
                 </div>
                 {draftSlots.length === 0 ? (
-                <div className="flex min-h-72 flex-col items-center justify-center text-center text-[#717182]">
+                  <div className="flex min-h-40 flex-col items-center justify-center text-center text-sm text-[#717182] sm:min-h-72">
                   <p>まだシフト希望がありません</p>
-                  <p className="mt-1 text-sm">
+                    <p className="mt-1 text-xs sm:text-sm">
                     日付を選び、時間ビューから募集枠を追加してください
                   </p>
                 </div>
               ) : (
-                <div className="mt-3">
-                  <div className="space-y-3">
+                  <div className="mt-3">
+                    <div className="space-y-3">
                     {draftSlots.map((slot) => (
                       <div
                         key={slot.id}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-black/10 px-4 py-4"
+                        className="flex flex-col gap-3 rounded-lg border border-black/10 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-4"
                       >
                         <div className="min-w-0">
                           <p className="font-semibold">{formatDateLabel(slot.date)}</p>
                           <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
                             {getSlotPositionLabel(slot)}
                           </p>
-                          <p className="mt-1 text-sm text-[#717182]">
-                            {formatShiftTimeRange(slot.startTime, slot.endTime)}
+                          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#717182]">
+                            <span>{formatShiftTimeRange(slot.startTime, slot.endTime)}</span>
+                            {slot.isEmployeeGenerated && (
+                              <span className="rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                                自主追加枠
+                              </span>
+                            )}
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={() => removeDraftSlot(slot.id)}
-                          className="shrink-0 rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef]"
+                          className="self-end rounded-md px-3 py-2 text-sm font-semibold transition hover:bg-[#e9ebef] sm:self-auto"
                         >
                           削除
                         </button>
@@ -992,13 +1230,13 @@ function EmployeeShiftRequestContent() {
                     ))}
                   </div>
 
-                  <p className="mt-6 text-sm text-[#717182]">
+                      <p className="mt-6 text-xs text-[#717182] sm:text-sm">
                     ※ 送信後は管理者が応募者の中から承認します。
                   </p>
                   <button
                     type="button"
-                    onClick={() => setIsConfirmOpen(true)}
-                    className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white"
+                      onClick={() => setIsConfirmOpen(true)}
+                      className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white"
                   >
                     <SendIcon />
                     シフト希望を送信（{draftSlots.length}件）
@@ -1035,18 +1273,25 @@ function EmployeeShiftRequestContent() {
             </p>
 
             <div className="mt-6 flex items-center justify-between rounded-lg bg-[#f7f8fb] px-4 py-3">
-              <div>
+              <div className="min-w-0">
                 <p className="font-semibold">{formatDateLabel(withdrawConfirmRequest.date)}</p>
                 <p className="mt-1 text-sm font-semibold text-[#1d4ed8]">
                   {getSlotPositionLabel(withdrawConfirmRequest)}
                 </p>
               </div>
-              <p className="text-sm text-[#475569]">
-                {formatShiftTimeRange(
-                  withdrawConfirmRequest.startTime,
-                  withdrawConfirmRequest.endTime,
+              <div className="flex flex-wrap items-center justify-end gap-2 text-sm text-[#475569]">
+                <span>
+                  {formatShiftTimeRange(
+                    withdrawConfirmRequest.startTime,
+                    withdrawConfirmRequest.endTime,
+                  )}
+                </span>
+                {(withdrawConfirmRequest.employeeGenerated || !withdrawConfirmRequest.slotId) && (
+                  <span className="rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                    自主追加枠
+                  </span>
                 )}
-              </p>
+              </div>
             </div>
 
             <p className="mt-6 text-sm text-[#717182]">
@@ -1108,9 +1353,14 @@ function EmployeeShiftRequestContent() {
                       {getSlotPositionLabel(slot)}
                     </p>
                   </div>
-                  <p className="shrink-0 text-sm text-[#475569]">
-                    {formatShiftTimeRange(slot.startTime, slot.endTime)}
-                  </p>
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 text-sm text-[#475569]">
+                    <span>{formatShiftTimeRange(slot.startTime, slot.endTime)}</span>
+                    {slot.isEmployeeGenerated && (
+                      <span className="rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                        自主追加枠
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

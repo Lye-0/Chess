@@ -14,6 +14,13 @@ type ShiftSlotData = {
   positionName: string;
 };
 
+type EmployeeGeneratedRequestData = {
+  date: string;
+  startTime: string;
+  endTime: string;
+  positionId: string;
+};
+
 function getTodayString() {
   const today = new Date();
   const year = today.getFullYear();
@@ -23,7 +30,7 @@ function getTodayString() {
   return `${year}-${month}-${date}`;
 }
 
-function isShiftStartInFuture(shift: ShiftSlotData, now = new Date()) {
+function isShiftStartInFuture(shift: Pick<ShiftSlotData, "date" | "startTime">, now = new Date()) {
   const startAt = new Date(`${shift.date}T${shift.startTime}:00`);
 
   return !Number.isNaN(startAt.getTime()) && startAt.getTime() > now.getTime();
@@ -33,6 +40,49 @@ function normalizeSlotIds(value: unknown) {
   if (!Array.isArray(value)) return [];
 
   return [...new Set(value.map((slotId) => String(slotId).trim()).filter(Boolean))];
+}
+
+function isValidShiftDate(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  const day = Number(date.slice(8, 10));
+  const parsedDate = new Date(`${date}T00:00:00`);
+
+  return (
+    !Number.isNaN(parsedDate.getTime()) &&
+    parsedDate.getFullYear() === year &&
+    parsedDate.getMonth() + 1 === month &&
+    parsedDate.getDate() === day
+  );
+}
+
+function isValidShiftTime(time: string) {
+  if (!/^\d{2}:\d{2}$/.test(time)) return false;
+
+  const [hour, minute] = time.split(":").map(Number);
+
+  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+}
+
+function isValidShiftTimeRange(startTime: string, endTime: string) {
+  return isValidShiftTime(startTime) && isValidShiftTime(endTime) && startTime !== endTime;
+}
+
+function normalizeEmployeeGeneratedRequests(value: unknown): EmployeeGeneratedRequestData[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((request) => {
+    const candidate = request as Record<string, unknown>;
+
+    return {
+      date: String(candidate.date ?? "").trim(),
+      startTime: String(candidate.startTime ?? "").trim(),
+      endTime: String(candidate.endTime ?? "").trim(),
+      positionId: String(candidate.positionId ?? "").trim(),
+    };
+  });
 }
 
 function normalizeRequestId(value: unknown) {
@@ -47,12 +97,18 @@ export async function POST(request: Request) {
   try {
     const employeeAuth = await verifyEmployeeRequest(request);
     const adminDb = await getAdminDb();
-    const body = (await request.json()) as { slotIds?: unknown };
+    const body = (await request.json()) as {
+      slotIds?: unknown;
+      employeeGeneratedRequests?: unknown;
+    };
     const slotIds = normalizeSlotIds(body.slotIds);
+    const employeeGeneratedRequests = normalizeEmployeeGeneratedRequests(
+      body.employeeGeneratedRequests,
+    );
 
-    if (slotIds.length === 0) {
+    if (slotIds.length === 0 && employeeGeneratedRequests.length === 0) {
       return NextResponse.json(
-        { error: "希望するシフト枠を選択してください。" },
+        { error: "希望するシフトを選択してください。" },
         { status: 400 },
       );
     }
@@ -80,6 +136,17 @@ export async function POST(request: Request) {
       existingRequestsSnapshot.docs.map((requestSnapshot) =>
         String(requestSnapshot.data().slotId ?? ""),
       ),
+    );
+    const requestedGeneratedKeys = new Set(
+      existingRequestsSnapshot.docs.map((requestSnapshot) => {
+        const data = requestSnapshot.data();
+        return [
+          String(data.date ?? ""),
+          String(data.startTime ?? ""),
+          String(data.endTime ?? ""),
+          String(data.positionId ?? ""),
+        ].join("|");
+      }),
     );
     const slotSnapshots = await Promise.all(
       slotIds.map((slotId) => organizationRef.collection("shiftSlots").doc(slotId).get()),
@@ -119,6 +186,74 @@ export async function POST(request: Request) {
       );
     }
 
+    if (
+      employeeGeneratedRequests.some(
+        (generatedRequest) =>
+          !isValidShiftDate(generatedRequest.date) ||
+          !isValidShiftTimeRange(
+            generatedRequest.startTime,
+            generatedRequest.endTime,
+          ) ||
+          !generatedRequest.positionId,
+      )
+    ) {
+      return NextResponse.json(
+        { error: "希望する日付・時間・ポジションを正しく入力してください。" },
+        { status: 400 },
+      );
+    }
+
+    if (
+      employeeGeneratedRequests.some(
+        (generatedRequest) => !isShiftStartInFuture(generatedRequest, now),
+      )
+    ) {
+      return NextResponse.json(
+        { error: "過去または開始済みのシフトには希望を提出できません。" },
+        { status: 400 },
+      );
+    }
+
+    const positionSnapshots = await Promise.all(
+      employeeGeneratedRequests.map((generatedRequest) =>
+        organizationRef.collection("positions").doc(generatedRequest.positionId).get(),
+      ),
+    );
+    const generatedRequestsWithPositions = employeeGeneratedRequests.map(
+      (generatedRequest, index) => {
+        const positionSnapshot = positionSnapshots[index];
+        const positionName = String(positionSnapshot.data()?.name ?? "");
+
+        return {
+          ...generatedRequest,
+          positionName,
+          duplicateKey: [
+            generatedRequest.date,
+            generatedRequest.startTime,
+            generatedRequest.endTime,
+            generatedRequest.positionId,
+          ].join("|"),
+        };
+      },
+    );
+
+    if (positionSnapshots.some((positionSnapshot) => !positionSnapshot.exists)) {
+      return NextResponse.json(
+        { error: "選択されたポジションが見つかりません。" },
+        { status: 404 },
+      );
+    }
+
+    if (
+      generatedRequestsWithPositions.some((generatedRequest) =>
+        requestedGeneratedKeys.has(generatedRequest.duplicateKey),
+      )
+    ) {
+      return NextResponse.json(
+        { error: "既に希望済みのシフトが含まれています。" },
+        { status: 409 },
+      );
+    }
     const employee = employeeSnapshot.data() ?? {};
     const submittedDate = getTodayString();
     const batch = adminDb.batch();
@@ -147,6 +282,25 @@ export async function POST(request: Request) {
       });
     });
 
+    generatedRequestsWithPositions.forEach((generatedRequest) => {
+      const requestRef = organizationRef.collection("shiftRequests").doc();
+
+      batch.set(requestRef, {
+        employeeId: employeeAuth.employeeId,
+        employeeName: String(employee.name ?? ""),
+        employeeEmail: String(employee.email ?? ""),
+        employmentType: String(employee.employmentType ?? ""),
+        slotId: "",
+        date: generatedRequest.date,
+        startTime: generatedRequest.startTime,
+        endTime: generatedRequest.endTime,
+        positionId: generatedRequest.positionId,
+        positionName: generatedRequest.positionName,
+        status: "希望済",
+        submittedDate,
+        submittedAt: Timestamp.now(),
+      });
+    });
     await batch.commit();
 
     return NextResponse.json({ ok: true });

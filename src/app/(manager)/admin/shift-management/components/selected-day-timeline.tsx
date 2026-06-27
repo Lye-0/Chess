@@ -3,8 +3,8 @@ import { formatShiftTimeRange, type ShiftSlot } from "@/lib/shiftSlots";
 import type { ShiftRequest } from "@/lib/shiftRequests";
 import { getDisplayedRequestCount } from "../request-utils";
 
-const laneHeight = 76;
-const slotBarHeight = 64;
+const laneHeight = 88;
+const slotBarHeight = 76;
 
 const positionColorClasses = [
   "border-[#93c5fd] bg-[#dbeafe] text-[#1d4ed8]",
@@ -63,23 +63,53 @@ function getTimelineRange(timelineSlots: ReturnType<typeof toTimelineSlot>[]) {
 }
 
 function assignLanes(slots: ShiftSlot[]): TimelineSlot[] {
-  const laneEndMinutes: number[] = [];
+  const groups = new Map<string, ReturnType<typeof toTimelineSlot>[]>();
 
-  return slots
+  slots
     .map(toTimelineSlot)
     .sort((a, b) => {
       if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
       return a.endMinutes - b.endMinutes;
     })
-    .map((item) => {
-      const lane = laneEndMinutes.findIndex(
-        (endMinutes) => endMinutes <= item.startMinutes,
-      );
-      const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
-      laneEndMinutes[nextLane] = item.endMinutes;
-
-      return { ...item, lane: nextLane };
+    .forEach((item) => {
+      const positionKey = item.slot.positionId || item.slot.positionName || "ポジション未設定";
+      const group = groups.get(positionKey) ?? [];
+      group.push(item);
+      groups.set(positionKey, group);
     });
+
+  const placedItems: TimelineSlot[] = [];
+  let nextBaseLane = 0;
+
+  Array.from(groups.values())
+    .sort((a, b) => {
+      const aFirst = Math.min(...a.map((item) => item.startMinutes));
+      const bFirst = Math.min(...b.map((item) => item.startMinutes));
+      if (aFirst !== bFirst) return aFirst - bFirst;
+
+      const aPosition = a[0]?.slot.positionName || "ポジション未設定";
+      const bPosition = b[0]?.slot.positionName || "ポジション未設定";
+      return aPosition.localeCompare(bPosition, "ja");
+    })
+    .forEach((items) => {
+      const laneEndMinutes: number[] = [];
+
+      items.forEach((item) => {
+        const lane = laneEndMinutes.findIndex(
+          (endMinutes) => endMinutes <= item.startMinutes,
+        );
+        const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
+        laneEndMinutes[nextLane] = item.endMinutes;
+        placedItems.push({ ...item, lane: nextBaseLane + nextLane });
+      });
+
+      nextBaseLane += Math.max(1, laneEndMinutes.length);
+    });
+
+  return placedItems.sort((a, b) => {
+    if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+    return a.endMinutes - b.endMinutes;
+  });
 }
 
 function formatHourLabel(hour: number) {
@@ -176,12 +206,13 @@ export function SelectedDayTimeline({
                 requestCountBySlot,
               );
               const positionName = slot.positionName || "ポジション未設定";
+              const isEmployeeGeneratedSlot = slot.employeeGenerated || slot.id.startsWith("employee-generated:");
 
               return (
                 <div
                   key={slot.id}
                   className={[
-                    "absolute min-w-24 overflow-hidden rounded-md border px-2 py-1 shadow-sm",
+                    "absolute min-w-24 overflow-hidden rounded-md border px-2 py-1.5 shadow-sm",
                     getPositionColor(positionName),
                   ].join(" ")}
                   style={{
@@ -192,11 +223,16 @@ export function SelectedDayTimeline({
                   }}
                   title={`${formatShiftTimeRange(slot.startTime, slot.endTime)} / ${positionName}`}
                 >
-                  <p className="truncate text-xs font-semibold">
+                  <p className="truncate text-xs font-semibold leading-tight">
                     {formatShiftTimeRange(slot.startTime, slot.endTime)}
                   </p>
-                  <p className="truncate text-[11px] font-semibold">{positionName}</p>
-                  <p className="truncate text-[10px] opacity-80">
+                  {isEmployeeGeneratedSlot && (
+                    <p className="truncate text-[10px] font-semibold leading-tight text-[#c2410c]">
+                      従業員追加枠
+                    </p>
+                  )}
+                  <p className="truncate text-[11px] font-semibold leading-tight">{positionName}</p>
+                  <p className="truncate text-[10px] leading-tight opacity-80">
                     希望 {displayedRequestCount} / 承認 {approvedCount}/{slot.capacity}
                   </p>
                 </div>

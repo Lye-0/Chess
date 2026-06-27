@@ -16,7 +16,6 @@ import {
 import {
   getShiftRequestPositionLabel,
   subscribeEmployeeShiftRequests,
-  withdrawEmployeeShiftRequest,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import {
@@ -236,6 +235,74 @@ function formatTimelineHour(totalMinutes: number) {
 
   return `${hour}:00`;
 }
+
+type MyCalendarTimelineItem = {
+  request: ShiftRequest;
+  startMinutes: number;
+  endMinutes: number;
+  lane: number;
+};
+
+function toTimelineItem(request: ShiftRequest) {
+  const startMinutes = parseTimeToMinutes(request.startTime);
+  const rawEndMinutes = parseTimeToMinutes(request.endTime);
+  const endMinutes = rawEndMinutes > startMinutes
+    ? rawEndMinutes
+    : rawEndMinutes + 24 * 60;
+
+  return { request, startMinutes, endMinutes };
+}
+
+function assignMyCalendarLanes(requests: ShiftRequest[]): MyCalendarTimelineItem[] {
+  const groups = new Map<string, ReturnType<typeof toTimelineItem>[]>();
+
+  requests
+    .map(toTimelineItem)
+    .sort((a, b) => {
+      if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+      return a.endMinutes - b.endMinutes;
+    })
+    .forEach((item) => {
+      const positionKey = getShiftRequestPositionLabel(item.request);
+      const group = groups.get(positionKey) ?? [];
+      group.push(item);
+      groups.set(positionKey, group);
+    });
+
+  const placedItems: MyCalendarTimelineItem[] = [];
+  let nextBaseLane = 0;
+
+  Array.from(groups.values())
+    .sort((a, b) => {
+      const aFirst = Math.min(...a.map((item) => item.startMinutes));
+      const bFirst = Math.min(...b.map((item) => item.startMinutes));
+      if (aFirst !== bFirst) return aFirst - bFirst;
+
+      return getShiftRequestPositionLabel(a[0].request).localeCompare(
+        getShiftRequestPositionLabel(b[0].request),
+        "ja",
+      );
+    })
+    .forEach((items) => {
+      const laneEndMinutes: number[] = [];
+
+      items.forEach((item) => {
+        const lane = laneEndMinutes.findIndex(
+          (endMinutes) => endMinutes <= item.startMinutes,
+        );
+        const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
+        laneEndMinutes[nextLane] = item.endMinutes;
+        placedItems.push({ ...item, lane: nextBaseLane + nextLane });
+      });
+
+      nextBaseLane += Math.max(1, laneEndMinutes.length);
+    });
+
+  return placedItems.sort((a, b) => {
+    if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+    return a.endMinutes - b.endMinutes;
+  });
+}
 function calculateWorkMinutes(request: ShiftRequest) {
   const start = parseTimeToMinutes(request.startTime);
   const end = parseTimeToMinutes(request.endTime);
@@ -355,8 +422,15 @@ function ShiftRequestRow({
           <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
             {getShiftRequestPositionLabel(request)}
           </p>
-          <p className="mt-1 truncate text-sm text-[#475569]">
-            {formatShiftTimeRange(request.startTime, request.endTime)}
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#475569]">
+            <span className="truncate">
+              {formatShiftTimeRange(request.startTime, request.endTime)}
+            </span>
+            {(request.employeeGenerated || !request.slotId) && (
+              <span className="shrink-0 rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                自主追加枠
+              </span>
+            )}
           </p>
           <p className="mt-1 text-sm font-semibold text-[#00a63e]">
             {formatCurrency(payroll.totalPay)}
@@ -441,15 +515,15 @@ function EmployeeMyCalendar({
   onSelectDate: (date: string) => void;
 }) {
   return (
-    <section className="rounded-xl border border-black/10 bg-white p-4 shadow-sm sm:p-6">
+    <section className="rounded-xl border border-black/10 bg-white p-3 shadow-sm sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">マイカレンダー</h2>
-          <p className="mt-1 text-sm text-[#717182]">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold sm:text-xl">マイカレンダー</h2>
+          <p className="mt-1 text-xs text-[#717182] sm:text-sm">
             自分の希望・確定シフトを月ごとに確認できます
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 sm:w-auto">
           <button
             type="button"
             onClick={() => onMonthChange(-1)}
@@ -457,7 +531,7 @@ function EmployeeMyCalendar({
           >
             前月
           </button>
-          <p className="min-w-32 text-center text-sm font-semibold">
+          <p className="min-w-0 text-center text-sm font-semibold sm:min-w-32">
             {monthFormatter.format(displayMonth)}
           </p>
           <button
@@ -470,9 +544,9 @@ function EmployeeMyCalendar({
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-7 border-l border-t border-black/10 text-center text-xs font-semibold text-[#717182]">
+      <div className="mt-4 grid grid-cols-7 border-l border-t border-black/10 text-center text-xs font-semibold text-[#717182] sm:mt-5">
         {weekdays.map((weekday) => (
-          <div key={weekday} className="border-b border-r border-black/10 py-2">
+          <div key={weekday} className="border-b border-r border-black/10 py-1.5 sm:py-2">
             {weekday}
           </div>
         ))}
@@ -487,7 +561,7 @@ function EmployeeMyCalendar({
               type="button"
               onClick={() => onSelectDate(day.date)}
               className={[
-                "min-h-24 border-b border-r border-black/10 p-2 text-left transition",
+                "flex min-h-[68px] flex-col items-start justify-start border-b border-r border-black/10 p-1 text-left transition sm:min-h-24 sm:p-2",
                 selected
                   ? "bg-[#eef2ff] ring-2 ring-inset ring-[#1d4ed8]"
                   : day.outside
@@ -495,23 +569,23 @@ function EmployeeMyCalendar({
                     : "bg-white hover:bg-[#f7f8fb]",
               ].join(" ")}
             >
-              <div className="flex items-center justify-between gap-1">
+              <div className="flex w-full items-start justify-between gap-0.5 sm:items-center sm:gap-1">
                 <span
                   className={[
-                    "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+                    "inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold sm:h-6 sm:w-6",
                     isToday ? "bg-[#030213] text-white" : "",
                   ].join(" ")}
                 >
                   {day.day}
                 </span>
                 {summary && (
-                  <span className="rounded-full bg-[#eef2f7] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
+                  <span className="whitespace-nowrap rounded-full bg-[#eef2f7] px-1 py-0.5 text-[10px] font-semibold leading-tight text-[#475569] sm:px-2 sm:text-[11px]">
                     {summary.totalCount}件
                   </span>
                 )}
               </div>
               {summary && (
-                <div className="mt-2 space-y-1 text-[11px] font-semibold">
+                <div className="mt-1 space-y-0.5 text-[10px] font-semibold leading-tight sm:mt-2 sm:space-y-1 sm:text-[11px]">
                   {summary.pendingCount > 0 && (
                     <p className="truncate text-[#1d4ed8]">希望 {summary.pendingCount}</p>
                   )}
@@ -532,36 +606,40 @@ function SelectedDayTimeline({
   date,
   requests,
   payrollSettings,
-  onWithdraw,
-  withdrawingRequestId,
 }: {
   date: string;
   requests: ShiftRequest[];
   payrollSettings: PayrollSettings;
-  onWithdraw: (request: ShiftRequest) => void;
-  withdrawingRequestId: string | null;
 }) {
-  const timelineItems = requests.map((request) => {
-    const startMinutes = parseTimeToMinutes(request.startTime);
-    const rawEndMinutes = parseTimeToMinutes(request.endTime);
-    const endMinutes = rawEndMinutes > startMinutes
-      ? rawEndMinutes
-      : rawEndMinutes + 24 * 60;
-
-    return { request, startMinutes, endMinutes };
-  });
-  const timelineStart = timelineItems.length > 0
+  const timelineItems = useMemo(() => assignMyCalendarLanes(requests), [requests]);
+  const minimumTimelineMinutes = 9 * 60;
+  const rawTimelineStart = timelineItems.length > 0
     ? Math.max(0, Math.floor(Math.min(...timelineItems.map((item) => item.startMinutes)) / 60) * 60)
     : 0;
-  const timelineEnd = timelineItems.length > 0
+  const rawTimelineEnd = timelineItems.length > 0
     ? Math.ceil(Math.max(...timelineItems.map((item) => item.endMinutes)) / 60) * 60
     : 24 * 60;
-  const totalMinutes = Math.max(60, timelineEnd - timelineStart);
+  const rawTimelineMinutes = Math.max(60, rawTimelineEnd - rawTimelineStart);
+  const timelinePadding = Math.max(0, minimumTimelineMinutes - rawTimelineMinutes);
+  const timelineStart = Math.max(
+    0,
+    Math.floor((rawTimelineStart - timelinePadding / 2) / 60) * 60,
+  );
+  const timelineEnd = Math.max(
+    rawTimelineEnd,
+    timelineStart + Math.max(rawTimelineMinutes, minimumTimelineMinutes),
+  );
+  const totalMinutes = timelineEnd - timelineStart;
   const timelineWidth = Math.max(720, Math.ceil(totalMinutes / 60) * 72);
   const hours = Array.from(
     { length: Math.floor(totalMinutes / 60) + 1 },
     (_, index) => timelineStart + index * 60,
   );
+  const laneCount = timelineItems.length > 0
+    ? Math.max(...timelineItems.map((item) => item.lane)) + 1
+    : 1;
+  const timelineLaneHeight = 56;
+  const bodyHeight = Math.max(112, laneCount * timelineLaneHeight + 28);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -569,8 +647,10 @@ function SelectedDayTimeline({
     if (!container || timelineItems.length === 0) return;
 
     const firstStart = Math.min(...timelineItems.map((item) => item.startMinutes));
-    const scrollRatio = Math.max(0, (firstStart - timelineStart) / totalMinutes);
-    container.scrollLeft = scrollRatio * (container.scrollWidth - container.clientWidth);
+    const firstStartRatio = Math.max(0, (firstStart - timelineStart) / totalMinutes);
+    const firstStartLeft = firstStartRatio * container.scrollWidth;
+    const scrollPadding = 24;
+    container.scrollLeft = Math.max(0, firstStartLeft - scrollPadding);
   }, [timelineItems, timelineStart, totalMinutes]);
 
   return (
@@ -583,11 +663,11 @@ function SelectedDayTimeline({
           </p>
         </div>
         <span className="rounded-full bg-[#eef2f7] px-3 py-1 text-sm font-semibold text-[#475569]">
-          {requests.length}件
+          {timelineItems.length}件
         </span>
       </div>
 
-      {requests.length === 0 ? (
+      {timelineItems.length === 0 ? (
         <div className="mt-5 flex min-h-32 items-center justify-center rounded-lg border border-dashed border-black/10 text-sm text-[#717182]">
           この日のシフト希望はありません
         </div>
@@ -606,7 +686,10 @@ function SelectedDayTimeline({
                   </span>
                 ))}
               </div>
-              <div className="relative min-h-28 rounded-b-md bg-[#f8fafc] py-4">
+              <div
+                className="relative min-h-28 rounded-b-md bg-[#f8fafc] py-4"
+                style={{ height: bodyHeight }}
+              >
                 {hours.map((hour) => (
                   <span
                     key={hour}
@@ -615,7 +698,7 @@ function SelectedDayTimeline({
                     style={{ left: `${((hour - timelineStart) / totalMinutes) * 100}%` }}
                   />
                 ))}
-                {timelineItems.map(({ request, startMinutes, endMinutes }, index) => {
+                {timelineItems.map(({ request, startMinutes, endMinutes, lane }) => {
                   const left = ((startMinutes - timelineStart) / totalMinutes) * 100;
                   const width = Math.max(((endMinutes - startMinutes) / totalMinutes) * 100, 4);
                   const approved = request.status === "承認済";
@@ -631,40 +714,46 @@ function SelectedDayTimeline({
                       ].join(" ")}
                       style={{
                         left: `${left}%`,
-                        top: 14 + index * 56,
+                        top: 14 + lane * timelineLaneHeight,
                         width: `${width}%`,
                       }}
                     >
                       <p className="truncate text-xs font-semibold">
                         {formatShiftTimeRange(request.startTime, request.endTime)}
                       </p>
+                      {request.employeeGenerated && (
+                        <p className="truncate text-[10px] font-semibold text-[#c2410c]">
+                          自主追加枠
+                        </p>
+                      )}
                       <p className="truncate text-[11px] font-semibold">
                         {getShiftRequestPositionLabel(request)} / {request.status}
                       </p>
                     </div>
                   );
                 })}
-                <div style={{ height: Math.max(56, timelineItems.length * 56) }} />
+
               </div>
             </div>
           </div>
 
-          <div className="mt-5 space-y-3">
-            {requests.map((request) => (
-              <ShiftRequestRow
-                key={request.id}
-                request={request}
-                payrollSettings={payrollSettings}
-                onWithdraw={request.status === "承認済" ? undefined : onWithdraw}
-                isWithdrawing={withdrawingRequestId === request.id}
-              />
-            ))}
-          </div>
+          {requests.length > 0 && (
+            <div className="mt-5 space-y-3">
+              {requests.map((request) => (
+                <ShiftRequestRow
+                  key={request.id}
+                  request={request}
+                  payrollSettings={payrollSettings}
+                />
+              ))}
+            </div>
+          )}
         </>
       )}
     </section>
   );
 }
+
 function EmployeePageContent() {
   const router = useRouter();
   const sessionSnapshot = useSyncExternalStore(
@@ -689,8 +778,6 @@ function EmployeePageContent() {
   const [selectedDate, setSelectedDate] = useState(() => toDateString(new Date()));  const [selectedExportMonth, setSelectedExportMonth] = useState(
     () => getShiftExportMonths([])[0],
   );
-  const [withdrawingRequestId, setWithdrawingRequestId] = useState<string | null>(null);
-  const [withdrawErrorMessage, setWithdrawErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
@@ -908,34 +995,6 @@ function EmployeePageContent() {
     }
   }
 
-  async function handleWithdrawRequest(request: ShiftRequest) {
-    if (!employee || request.status === "承認済") return;
-
-    const confirmed = window.confirm(
-      `${formatDateLabel(request.date)} ${formatShiftTimeRange(request.startTime, request.endTime)} の希望を撤回しますか？`,
-    );
-
-    if (!confirmed) return;
-
-    try {
-      setWithdrawingRequestId(request.id);
-      setWithdrawErrorMessage(null);
-      await withdrawEmployeeShiftRequest(request.id, {
-        organizationId: employee.organizationId,
-        employeeId: employee.employeeId,
-        employeeEmail: employee.email,
-      });
-    } catch (error) {
-      console.error(error);
-      setWithdrawErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "シフト希望の撤回に失敗しました。",
-      );
-    } finally {
-      setWithdrawingRequestId(null);
-    }
-  }
   async function handleLogout() {
     clearEmployeeSession();
     await signOut(auth);
@@ -1014,10 +1073,17 @@ function EmployeePageContent() {
                   <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
                     {getShiftRequestPositionLabel(nearestRequest)}
                   </p>
-                  <p className="mt-1 truncate text-sm text-[#475569]">
-                    {formatShiftTimeRange(
-                      nearestRequest.startTime,
-                      nearestRequest.endTime,
+                  <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#475569]">
+                    <span className="truncate">
+                      {formatShiftTimeRange(
+                        nearestRequest.startTime,
+                        nearestRequest.endTime,
+                      )}
+                    </span>
+                    {nearestRequest.employeeGenerated && (
+                      <span className="shrink-0 rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                        自主追加枠
+                      </span>
                     )}
                   </p>
                   <p className="mt-1 text-sm font-semibold text-[#00a63e]">
@@ -1079,6 +1145,24 @@ function EmployeePageContent() {
           </EmployeeFeatureCard>
         </section>
 
+        <section className="mt-6 space-y-4">
+          <EmployeeMyCalendar
+            displayMonth={displayMonth}
+            days={calendarDays}
+            selectedDate={selectedDate}
+            todayDate={todayDate}
+            summaryByDate={calendarSummaryByDate}
+            onMonthChange={changeDisplayMonth}
+            onSelectDate={setSelectedDate}
+          />
+
+          <SelectedDayTimeline
+            date={selectedDate}
+            requests={selectedDateRequests}
+            payrollSettings={payrollSettings}
+          />
+        </section>
+
         <section className="mt-6 grid gap-6 lg:grid-cols-2">
           <WorkHoursCard
             title="今月の勤務時間"
@@ -1106,36 +1190,11 @@ function EmployeePageContent() {
             isLoading={isPayrollLoading}
           />
         </section>
-
-        <section className="mt-6 space-y-4">
-          {withdrawErrorMessage && (
-            <div className="rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
-              {withdrawErrorMessage}
-            </div>
-          )}
-
-          <EmployeeMyCalendar
-            displayMonth={displayMonth}
-            days={calendarDays}
-            selectedDate={selectedDate}
-            todayDate={todayDate}
-            summaryByDate={calendarSummaryByDate}
-            onMonthChange={changeDisplayMonth}
-            onSelectDate={setSelectedDate}
-          />
-
-          <SelectedDayTimeline
-            date={selectedDate}
-            requests={selectedDateRequests}
-            payrollSettings={payrollSettings}
-            onWithdraw={handleWithdrawRequest}
-            withdrawingRequestId={withdrawingRequestId}
-          />
-        </section>
       </div>
     </main>
   );
 }
+
 export default function EmployeePage() {
   return (
     <Suspense>

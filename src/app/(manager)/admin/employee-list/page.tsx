@@ -433,10 +433,17 @@ function AdminEmployeeListContent() {
                             <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
                               {positionLabel}
                             </p>
-                            <p className="mt-1 text-sm text-[#475569]">
-                              {formatShiftTimeRange(
-                                request.startTime,
-                                request.endTime,
+                            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#475569]">
+                              <span>
+                                {formatShiftTimeRange(
+                                  request.startTime,
+                                  request.endTime,
+                                )}
+                              </span>
+                              {(request.employeeGenerated || !request.slotId) && (
+                                <span className="rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                                  従業員追加枠
+                                </span>
                               )}
                             </p>
                             <p className="mt-2 text-xs text-[#717182]">
