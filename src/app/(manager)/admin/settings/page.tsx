@@ -1,9 +1,17 @@
 "use client";
 
+import type { FormEvent } from "react";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { deleteManagerOrganization } from "@/lib/managerOrganizations";
+import {
+  defaultPayrollSettings,
+  employmentTypes,
+  subscribePayrollSettings,
+  updatePayrollSettings,
+  type PayrollSettings,
+} from "@/lib/payroll";
 import {
   defaultRecommendationSettings,
   subscribeRecommendationSettings,
@@ -91,6 +99,18 @@ function ToggleSwitch({
   );
 }
 
+function toPayrollForm(settings: PayrollSettings) {
+  return {
+    hourlyRates: employmentTypes.reduce<Record<string, string>>((rates, type) => {
+      rates[type] = String(settings.hourlyRates[type] ?? 0);
+      return rates;
+    }, {}),
+    nightStartTime: settings.nightStartTime,
+    nightEndTime: settings.nightEndTime,
+    nightMultiplier: String(settings.nightMultiplier),
+  };
+}
+
 function AdminSettingsContent() {
   const router = useRouter();
   const {
@@ -102,10 +122,17 @@ function AdminSettingsContent() {
   const [settings, setSettings] = useState<RecommendationSettings>(
     defaultRecommendationSettings,
   );
+  const [payrollForm, setPayrollForm] = useState(() =>
+    toPayrollForm(defaultPayrollSettings),
+  );
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+  const [isLoadingPayroll, setIsLoadingPayroll] = useState(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isSavingPayroll, setIsSavingPayroll] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsErrorMessage, setSettingsErrorMessage] = useState("");
+  const [payrollMessage, setPayrollMessage] = useState("");
+  const [payrollErrorMessage, setPayrollErrorMessage] = useState("");
   const [isDeletingOrganization, setIsDeletingOrganization] = useState(false);
   const [isDeleteOrganizationModalOpen, setIsDeleteOrganizationModalOpen] =
     useState(false);
@@ -130,6 +157,25 @@ function AdminSettingsContent() {
     return () => unsubscribe();
   }, [currentOrganization, organizationId]);
 
+  useEffect(() => {
+    if (!currentOrganization) return;
+
+    const unsubscribe = subscribePayrollSettings(
+      (nextPayrollSettings) => {
+        setPayrollForm(toPayrollForm(nextPayrollSettings));
+        setIsLoadingPayroll(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsLoadingPayroll(false);
+        setPayrollErrorMessage("給与設定の読み込みに失敗しました。");
+      },
+      organizationId,
+    );
+
+    return () => unsubscribe();
+  }, [currentOrganization, organizationId]);
+
   async function saveSettings(nextSettings: RecommendationSettings) {
     const previousSettings = settings;
 
@@ -147,6 +193,38 @@ function AdminSettingsContent() {
       setSettingsErrorMessage("おすすめ設定の保存に失敗しました。");
     } finally {
       setIsSavingSettings(false);
+    }
+  }
+
+  async function handlePayrollSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    try {
+      setIsSavingPayroll(true);
+      setPayrollMessage("");
+      setPayrollErrorMessage("");
+      await updatePayrollSettings(
+        {
+          hourlyRates: employmentTypes.reduce<Record<string, number>>(
+            (rates, type) => {
+              const rate = Number(payrollForm.hourlyRates[type] ?? 0);
+              rates[type] = Number.isFinite(rate) && rate >= 0 ? rate : 0;
+              return rates;
+            },
+            {},
+          ),
+          nightStartTime: payrollForm.nightStartTime,
+          nightEndTime: payrollForm.nightEndTime,
+          nightMultiplier: Number(payrollForm.nightMultiplier),
+        },
+        organizationId,
+      );
+      setPayrollMessage("給与設定を保存しました。");
+    } catch (error) {
+      console.error(error);
+      setPayrollErrorMessage("給与設定の保存に失敗しました。");
+    } finally {
+      setIsSavingPayroll(false);
     }
   }
 
@@ -262,6 +340,113 @@ function AdminSettingsContent() {
               selectedWeightId={settings.weightId}
               onSelect={(weightId) => saveSettings({ ...settings, weightId })}
             />
+          </Card>
+
+          <Card className="p-4 sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">給与設定</h2>
+                <p className="mt-1 text-sm text-[#717182]">
+                  雇用形態ごとの時給と深夜割増
+                </p>
+              </div>
+              {isSavingPayroll && (
+                <span className="text-sm font-semibold text-[#1763ff]">
+                  保存中...
+                </span>
+              )}
+            </div>
+
+            {payrollMessage && (
+              <p className="mt-4 rounded-md bg-[#ecfdf3] px-4 py-3 text-sm font-semibold text-[#15803d]">
+                {payrollMessage}
+              </p>
+            )}
+            {payrollErrorMessage && (
+              <p className="mt-4 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-semibold text-[#be123c]">
+                {payrollErrorMessage}
+              </p>
+            )}
+
+            <form className="mt-6 space-y-5" onSubmit={handlePayrollSubmit}>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {employmentTypes.map((employmentType) => (
+                  <label key={employmentType} className="block">
+                    <span className="text-sm font-semibold">{employmentType}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={payrollForm.hourlyRates[employmentType] ?? "0"}
+                      onChange={(event) =>
+                        setPayrollForm((current) => ({
+                          ...current,
+                          hourlyRates: {
+                            ...current.hourlyRates,
+                            [employmentType]: event.target.value,
+                          },
+                        }))
+                      }
+                      className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <label className="block">
+                  <span className="text-sm font-semibold">深夜開始</span>
+                  <input
+                    type="time"
+                    value={payrollForm.nightStartTime}
+                    onChange={(event) =>
+                      setPayrollForm((current) => ({
+                        ...current,
+                        nightStartTime: event.target.value,
+                      }))
+                    }
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-semibold">深夜終了</span>
+                  <input
+                    type="time"
+                    value={payrollForm.nightEndTime}
+                    onChange={(event) =>
+                      setPayrollForm((current) => ({
+                        ...current,
+                        nightEndTime: event.target.value,
+                      }))
+                    }
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-semibold">深夜倍率</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    value={payrollForm.nightMultiplier}
+                    onChange={(event) =>
+                      setPayrollForm((current) => ({
+                        ...current,
+                        nightMultiplier: event.target.value,
+                      }))
+                    }
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213]"
+                  />
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoadingPayroll || isSavingPayroll}
+                className="h-10 rounded-md bg-[#030213] px-5 text-sm font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#8e8d95]"
+              >
+                {isSavingPayroll ? "保存中..." : "給与設定を保存"}
+              </button>
+            </form>
           </Card>
 
           <Card className="border-[#fecdd3] p-4 sm:p-6">
