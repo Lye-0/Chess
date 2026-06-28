@@ -117,6 +117,7 @@ function getCombinationScore({
 
 export function getRecommendedCombination({
   requests,
+  fixedRequests = [],
   capacity,
   scores,
   employeeWorkScores,
@@ -125,6 +126,7 @@ export function getRecommendedCombination({
   fairnessEnabled,
 }: {
   requests: ShiftRequest[];
+  fixedRequests?: ShiftRequest[];
   capacity: number;
   scores: CompatibilityScoreMap;
   employeeWorkScores: Record<string, number>;
@@ -146,7 +148,7 @@ export function getRecommendedCombination({
   function walk(startIndex: number, combination: ShiftRequest[]) {
     if (combination.length === targetCount) {
       const score = getCombinationScore({
-        requests: combination,
+        requests: [...fixedRequests, ...combination],
         scores,
         employeeWorkScores,
         employeeMonthlyMinutes,

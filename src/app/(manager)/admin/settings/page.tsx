@@ -40,13 +40,13 @@ const autoApprovalModeOptions: Array<{ id: AutoApprovalMode; label: string }> = 
 ];
 
 const autoApprovalWindowOptions: Array<{ id: AutoApprovalWindow; label: string }> = [
-  { id: "oneDay", label: "1日前" },
-  { id: "threeDays", label: "3日前" },
-  { id: "oneWeek", label: "1週間前" },
-  { id: "twoWeeks", label: "2週間前" },
-  { id: "oneMonth", label: "1か月前" },
-  { id: "twoMonths", label: "2か月前" },
-  { id: "threeMonths", label: "3か月前" },
+  { id: "oneDay", label: "1日先まで" },
+  { id: "threeDays", label: "3日先まで" },
+  { id: "oneWeek", label: "1週間先まで" },
+  { id: "twoWeeks", label: "2週間先まで" },
+  { id: "oneMonth", label: "1か月先まで" },
+  { id: "twoMonths", label: "2か月先まで" },
+  { id: "threeMonths", label: "3か月先まで" },
 ];
 
 const autoApprovalPeriodTargetOptions: Array<{
@@ -467,27 +467,29 @@ function AdminSettingsContent() {
                   </select>
                 </label>
 
-                <label className="block">
-                  <span className="text-sm font-semibold">自動承認の対象</span>
-                  <select
-                    value={settings.autoApprovalRequestScope}
-                    disabled={isLoadingSettings || isSavingSettings}
-                    onChange={(event) =>
-                      saveSettings({
-                        ...settings,
-                        autoApprovalRequestScope: event.target
-                          .value as AutoApprovalRequestScope,
-                      })
-                    }
-                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#eef0f4]"
-                  >
-                    {autoApprovalRequestScopeOptions.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {settings.autoApprovalMode !== "manual" && (
+                  <label className="block">
+                    <span className="text-sm font-semibold">自動承認の対象</span>
+                    <select
+                      value={settings.autoApprovalRequestScope}
+                      disabled={isLoadingSettings || isSavingSettings}
+                      onChange={(event) =>
+                        saveSettings({
+                          ...settings,
+                          autoApprovalRequestScope: event.target
+                            .value as AutoApprovalRequestScope,
+                        })
+                      }
+                      className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#eef0f4]"
+                    >
+                      {autoApprovalRequestScopeOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
 
                 {settings.autoApprovalMode === "rollingWindow" && (
                   <label className="block">

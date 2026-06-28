@@ -103,6 +103,9 @@ function ShiftSlotCard({
   const recommendedCombination = useMemo(() => {
     if (remainingApprovalCount <= 0) return null;
 
+    const approvedRequests = requests.filter(
+      (request) => request.status === "承認済",
+    );
     const pendingRequests = requests.filter(
       (request) => request.status !== "承認済",
     );
@@ -111,6 +114,7 @@ function ShiftSlotCard({
 
     return getRecommendedCombination({
       requests: pendingRequests,
+      fixedRequests: approvedRequests,
       capacity: remainingApprovalCount,
       scores: compatibilityScores,
       employeeWorkScores,
