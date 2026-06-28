@@ -52,14 +52,8 @@ function getShiftStartEnd(request: ShiftRequest) {
   return { startAt, endAt };
 }
 
-function isCompletedApprovedShift(request: ShiftRequest, now: Date) {
-  const { endAt } = getShiftStartEnd(request);
-
-  return (
-    request.status === "承認済" &&
-    !Number.isNaN(endAt.getTime()) &&
-    endAt <= now
-  );
+function isApprovedShift(request: ShiftRequest) {
+  return request.status === "承認済";
 }
 
 function calculateWorkMinutes(request: ShiftRequest) {
@@ -104,20 +98,12 @@ function AdminTimesheetContent() {
     defaultPayrollSettings,
   );
   const [selectedMonth, setSelectedMonth] = useState(() => getMonthValue());
-  const [now, setNow] = useState(() => new Date());
   const [isEmployeesLoading, setIsEmployeesLoading] = useState(true);
   const [isRequestsLoading, setIsRequestsLoading] = useState(true);
   const [isPayrollLoading, setIsPayrollLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const isLoading = isEmployeesLoading || isRequestsLoading || isPayrollLoading;
 
-  useEffect(() => {
-    const timerId = window.setInterval(() => {
-      setNow(new Date());
-    }, 60000);
-
-    return () => window.clearInterval(timerId);
-  }, []);
 
   useEffect(() => {
     if (!organization) return;
@@ -181,17 +167,14 @@ function AdminTimesheetContent() {
     return [...months].sort().reverse();
   }, [requests]);
 
-  const completedRequests = useMemo(() => {
+  const approvedRequests = useMemo(() => {
     return requests.filter((request) => {
-      return (
-        request.date.startsWith(selectedMonth) &&
-        isCompletedApprovedShift(request, now)
-      );
+      return request.date.startsWith(selectedMonth) && isApprovedShift(request);
     });
-  }, [now, requests, selectedMonth]);
+  }, [requests, selectedMonth]);
 
   const workMinutesByEmployee = useMemo(() => {
-    return completedRequests.reduce<Record<string, { minutes: number; count: number }>>(
+    return approvedRequests.reduce<Record<string, { minutes: number; count: number }>>(
       (groups, request) => {
         const current = groups[request.employeeId] ?? { minutes: 0, count: 0 };
         groups[request.employeeId] = {
@@ -202,16 +185,16 @@ function AdminTimesheetContent() {
       },
       {},
     );
-  }, [completedRequests]);
+  }, [approvedRequests]);
 
   const payByEmployee = useMemo(() => {
-    return completedRequests.reduce<Record<string, number>>((groups, request) => {
+    return approvedRequests.reduce<Record<string, number>>((groups, request) => {
       groups[request.employeeId] =
         (groups[request.employeeId] ?? 0) +
         calculateShiftPayroll(request, payrollSettings).totalPay;
       return groups;
     }, {});
-  }, [completedRequests, payrollSettings]);
+  }, [approvedRequests, payrollSettings]);
 
   const employeeSummaries = useMemo<EmployeeWorkSummary[]>(() => {
     return employees.map((employee) => {
@@ -230,21 +213,21 @@ function AdminTimesheetContent() {
   }, [employees, payByEmployee, workMinutesByEmployee]);
 
   const totalWorkMinutes = useMemo(() => {
-    return completedRequests.reduce(
+    return approvedRequests.reduce(
       (total, request) => total + calculateWorkMinutes(request),
       0,
     );
-  }, [completedRequests]);
+  }, [approvedRequests]);
   const totalMonthlyPay = useMemo(() => {
-    return completedRequests.reduce(
+    return approvedRequests.reduce(
       (total, request) =>
         total + calculateShiftPayroll(request, payrollSettings).totalPay,
       0,
     );
-  }, [completedRequests, payrollSettings]);
+  }, [approvedRequests, payrollSettings]);
   const activeEmployeeCount = useMemo(() => {
-    return new Set(completedRequests.map((request) => request.employeeId)).size;
-  }, [completedRequests]);
+    return new Set(approvedRequests.map((request) => request.employeeId)).size;
+  }, [approvedRequests]);
   const averageWorkMinutes =
     activeEmployeeCount > 0 ? Math.round(totalWorkMinutes / activeEmployeeCount) : 0;
   const averagePay =
@@ -267,7 +250,7 @@ function AdminTimesheetContent() {
           <div>
             <h1 className="text-2xl font-semibold">勤務時間管理</h1>
             <p className="mt-2 text-sm text-[#717182]">
-              {formatMonthLabel(selectedMonth)}の終了済み・承認済みシフト
+              {formatMonthLabel(selectedMonth)}の承認済みシフト
             </p>
           </div>
 
@@ -307,14 +290,14 @@ function AdminTimesheetContent() {
             <p className="mt-4 text-3xl font-semibold">
               {isLoading ? "..." : formatHoursOnly(totalWorkMinutes)}
             </p>
-            <p className="mt-4 text-sm text-[#475569]">終了済みシフトの合計</p>
+            <p className="mt-4 text-sm text-[#475569]">承認済みシフトの合計</p>
           </Card>
           <Card className="p-6">
             <p className="text-sm text-[#717182]">合計給与</p>
             <p className="mt-4 text-3xl font-semibold">
               {isLoading ? "..." : formatCurrency(totalMonthlyPay)}
             </p>
-            <p className="mt-4 text-sm text-[#475569]">終了済みシフトの合計</p>
+            <p className="mt-4 text-sm text-[#475569]">承認済みシフトの合計</p>
           </Card>
           <Card className="p-6">
             <p className="text-sm text-[#717182]">出勤人数</p>
@@ -369,7 +352,7 @@ function AdminTimesheetContent() {
                         給与 {formatCurrency(pay)}
                       </p>
                       <p className="mt-1 text-sm text-[#717182]">
-                        終了済みシフト {shiftCount}件
+                        承認済みシフト {shiftCount}件
                       </p>
                     </div>
                   </div>
