@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebaseAdmin";
-import { verifyEmployeeRequest } from "@/lib/employeeAuthServer";
+import { EmployeeAuthError, verifyEmployeeRequest } from "@/lib/employeeAuthServer";
 
 export const runtime = "nodejs";
 
@@ -306,6 +306,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof EmployeeAuthError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+
     console.error(error);
     return NextResponse.json(
       { error: "希望シフトの送信に失敗しました。" },
@@ -379,6 +383,10 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof EmployeeAuthError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+
     console.error(error);
     return NextResponse.json(
       { error: "シフト希望の撤回に失敗しました。" },

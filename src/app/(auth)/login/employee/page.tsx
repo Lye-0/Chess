@@ -3,9 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { signInWithCustomToken } from "firebase/auth";
 import { ArrowLeftIcon, BadgeIcon, BuildingIcon, MailIcon } from "@/components/icons";
-import { auth } from "@/lib/firebase";
 import { saveEmployeeSession, type EmployeeProfile } from "@/lib/people";
 
 function normalizeOrganizationId(value: string) {
@@ -13,7 +11,6 @@ function normalizeOrganizationId(value: string) {
 }
 
 type EmployeeLoginResponse = {
-  customToken?: string;
   employee?: EmployeeProfile;
   error?: string;
 };
@@ -74,7 +71,7 @@ export default function EmployeeLoginPage() {
       });
       const result = await readEmployeeLoginResponse(response);
 
-      if (!response.ok || !result.customToken || !result.employee) {
+      if (!response.ok || !result.employee) {
         setError(
           result.error ??
             "入力された組織IDとメールアドレスに一致する従業員が見つかりません。",
@@ -82,7 +79,6 @@ export default function EmployeeLoginPage() {
         return;
       }
 
-      await signInWithCustomToken(auth, result.customToken);
       saveEmployeeSession(result.employee);
       router.push("/employee");
     } catch (loginError) {

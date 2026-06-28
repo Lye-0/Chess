@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
 import {
   clearEmployeeSession,
   getEmployeeSessionServerSnapshot,
@@ -993,8 +991,8 @@ function EmployeePageContent() {
   }
 
   async function handleLogout() {
+    await fetch("/api/employee/logout", { method: "POST" }).catch(() => undefined);
     clearEmployeeSession();
-    await signOut(auth);
     router.push("/login");
   }
 
