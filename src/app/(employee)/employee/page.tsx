@@ -13,23 +13,21 @@ import {
 } from "@/lib/people";
 import {
   getShiftRequestPositionLabel,
-  subscribeEmployeeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import {
   calculateShiftPayroll,
   defaultPayrollSettings,
   formatCurrency,
-  subscribePayrollSettings,
   sumShiftPay,
   type PayrollSettings,
 } from "@/lib/payroll";
 import {
   formatShiftTimeRange,
-  subscribeShiftSlots,
   type ShiftSlot,
 } from "@/lib/shiftSlots";
 import { ShiftExportMenu } from "@/components/ui/shift-export-menu";
+import { fetchEmployeeShiftData } from "@/lib/employeeApi";
 import {
   buildMonthlyShiftExportData,
   downloadIcs,
@@ -791,45 +789,30 @@ function EmployeePageContent() {
   useEffect(() => {
     if (!employee) return;
 
-    const unsubscribeRequests = subscribeEmployeeShiftRequests(
-      employee.employeeId,
-      (nextRequests) => {
-        setRequests(nextRequests);
-        setIsLoading(false);
-      },
-      (error) => {
-        console.error(error);
-        setIsLoading(false);
-      },
-      employee.organizationId,
-    );
+    let isActive = true;
 
-    const unsubscribeSlots = subscribeShiftSlots(
-      (nextSlots) => {
-        setSlots(nextSlots);
-      },
-      (error) => {
-        console.error(error);
-      },
-      employee.organizationId,
-    );
+    async function loadData() {
+      try {
+        const data = await fetchEmployeeShiftData();
+        if (!isActive) return;
 
-    const unsubscribePayroll = subscribePayrollSettings(
-      (settings) => {
-        setPayrollSettings(settings);
-        setIsPayrollLoading(false);
-      },
-      (error) => {
+        setRequests(data.requests);
+        setSlots(data.slots);
+        setPayrollSettings(data.payrollSettings);
+      } catch (error) {
         console.error(error);
-        setIsPayrollLoading(false);
-      },
-      employee.organizationId,
-    );
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+          setIsPayrollLoading(false);
+        }
+      }
+    }
+
+    loadData();
 
     return () => {
-      unsubscribeRequests();
-      unsubscribeSlots();
-      unsubscribePayroll();
+      isActive = false;
     };
   }, [employee]);
 

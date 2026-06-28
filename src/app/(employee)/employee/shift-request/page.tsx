@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   getEmployeeSessionServerSnapshot,
   getEmployeeSessionSnapshot,
@@ -12,21 +12,17 @@ import {
 } from "@/lib/people";
 import {
   formatShiftTimeRange,
-  subscribeShiftSlots,
   type ShiftSlot,
 } from "@/lib/shiftSlots";
 import {
   createEmployeeGeneratedShiftRequests,
   createShiftRequests,
   isShiftStartInFuture,
-  subscribeEmployeeShiftRequests,
   withdrawEmployeeShiftRequest,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
-import {
-  subscribePositions,
-  type OrganizationPosition,
-} from "@/lib/managerOrganizations";
+import { type OrganizationPosition } from "@/lib/managerOrganizations";
+import { fetchEmployeeShiftData } from "@/lib/employeeApi";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 const monthFormatter = new Intl.DateTimeFormat("ja-JP", {
@@ -781,53 +777,64 @@ function EmployeeShiftRequestContent() {
     return () => window.clearInterval(timerId);
   }, []);
 
+  const loadShiftData = useCallback(async () => {
+    if (!employee) return;
+
+    try {
+      const data = await fetchEmployeeShiftData();
+
+      setSlots(data.slots);
+      setRequests(data.requests);
+      setPositions(data.positions);
+      setErrorMessage(null);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "シフト情報の読み込みに失敗しました。",
+      );
+    } finally {
+      setIsSlotsLoading(false);
+      setIsRequestsLoading(false);
+      setIsPositionsLoading(false);
+    }
+  }, [employee]);
+
   useEffect(() => {
     if (!employee) return;
 
-    const unsubscribeSlots = subscribeShiftSlots(
-      (nextSlots) => {
-        setSlots(nextSlots);
-        setIsSlotsLoading(false);
+    let isActive = true;
+
+    void fetchEmployeeShiftData()
+      .then((data) => {
+        if (!isActive) return;
+
+        setSlots(data.slots);
+        setRequests(data.requests);
+        setPositions(data.positions);
         setErrorMessage(null);
-      },
-      (error) => {
+      })
+      .catch((error) => {
         console.error(error);
-        setIsSlotsLoading(false);
-        setErrorMessage("シフト枠の読み込みに失敗しました。");
-      },
-      employee.organizationId,
-    );
-    const unsubscribeRequests = subscribeEmployeeShiftRequests(
-      employee.employeeId,
-      (nextRequests) => {
-        setRequests(nextRequests);
-        setIsRequestsLoading(false);
-        setErrorMessage(null);
-      },
-      (error) => {
-        console.error(error);
-        setIsRequestsLoading(false);
-        setErrorMessage("希望シフトの読み込みに失敗しました。");
-      },
-      employee.organizationId,
-    );
-    const unsubscribePositions = subscribePositions(
-      employee.organizationId,
-      (nextPositions) => {
-        setPositions(nextPositions);
-        setIsPositionsLoading(false);
-      },
-      (error) => {
-        console.error(error);
-        setIsPositionsLoading(false);
-        setErrorMessage("ポジションの読み込みに失敗しました。");
-      },
-    );
+        if (isActive) {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "シフト情報の読み込みに失敗しました。",
+          );
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsSlotsLoading(false);
+          setIsRequestsLoading(false);
+          setIsPositionsLoading(false);
+        }
+      });
 
     return () => {
-      unsubscribeSlots();
-      unsubscribeRequests();
-      unsubscribePositions();
+      isActive = false;
     };
   }, [employee]);
 
@@ -1099,6 +1106,7 @@ function EmployeeShiftRequestContent() {
         employeeId: employee.employeeId,
         employeeEmail: employee.email,
       });
+      await loadShiftData();
       setWithdrawConfirmRequest(null);
     } catch (error) {
       console.error(error);
@@ -1169,6 +1177,7 @@ function EmployeeShiftRequestContent() {
           employee.organizationId,
         );
       }
+      await loadShiftData();
       setDraftSlots([]);
       setIsConfirmOpen(false);
     } catch (error) {

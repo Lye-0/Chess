@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   getEmployeeSessionServerSnapshot,
   getEmployeeSessionSnapshot,
@@ -12,7 +12,6 @@ import {
 } from "@/lib/people";
 import {
   getShiftRequestPositionLabel,
-  subscribeEmployeeShiftRequests,
   withdrawEmployeeShiftRequest,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -20,12 +19,11 @@ import {
   calculateShiftPayroll,
   defaultPayrollSettings,
   formatCurrency,
-  subscribePayrollSettings,
   type PayrollSettings,
 } from "@/lib/payroll";
+import { fetchEmployeeShiftData } from "@/lib/employeeApi";
 import {
   formatShiftTimeRange,
-  subscribeShiftSlots,
   type ShiftSlot,
 } from "@/lib/shiftSlots";
 
@@ -276,44 +274,48 @@ function EmployeeShiftRequestsContent() {
     }
   }, [router, sessionEmployee]);
 
+  const loadShiftData = useCallback(async () => {
+    if (!employee) return;
+
+    try {
+      const data = await fetchEmployeeShiftData();
+
+      setRequests(data.requests);
+      setSlots(data.slots);
+      setPayrollSettings(data.payrollSettings);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+      setIsPayrollLoading(false);
+    }
+  }, [employee]);
+
   useEffect(() => {
     if (!employee) return;
 
-    const unsubscribeRequests = subscribeEmployeeShiftRequests(
-      employee.employeeId,
-      (nextRequests) => {
-        setRequests(nextRequests);
-        setIsLoading(false);
-      },
-      (error) => {
-        console.error(error);
-        setIsLoading(false);
-      },
-      employee.organizationId,
-    );
+    let isActive = true;
 
-    const unsubscribeSlots = subscribeShiftSlots(
-      (nextSlots) => setSlots(nextSlots),
-      (error) => console.error(error),
-      employee.organizationId,
-    );
+    void fetchEmployeeShiftData()
+      .then((data) => {
+        if (!isActive) return;
 
-    const unsubscribePayroll = subscribePayrollSettings(
-      (settings) => {
-        setPayrollSettings(settings);
-        setIsPayrollLoading(false);
-      },
-      (error) => {
+        setRequests(data.requests);
+        setSlots(data.slots);
+        setPayrollSettings(data.payrollSettings);
+      })
+      .catch((error) => {
         console.error(error);
-        setIsPayrollLoading(false);
-      },
-      employee.organizationId,
-    );
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoading(false);
+          setIsPayrollLoading(false);
+        }
+      });
 
     return () => {
-      unsubscribeRequests();
-      unsubscribeSlots();
-      unsubscribePayroll();
+      isActive = false;
     };
   }, [employee]);
 
@@ -360,6 +362,7 @@ function EmployeeShiftRequestsContent() {
         employeeId: employee.employeeId,
         employeeEmail: employee.email,
       });
+      await loadShiftData();
       setWithdrawConfirmRequest(null);
     } catch (error) {
       console.error(error);

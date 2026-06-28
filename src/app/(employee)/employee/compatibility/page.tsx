@@ -3,17 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import {
-  saveCompatibilityScores,
-  subscribeCompatibilityScores,
-} from "@/lib/compatibilities";
+import { fetchEmployeeCompatibilityData, saveEmployeeCompatibilityScores } from "@/lib/employeeApi";
 import {
   getEmployeeSessionServerSnapshot,
   getEmployeeSessionSnapshot,
   loadEmployeeSession,
   parseEmployeeSessionSnapshot,
   subscribeEmployeeSession,
-  subscribeEmployees,
   type EmployeeProfile,
 } from "@/lib/people";
 
@@ -83,45 +79,37 @@ function EmployeeCompatibilityContent() {
   useEffect(() => {
     if (!employee) return;
 
-    const unsubscribeEmployees = subscribeEmployees(
-      (nextEmployees) => {
-        setEmployees(nextEmployees);
-        setIsEmployeesLoading(false);
+    let isActive = true;
+
+    async function loadData() {
+      try {
+        const data = await fetchEmployeeCompatibilityData();
+        if (!isActive) return;
+
+        setEmployees(data.employees);
+        setScores(data.scores);
         setErrorMessage(null);
-      },
-      (error) => {
+      } catch (error) {
         console.error(error);
-        setIsEmployeesLoading(false);
-        setErrorMessage("従業員一覧の読み込みに失敗しました。");
-      },
-      employee.organizationId,
-    );
+        if (isActive) {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "働きやすさ設定の読み込みに失敗しました。",
+          );
+        }
+      } finally {
+        if (isActive) {
+          setIsEmployeesLoading(false);
+          setIsScoresLoading(false);
+        }
+      }
+    }
+
+    loadData();
 
     return () => {
-      unsubscribeEmployees();
-    };
-  }, [employee]);
-
-  useEffect(() => {
-    if (!employee) return;
-
-    const unsubscribeScores = subscribeCompatibilityScores(
-      employee.employeeId,
-      (nextScores) => {
-        setScores(nextScores);
-        setIsScoresLoading(false);
-        setErrorMessage(null);
-      },
-      (error) => {
-        console.error(error);
-        setIsScoresLoading(false);
-        setErrorMessage("働きやすさ設定の読み込みに失敗しました。");
-      },
-      employee.organizationId,
-    );
-
-    return () => {
-      unsubscribeScores();
+      isActive = false;
     };
   }, [employee]);
 
@@ -155,12 +143,8 @@ function EmployeeCompatibilityContent() {
     try {
       setIsSaving(true);
       setErrorMessage(null);
-      await saveCompatibilityScores({
-        employeeId: employee.employeeId,
-        organizationId: employee.organizationId,
-        scores: nextScores,
-      });
-      setScores(nextScores);
+      const result = await saveEmployeeCompatibilityScores(nextScores);
+      setScores(result.scores);
       setSuccessMessage("働きやすさ設定を保存しました。");
     } catch (error) {
       console.error(error);
