@@ -108,6 +108,19 @@ function getShiftEndAt(shift: Pick<ShiftSlot, "date" | "startTime" | "endTime">)
   return endAt;
 }
 
+function calculateRequestMinutes(request: ShiftRequest) {
+  const start = parseTimeToMinutes(request.startTime);
+  const end = parseTimeToMinutes(request.endTime);
+  const diff = end - start;
+
+  return diff >= 0 ? diff : diff + 24 * 60;
+}
+
+function getRequestMonth(request: ShiftRequest) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(request.date)
+    ? request.date.slice(0, 7)
+    : "";
+}
 function getRequestGroupKey(request: ShiftRequest) {
   return request.slotId || `employee-generated:${request.id}`;
 }
@@ -316,6 +329,18 @@ export function useShiftManagement() {
       }),
     [activeExportDate, currentOrganization, employees, payrollSettings, requests],
   );
+  const monthlyRequestMinutesByEmployee = useMemo(() => {
+    return requests.reduce<Record<string, Record<string, number>>>((groups, request) => {
+      const month = getRequestMonth(request);
+      if (!month) return groups;
+
+      const monthGroup = groups[month] ?? {};
+      monthGroup[request.employeeId] =
+        (monthGroup[request.employeeId] ?? 0) + calculateRequestMinutes(request);
+      groups[month] = monthGroup;
+      return groups;
+    }, {});
+  }, [requests]);
   const hasExportData =
     selectedExportScope === "day"
       ? dailyExportData.rows.length > 0
@@ -768,6 +793,7 @@ export function useShiftManagement() {
     requestsBySlot,
     compatibilityScores,
     employeeWorkScores,
+    monthlyRequestMinutesByEmployee,
     payrollSettings,
     positions,
     exportMonths,

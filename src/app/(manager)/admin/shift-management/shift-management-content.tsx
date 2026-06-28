@@ -51,6 +51,7 @@ function AdminShiftManagementContent() {
     requestsBySlot,
     compatibilityScores,
     employeeWorkScores,
+    monthlyRequestMinutesByEmployee,
     payrollSettings,
     positions,
     exportMonths,
@@ -63,6 +64,7 @@ function AdminShiftManagementContent() {
     setSelectedExportScope,
     hasExportData,
     handleExport,
+    recommendationSettings,
     selectedWeights,
     isModalOpen,
     isMonthlyPattern,
@@ -386,7 +388,9 @@ function AdminShiftManagementContent() {
                         displayedRequestCount={displayedRequestCount}
                         compatibilityScores={compatibilityScores}
                         employeeWorkScores={employeeWorkScores}
+                        monthlyRequestMinutesByEmployee={monthlyRequestMinutesByEmployee}
                         weights={selectedWeights}
+                        fairnessEnabled={recommendationSettings.fairnessEnabled}
                         payrollSettings={payrollSettings}
                         approvingRequestId={approvingRequestIdForSlot}
                         deletingRequestId={deletingRequestIdForSlot}

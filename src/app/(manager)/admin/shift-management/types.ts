@@ -13,6 +13,7 @@ export type ShiftForm = {
 export type RecommendedCombination = {
   requests: ShiftRequest[];
   finalScore: number;
+  fairnessAverageMinutes: number;
   compatibilityAverage: number;
   workScoreAverage: number;
 };
