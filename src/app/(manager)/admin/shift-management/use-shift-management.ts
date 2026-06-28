@@ -53,6 +53,7 @@ import {
   subscribeRecommendationSettings,
 } from "@/lib/recommendationSettings";
 import { stabilizeRecord } from "./group-utils";
+import { getRecommendedCombination } from "./recommendation";
 import { getDisplayedRequestCount } from "./request-utils";
 import type { RecommendedCombination, ShiftForm } from "./types";
 
@@ -108,6 +109,10 @@ function getShiftEndAt(shift: Pick<ShiftSlot, "date" | "startTime" | "endTime">)
   return endAt;
 }
 
+function getShiftStartAt(shift: Pick<ShiftSlot, "date" | "startTime">) {
+  return new Date(`${shift.date}T${shift.startTime}:00`);
+}
+
 function calculateRequestMinutes(request: ShiftRequest) {
   const start = parseTimeToMinutes(request.startTime);
   const end = parseTimeToMinutes(request.endTime);
@@ -116,7 +121,7 @@ function calculateRequestMinutes(request: ShiftRequest) {
   return diff >= 0 ? diff : diff + 24 * 60;
 }
 
-function getRequestMonth(request: ShiftRequest) {
+function getRequestMonth(request: Pick<ShiftRequest, "date">) {
   return /^\d{4}-\d{2}-\d{2}$/.test(request.date)
     ? request.date.slice(0, 7)
     : "";
@@ -144,7 +149,61 @@ function isShiftEnded(shift: Pick<ShiftSlot, "date" | "startTime" | "endTime">) 
 
   return !Number.isNaN(endAt.getTime()) && endAt <= new Date();
 }
+function addAutoApprovalDuration(date: Date, duration: string) {
+  const nextDate = new Date(date);
 
+  if (duration === "oneDay") nextDate.setDate(nextDate.getDate() + 1);
+  if (duration === "threeDays") nextDate.setDate(nextDate.getDate() + 3);
+  if (duration === "oneWeek") nextDate.setDate(nextDate.getDate() + 7);
+  if (duration === "twoWeeks") nextDate.setDate(nextDate.getDate() + 14);
+  if (duration === "fifteenDays") nextDate.setDate(nextDate.getDate() + 15);
+  if (duration === "oneMonth") nextDate.setMonth(nextDate.getMonth() + 1);
+  if (duration === "twoMonths") nextDate.setMonth(nextDate.getMonth() + 2);
+  if (duration === "threeMonths") nextDate.setMonth(nextDate.getMonth() + 3);
+
+  return nextDate;
+}
+
+function subtractAutoApprovalDuration(date: Date, duration: string) {
+  const nextDate = new Date(date);
+
+  if (duration === "oneDay") nextDate.setDate(nextDate.getDate() - 1);
+  if (duration === "threeDays") nextDate.setDate(nextDate.getDate() - 3);
+  if (duration === "oneWeek") nextDate.setDate(nextDate.getDate() - 7);
+  if (duration === "twoWeeks") nextDate.setDate(nextDate.getDate() - 14);
+  if (duration === "fifteenDays") nextDate.setDate(nextDate.getDate() - 15);
+  if (duration === "oneMonth") nextDate.setMonth(nextDate.getMonth() - 1);
+  if (duration === "twoMonths") nextDate.setMonth(nextDate.getMonth() - 2);
+  if (duration === "threeMonths") nextDate.setMonth(nextDate.getMonth() - 3);
+
+  return nextDate;
+}
+
+function getWeekStart(date: Date) {
+  const weekStart = new Date(date);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+
+  return weekStart;
+}
+
+function getAutoApprovalPeriodRange(date: Date, target: string) {
+  if (target === "nextWeek" || target === "secondNextWeek") {
+    const start = getWeekStart(date);
+    start.setDate(start.getDate() + (target === "nextWeek" ? 7 : 14));
+    const end = new Date(start);
+    end.setDate(end.getDate() + 7);
+
+    return { start, end };
+  }
+
+  const start = new Date(date.getFullYear(), date.getMonth(), 1);
+  start.setMonth(start.getMonth() + (target === "nextMonth" ? 1 : 2));
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + 1);
+
+  return { start, end };
+}
 export function useShiftManagement() {
   const {
     organizationId,
@@ -512,6 +571,148 @@ export function useShiftManagement() {
     requestsBySlotRef.current = requestsBySlot;
   }, [requestsBySlot]);
 
+  const autoApprovalSignatureRef = useRef("");
+  const autoApprovalInFlightRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      !currentOrganization ||
+      isLoading ||
+      recommendationSettings.autoApprovalMode === "manual" ||
+      autoApprovalInFlightRef.current
+    ) {
+      return;
+    }
+
+    const isWithinAutoApprovalTarget = (
+      shift: Pick<ShiftSlot, "date" | "startTime" | "endTime">,
+    ) => {
+      const startAt = getShiftStartAt(shift);
+
+      if (Number.isNaN(startAt.getTime()) || startAt <= now) return false;
+
+      if (recommendationSettings.autoApprovalMode === "rollingWindow") {
+        return startAt <= addAutoApprovalDuration(
+          now,
+          recommendationSettings.autoApprovalWindow,
+        );
+      }
+
+      const range = getAutoApprovalPeriodRange(
+        now,
+        recommendationSettings.autoApprovalPeriodTarget,
+      );
+      const triggerAt = subtractAutoApprovalDuration(
+        range.start,
+        recommendationSettings.autoApprovalTiming,
+      );
+
+      return now >= triggerAt && startAt >= range.start && startAt < range.end;
+    };
+
+    const selectedRequestIds: string[] = [];
+
+    slots.forEach((slot) => {
+      if (!isWithinAutoApprovalTarget(slot)) return;
+      if (
+        recommendationSettings.autoApprovalRequestScope === "managerSlotsOnly" &&
+        slot.employeeGenerated
+      ) {
+        return;
+      }
+
+      const slotRequests = requestsBySlot[slot.id] ?? [];
+      const approvedRequests = slotRequests.filter(
+        (request) => request.status === "承認済",
+      );
+      const pendingRequests = slotRequests.filter(
+        (request) => request.status !== "承認済",
+      );
+      const remainingApprovalCount = Math.max(
+        0,
+        slot.capacity - approvedRequests.length,
+      );
+
+      if (remainingApprovalCount === 0 || pendingRequests.length === 0) return;
+
+      const recommendation = getRecommendedCombination({
+        requests: pendingRequests,
+        fixedRequests: approvedRequests,
+        capacity: remainingApprovalCount,
+        scores: compatibilityScores,
+        employeeWorkScores,
+        employeeMonthlyMinutes:
+          monthlyRequestMinutesByEmployee[getRequestMonth(slot)] ?? {},
+        weights: selectedWeights,
+        fairnessEnabled: recommendationSettings.fairnessEnabled,
+      });
+
+      recommendation?.requests.forEach((request) => {
+        selectedRequestIds.push(request.id);
+      });
+    });
+
+    const employeeGeneratedRequestIds =
+      recommendationSettings.autoApprovalRequestScope === "includeEmployeeGenerated"
+        ? requests
+            .filter((request) => !request.slotId)
+            .filter((request) => request.employeeGenerated)
+            .filter((request) => request.status !== "承認済")
+            .filter(isWithinAutoApprovalTarget)
+            .map((request) => request.id)
+        : [];
+
+    const slotRequestIds = [...new Set(selectedRequestIds)].sort();
+    const noSlotRequestIds = [...new Set(employeeGeneratedRequestIds)].sort();
+    const signature = JSON.stringify({
+      mode: recommendationSettings.autoApprovalMode,
+      scope: recommendationSettings.autoApprovalRequestScope,
+      slotRequestIds,
+      noSlotRequestIds,
+    });
+
+    if (slotRequestIds.length === 0 && noSlotRequestIds.length === 0) return;
+    if (autoApprovalSignatureRef.current === signature) return;
+
+    autoApprovalSignatureRef.current = signature;
+    autoApprovalInFlightRef.current = true;
+
+    async function approveAutoApprovalTargets() {
+      try {
+        setErrorMessage(null);
+
+        if (slotRequestIds.length > 0) {
+          await approveShiftRequests(slotRequestIds, organizationId);
+        }
+
+        await Promise.all(
+          noSlotRequestIds.map((requestId) =>
+            approveShiftRequest(requestId, organizationId),
+          ),
+        );
+      } catch (error) {
+        console.error(error);
+        setErrorMessage("自動承認に失敗しました。Firestore への書き込み権限を確認してください。");
+      } finally {
+        autoApprovalInFlightRef.current = false;
+      }
+    }
+
+    void approveAutoApprovalTargets();
+  }, [
+    compatibilityScores,
+    currentOrganization,
+    employeeWorkScores,
+    isLoading,
+    monthlyRequestMinutesByEmployee,
+    now,
+    organizationId,
+    recommendationSettings,
+    requests,
+    requestsBySlot,
+    selectedWeights,
+    slots,
+  ]);
   const openCreateModal = useCallback(() => {
     setEditingId(null);
     setForm(emptyForm);
@@ -693,7 +894,36 @@ export function useShiftManagement() {
       if (!recommendedCombination) return;
 
       const slot = slotsRef.current.find((candidate) => candidate.id === slotId);
-      if (!slot) return;
+      if (!slot) {
+        const employeeGeneratedRequests = recommendedCombination.requests.filter(
+          (request) =>
+            request.status !== "承認済" &&
+            !request.slotId &&
+            request.employeeGenerated,
+        );
+
+        if (employeeGeneratedRequests.length === 0) return;
+        if (employeeGeneratedRequests.some(isShiftEnded)) {
+          setErrorMessage("過去のシフト希望は承認できません。");
+          return;
+        }
+
+        try {
+          setApprovingRecommendedSlotId(slotId);
+          setErrorMessage(null);
+          await Promise.all(
+            employeeGeneratedRequests.map((request) =>
+              approveShiftRequest(request.id, organizationId),
+            ),
+          );
+        } catch (error) {
+          console.error(error);
+          setErrorMessage("おすすめ組み合わせの一括承認に失敗しました。Firestore への書き込み権限を確認してください。");
+        } finally {
+          setApprovingRecommendedSlotId(null);
+        }
+        return;
+      }
       if (isShiftEnded(slot)) {
         setErrorMessage("過去のシフト希望は承認できません。");
         return;
