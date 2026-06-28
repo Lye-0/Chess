@@ -68,6 +68,9 @@ function AdminShiftManagementContent() {
     selectedWeights,
     setSelectedWeightId,
     isModalOpen,
+    isMonthlyPattern,
+    setIsMonthlyPattern,
+    monthlyPatternCount,
     deleteTarget,
     deleteRequestTarget,
     editingId,
@@ -428,6 +431,9 @@ function AdminShiftManagementContent() {
           form={form}
           positions={positions}
           onFormChange={setForm}
+          isMonthlyPattern={isMonthlyPattern}
+          onMonthlyPatternChange={setIsMonthlyPattern}
+          monthlyPatternCount={monthlyPatternCount}
           isEditingRequestedSlot={isEditingRequestedSlot}
           editedSlotStartsInFuture={editedSlotStartsInFuture}
           formStartsInFuture={formStartsInFuture}

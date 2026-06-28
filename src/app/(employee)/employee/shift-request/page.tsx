@@ -158,6 +158,42 @@ function toDateString(date: Date) {
   ].join("-");
 }
 
+function getMonthlyWeekdayDates(anchorDate: string) {
+  const anchor = new Date(`${anchorDate}T00:00:00`);
+  if (Number.isNaN(anchor.getTime())) return [];
+
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth();
+  const weekday = anchor.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const dates: string[] = [];
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const candidate = new Date(year, month, day);
+
+    if (candidate.getDay() === weekday) {
+      dates.push(toDateString(candidate));
+    }
+  }
+
+  return dates;
+}
+
+function isSameMonthlyPatternSlot(slot: ShiftSlot, pattern: ShiftSlot) {
+  const slotDate = new Date(`${slot.date}T00:00:00`);
+  const patternDate = new Date(`${pattern.date}T00:00:00`);
+
+  return (
+    !Number.isNaN(slotDate.getTime()) &&
+    !Number.isNaN(patternDate.getTime()) &&
+    slotDate.getFullYear() === patternDate.getFullYear() &&
+    slotDate.getMonth() === patternDate.getMonth() &&
+    slotDate.getDay() === patternDate.getDay() &&
+    slot.startTime === pattern.startTime &&
+    slot.endTime === pattern.endTime &&
+    slot.positionId === pattern.positionId
+  );
+}
 function getMonthCalendarDays(monthDate: Date) {
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -476,6 +512,7 @@ function SelectedDayShiftTimeline({
   draftSlotIds,
   withdrawingRequestId,
   onAddSlot,
+  onAddMonthlySlots,
   onWithdraw,
 }: {
   date: string;
@@ -486,6 +523,7 @@ function SelectedDayShiftTimeline({
   draftSlotIds: Set<string>;
   withdrawingRequestId: string | null;
   onAddSlot: (slot: ShiftSlot) => void;
+  onAddMonthlySlots: (slot: ShiftSlot) => void;
   onWithdraw: (request: ShiftRequest) => void;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -664,6 +702,16 @@ function SelectedDayShiftTimeline({
                   <span className="inline-flex h-9 items-center whitespace-nowrap rounded-md bg-[#eef0f4] px-3 text-xs font-semibold text-[#717182]">
                     {statusLabel}
                   </span>
+                )}
+                {!requested && (
+                  <button
+                    type="button"
+                    disabled={withdrawing}
+                    onClick={() => onAddMonthlySlots(slot)}
+                    className="h-9 rounded-md border border-[#bbf7d0] px-3 text-xs font-semibold text-[#166534] transition hover:bg-[#f0fdf4] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182]"
+                  >
+                    月内追加
+                  </button>
                 )}
                 {!requested && !drafted && (
                   <button
@@ -891,6 +939,20 @@ function EmployeeShiftRequestContent() {
     setErrorMessage(null);
   }
 
+  function addMonthlyDraftSlots(patternSlot: ShiftSlot) {
+    const monthlySlots = requestableSlots
+      .filter((slot) => isSameMonthlyPatternSlot(slot, patternSlot))
+      .filter((slot) => !requestedSlotIds.has(slot.id))
+      .filter((slot) => !draftSlotIds.has(slot.id));
+
+    if (monthlySlots.length === 0) {
+      setErrorMessage("月内で追加できる同じ曜日・時間の募集枠はありません。");
+      return;
+    }
+
+    setDraftSlots((current) => sortSlots([...current, ...monthlySlots]));
+    setErrorMessage(null);
+  }
   function addEmployeeGeneratedDraft() {
     if (!selectedDate) {
       setErrorMessage("日付を選択してください。");
@@ -942,6 +1004,77 @@ function EmployeeShiftRequestContent() {
     }
 
     setDraftSlots((current) => sortSlots([...current, draft]));
+    setErrorMessage(null);
+  }
+  function addMonthlyEmployeeGeneratedDrafts() {
+    if (!selectedDate) {
+      setErrorMessage("日付を選択してください。");
+      return;
+    }
+
+    const selectedPosition = positions.find(
+      (position) => position.id === customDraftForm.positionId,
+    );
+
+    if (
+      !isValidShiftTimeRange(customDraftForm.startTime, customDraftForm.endTime) ||
+      !selectedPosition
+    ) {
+      setErrorMessage("時間とポジションを正しく入力してください。");
+      return;
+    }
+
+    const drafts = getMonthlyWeekdayDates(selectedDate)
+      .map<DraftShift>((date) => ({
+        id: `employee-generated:${date}:${customDraftForm.startTime}:${customDraftForm.endTime}:${customDraftForm.positionId}`,
+        date,
+        startTime: customDraftForm.startTime,
+        endTime: customDraftForm.endTime,
+        positionId: selectedPosition.id,
+        positionName: selectedPosition.name,
+        employeeGenerated: true,
+        capacity: 1,
+        requestCount: 0,
+        isEmployeeGenerated: true,
+      }))
+      .filter((draft) => isShiftStartInFuture(draft, now))
+      .filter(
+        (draft) =>
+          !requestableSlots.some(
+            (slot) =>
+              slot.date === draft.date &&
+              slot.startTime === draft.startTime &&
+              slot.endTime === draft.endTime &&
+              slot.positionId === draft.positionId,
+          ),
+      )
+      .filter(
+        (draft) =>
+          !draftSlots.some(
+            (currentDraft) =>
+              currentDraft.date === draft.date &&
+              currentDraft.startTime === draft.startTime &&
+              currentDraft.endTime === draft.endTime &&
+              currentDraft.positionId === draft.positionId,
+          ),
+      )
+      .filter(
+        (draft) =>
+          !requests.some(
+            (request) =>
+              request.date === draft.date &&
+              request.startTime === draft.startTime &&
+              request.endTime === draft.endTime &&
+              request.positionId === draft.positionId,
+          ),
+      );
+
+    if (drafts.length === 0) {
+      setErrorMessage("月内で追加できる同じ曜日・時間の自主希望はありません。");
+      return;
+    }
+
+    setDraftSlots((current) => sortSlots([...current, ...drafts]));
     setErrorMessage(null);
   }
   function removeDraftSlot(slotId: string) {
@@ -1119,6 +1252,7 @@ function EmployeeShiftRequestContent() {
                     draftSlotIds={draftSlotIds}
                     withdrawingRequestId={withdrawingRequestId}
                     onAddSlot={addDraftSlot}
+                    onAddMonthlySlots={addMonthlyDraftSlots}
                     onWithdraw={openWithdrawConfirm}
                   />
                   <section className="w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-white p-3 sm:p-4">
@@ -1128,7 +1262,7 @@ function EmployeeShiftRequestContent() {
                         募集されていない時間でも、管理者に希望として送信できます
                       </p>
                     </div>
-                    <div className="mt-4 grid gap-3 min-[520px]:grid-cols-2 sm:grid-cols-[1fr_1fr_minmax(0,1.5fr)_auto] sm:items-end">
+                    <div className="mt-4 grid gap-3 min-[520px]:grid-cols-2 sm:grid-cols-[1fr_1fr_minmax(0,1.5fr)_auto_auto] sm:items-end">
                       <label className="grid gap-1 text-xs font-semibold text-[#475569]">
                         開始
                         <input
@@ -1177,6 +1311,14 @@ function EmployeeShiftRequestContent() {
                           ))}
                         </select>
                       </label>
+                      <button
+                        type="button"
+                        onClick={addMonthlyEmployeeGeneratedDrafts}
+                        disabled={positions.length === 0}
+                        className="h-10 rounded-md border border-[#bbf7d0] px-4 text-sm font-semibold text-[#166534] transition hover:bg-[#f0fdf4] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182] min-[520px]:col-span-2 sm:col-span-1"
+                      >
+                        月内追加
+                      </button>
                       <button
                         type="button"
                         onClick={addEmployeeGeneratedDraft}
