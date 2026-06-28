@@ -38,16 +38,22 @@ export function getEmployeeSessionCookieOptions() {
 }
 
 function getEmployeeSessionSecret() {
-  const secret =
-    process.env.EMPLOYEE_SESSION_SECRET ??
-    process.env.NEXTAUTH_SECRET ??
-    process.env.FIREBASE_ADMIN_PRIVATE_KEY;
+  const dedicatedSecret = process.env.EMPLOYEE_SESSION_SECRET;
 
-  if (!secret) {
+  if (dedicatedSecret) return dedicatedSecret;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("EMPLOYEE_SESSION_SECRETが設定されていません。");
+  }
+
+  const developmentFallback =
+    process.env.NEXTAUTH_SECRET ?? process.env.FIREBASE_ADMIN_PRIVATE_KEY;
+
+  if (!developmentFallback) {
     throw new Error("従業員セッションの署名キーが設定されていません。");
   }
 
-  return secret;
+  return developmentFallback;
 }
 
 function toBase64Url(value: string) {
