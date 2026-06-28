@@ -48,7 +48,7 @@ import {
   type ShiftExportScope,
 } from "@/lib/shiftExports";
 import { emptyForm, recommendationWeightOptions } from "./constants";
-import { stabilizeGroupedArrays, stabilizeRecord } from "./group-utils";
+import { stabilizeRecord } from "./group-utils";
 import { getDisplayedRequestCount } from "./request-utils";
 import type { RecommendedCombination, RecommendationWeightOption, ShiftForm } from "./types";
 
@@ -60,6 +60,40 @@ function parseTimeToMinutes(time: string) {
   return hour * 60 + minute;
 }
 
+function padDatePart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function toShiftDateString(date: Date) {
+  return [
+    date.getFullYear(),
+    padDatePart(date.getMonth() + 1),
+    padDatePart(date.getDate()),
+  ].join("-");
+}
+
+function getMonthlyWeekdayDates(anchorDate: string) {
+  if (!isFourDigitShiftDate(anchorDate)) return [];
+
+  const anchor = new Date(`${anchorDate}T00:00:00`);
+  if (Number.isNaN(anchor.getTime())) return [];
+
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth();
+  const weekday = anchor.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const dates: string[] = [];
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const candidate = new Date(year, month, day);
+
+    if (candidate.getDay() === weekday) {
+      dates.push(toShiftDateString(candidate));
+    }
+  }
+
+  return dates;
+}
 function getShiftEndAt(shift: Pick<ShiftSlot, "date" | "startTime" | "endTime">) {
   const endAt = new Date(`${shift.date}T${shift.endTime}:00`);
 
@@ -114,6 +148,7 @@ export function useShiftManagement() {
   const [selectedWeightId, setSelectedWeightId] =
     useState<RecommendationWeightOption["id"]>("balanced");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isMonthlyPattern, setIsMonthlyPattern] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ShiftSlot | null>(null);
   const [deleteRequestTarget, setDeleteRequestTarget] =
     useState<ShiftRequest | null>(null);
@@ -309,53 +344,35 @@ export function useShiftManagement() {
     return [...slots, ...employeeGeneratedSlots];
   }, [requests, slots]);
 
-  const [groupedSlots, setGroupedSlots] = useState<Record<string, ShiftSlot[]>>({});
-  {
+  const groupedSlots = useMemo(() => {
     const sortedSlots = [...displaySlots].sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       return a.startTime.localeCompare(b.startTime);
     });
 
-    const nextGroupedSlots = sortedSlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
+    return sortedSlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
       groups[slot.date] = [...(groups[slot.date] ?? []), slot];
       return groups;
     }, {});
+  }, [displaySlots]);
 
-    const stabilized = stabilizeGroupedArrays(nextGroupedSlots, groupedSlots);
-    if (stabilized !== groupedSlots) {
-      setGroupedSlots(stabilized);
-    }
-  }
-
-  const [requestCountBySlot, setRequestCountBySlot] = useState<Record<string, number>>({});
-  {
-    const nextCounts = requests.reduce<Record<string, number>>((counts, request) => {
+  const requestCountBySlot = useMemo(() => {
+    return requests.reduce<Record<string, number>>((counts, request) => {
       const groupKey = getRequestGroupKey(request);
       counts[groupKey] = (counts[groupKey] ?? 0) + 1;
       return counts;
     }, {});
+  }, [requests]);
 
-    const stabilized = stabilizeRecord(nextCounts, requestCountBySlot);
-    if (stabilized !== requestCountBySlot) {
-      setRequestCountBySlot(stabilized);
-    }
-  }
-
-  const [approvedCountBySlot, setApprovedCountBySlot] = useState<Record<string, number>>({});
-  {
-    const nextCounts = requests.reduce<Record<string, number>>((counts, request) => {
+  const approvedCountBySlot = useMemo(() => {
+    return requests.reduce<Record<string, number>>((counts, request) => {
       if (request.status !== "承認済") return counts;
 
       const groupKey = getRequestGroupKey(request);
       counts[groupKey] = (counts[groupKey] ?? 0) + 1;
       return counts;
     }, {});
-
-    const stabilized = stabilizeRecord(nextCounts, approvedCountBySlot);
-    if (stabilized !== approvedCountBySlot) {
-      setApprovedCountBySlot(stabilized);
-    }
-  }
+  }, [requests]);
   const editingSlot = useMemo(
     () => slots.find((slot) => slot.id === editingId) ?? null,
     [editingId, slots],
@@ -384,30 +401,69 @@ export function useShiftManagement() {
     positions.find((position) => position.id === form.positionId) ?? null;
   const minimumCapacity = Math.max(1, editingApprovedCount);
   const capacityValue = Number(form.capacity);
+  const monthlyPatternSlots = useMemo(() => {
+    if (
+      editingId ||
+      isEditingRequestedSlot ||
+      !isMonthlyPattern ||
+      !selectedPosition ||
+      !isFourDigitShiftDate(form.date) ||
+      !isValidShiftTimeRange(form.startTime, form.endTime)
+    ) {
+      return [];
+    }
+
+    const existingSlotKeys = new Set(
+      slots.map((slot) =>
+        [slot.date, slot.startTime, slot.endTime, slot.positionId].join("|"),
+      ),
+    );
+
+    return getMonthlyWeekdayDates(form.date)
+      .map<ShiftSlotInput>((date) => ({
+        date,
+        startTime: form.startTime,
+        endTime: form.endTime,
+        positionId: selectedPosition.id,
+        positionName: selectedPosition.name,
+        capacity: Number(form.capacity),
+      }))
+      .filter((slot) => isShiftStartInFuture(slot, now))
+      .filter(
+        (slot) =>
+          !existingSlotKeys.has(
+            [slot.date, slot.startTime, slot.endTime, slot.positionId].join("|"),
+          ),
+      );
+  }, [
+    editingId,
+    form,
+    isEditingRequestedSlot,
+    isMonthlyPattern,
+    now,
+    selectedPosition,
+    slots,
+  ]);
+  const hasValidBaseForm = Boolean(
+    isFourDigitShiftDate(form.date) &&
+      isValidShiftTimeRange(form.startTime, form.endTime) &&
+      selectedPosition,
+  );
   const canSave = Boolean(
     (isEditingRequestedSlot && editingSlot
         ? editedSlotStartsInFuture
-        : isFourDigitShiftDate(form.date) &&
-          isValidShiftTimeRange(form.startTime, form.endTime) &&
-          formStartsInFuture &&
-          selectedPosition) &&
+        : hasValidBaseForm &&
+          (isMonthlyPattern ? monthlyPatternSlots.length > 0 : formStartsInFuture)) &&
       capacityValue >= minimumCapacity &&
       capacityValue <= 100,
   );
-  const [requestsBySlot, setRequestsBySlot] = useState<Record<string, ShiftRequest[]>>({});
-  {
-    const nextGroups = requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
+  const requestsBySlot = useMemo(() => {
+    return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
       const groupKey = getRequestGroupKey(request);
       groups[groupKey] = [...(groups[groupKey] ?? []), request];
       return groups;
     }, {});
-
-    const stabilized = stabilizeGroupedArrays(nextGroups, requestsBySlot);
-    if (stabilized !== requestsBySlot) {
-      setRequestsBySlot(stabilized);
-    }
-  }
-
+  }, [requests]);
   const slotsRef = useRef(slots);
   useEffect(() => {
     slotsRef.current = slots;
@@ -420,11 +476,13 @@ export function useShiftManagement() {
   const openCreateModal = useCallback(() => {
     setEditingId(null);
     setForm(emptyForm);
+    setIsMonthlyPattern(false);
     setIsModalOpen(true);
   }, []);
 
   const openEditModal = useCallback((slot: ShiftSlot) => {
     setEditingId(slot.id);
+    setIsMonthlyPattern(false);
     setForm({
       date: slot.date,
       startTime: slot.startTime,
@@ -440,6 +498,7 @@ export function useShiftManagement() {
     setIsModalOpen(false);
     setEditingId(null);
     setForm(emptyForm);
+    setIsMonthlyPattern(false);
   }, []);
 
   const handleSubmit = useCallback(
@@ -464,7 +523,7 @@ export function useShiftManagement() {
         capacity: Number(form.capacity),
       };
 
-      if (!isShiftStartInFuture(nextSlot)) {
+      if (!isMonthlyPattern && !isShiftStartInFuture(nextSlot)) {
         setErrorMessage("過去または開始済みの日時ではシフト枠を登録できません。");
         return;
       }
@@ -486,6 +545,15 @@ export function useShiftManagement() {
         setErrorMessage(null);
         if (editingId) {
           await updateShiftSlot(editingId, nextSlot, organizationId);
+        } else if (isMonthlyPattern) {
+          if (monthlyPatternSlots.length === 0) {
+            setErrorMessage("一括作成できる未来のシフト枠がありません。");
+            return;
+          }
+
+          await Promise.all(
+            monthlyPatternSlots.map((slot) => createShiftSlot(slot, organizationId)),
+          );
         } else {
           await createShiftSlot(nextSlot, organizationId);
         }
@@ -510,7 +578,9 @@ export function useShiftManagement() {
       editingSlot,
       form,
       isEditingRequestedSlot,
+      isMonthlyPattern,
       minimumCapacity,
+      monthlyPatternSlots,
       organizationId,
       selectedPosition,
     ],
@@ -700,6 +770,9 @@ export function useShiftManagement() {
     selectedWeights,
     setSelectedWeightId,
     isModalOpen,
+    isMonthlyPattern,
+    setIsMonthlyPattern,
+    monthlyPatternCount: monthlyPatternSlots.length,
     deleteTarget,
     deleteRequestTarget,
     editingId,

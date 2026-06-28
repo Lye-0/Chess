@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
-import { getAdminAuth, getAdminDb } from "@/lib/firebaseAdmin";
-import { getEmployeeUid } from "@/lib/employeeAuthServer";
+import { getAdminDb } from "@/lib/firebaseAdmin";
+import {
+  createEmployeeSessionToken,
+  employeeSessionCookieName,
+  getEmployeeSessionCookieOptions,
+} from "@/lib/employeeAuthServer";
 import type { EmployeeProfile } from "@/lib/people";
 
 export const runtime = "nodejs";
@@ -60,7 +64,6 @@ function toEmployeeProfile(
 
 export async function POST(request: Request) {
   try {
-    const adminAuth = await getAdminAuth();
     const adminDb = await getAdminDb();
     const body = (await request.json()) as {
       organizationId?: unknown;
@@ -94,16 +97,15 @@ export async function POST(request: Request) {
 
     const organization = await loadOrganizationProfile(adminDb, organizationId);
     const employee = toEmployeeProfile(employeeSnapshot, organizationId, organization);
-    const customToken = await adminAuth.createCustomToken(
-      getEmployeeUid(organizationId, employee.employeeId),
-      {
-        role: "employee",
-        organizationId,
-        employeeId: employee.employeeId,
-      },
+    const response = NextResponse.json({ employee });
+
+    response.cookies.set(
+      employeeSessionCookieName,
+      createEmployeeSessionToken(organizationId, employee.employeeId),
+      getEmployeeSessionCookieOptions(),
     );
 
-    return NextResponse.json({ customToken, employee });
+    return response;
   } catch (error) {
     console.error(error);
     return NextResponse.json(

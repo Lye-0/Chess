@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   getEmployeeSessionServerSnapshot,
   getEmployeeSessionSnapshot,
@@ -12,7 +12,6 @@ import {
 } from "@/lib/people";
 import {
   getShiftRequestPositionLabel,
-  subscribeEmployeeShiftRequests,
   withdrawEmployeeShiftRequest,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -20,12 +19,11 @@ import {
   calculateShiftPayroll,
   defaultPayrollSettings,
   formatCurrency,
-  subscribePayrollSettings,
   type PayrollSettings,
 } from "@/lib/payroll";
+import { fetchEmployeeShiftData } from "@/lib/employeeApi";
 import {
   formatShiftTimeRange,
-  subscribeShiftSlots,
   type ShiftSlot,
 } from "@/lib/shiftSlots";
 
@@ -46,6 +44,36 @@ function BackIcon() {
   );
 }
 
+
+function WarningIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="#ff650b"
+      strokeWidth="2"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.3 4.7 2.9 18a2 2 0 0 0 1.7 3h14.8a2 2 0 0 0 1.7-3L13.7 4.7a2 2 0 0 0-3.4 0Z" />
+    </svg>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
 function formatDateLabel(date: string) {
   const parsedDate = new Date(`${date}T00:00:00`);
   const year = parsedDate.getFullYear();
@@ -237,6 +265,7 @@ function EmployeeShiftRequestsContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isPayrollLoading, setIsPayrollLoading] = useState(true);
   const [withdrawingRequestId, setWithdrawingRequestId] = useState<string | null>(null);
+  const [withdrawConfirmRequest, setWithdrawConfirmRequest] = useState<ShiftRequest | null>(null);
   const [withdrawErrorMessage, setWithdrawErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -245,44 +274,48 @@ function EmployeeShiftRequestsContent() {
     }
   }, [router, sessionEmployee]);
 
+  const loadShiftData = useCallback(async () => {
+    if (!employee) return;
+
+    try {
+      const data = await fetchEmployeeShiftData();
+
+      setRequests(data.requests);
+      setSlots(data.slots);
+      setPayrollSettings(data.payrollSettings);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+      setIsPayrollLoading(false);
+    }
+  }, [employee]);
+
   useEffect(() => {
     if (!employee) return;
 
-    const unsubscribeRequests = subscribeEmployeeShiftRequests(
-      employee.employeeId,
-      (nextRequests) => {
-        setRequests(nextRequests);
-        setIsLoading(false);
-      },
-      (error) => {
-        console.error(error);
-        setIsLoading(false);
-      },
-      employee.organizationId,
-    );
+    let isActive = true;
 
-    const unsubscribeSlots = subscribeShiftSlots(
-      (nextSlots) => setSlots(nextSlots),
-      (error) => console.error(error),
-      employee.organizationId,
-    );
+    void fetchEmployeeShiftData()
+      .then((data) => {
+        if (!isActive) return;
 
-    const unsubscribePayroll = subscribePayrollSettings(
-      (settings) => {
-        setPayrollSettings(settings);
-        setIsPayrollLoading(false);
-      },
-      (error) => {
+        setRequests(data.requests);
+        setSlots(data.slots);
+        setPayrollSettings(data.payrollSettings);
+      })
+      .catch((error) => {
         console.error(error);
-        setIsPayrollLoading(false);
-      },
-      employee.organizationId,
-    );
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoading(false);
+          setIsPayrollLoading(false);
+        }
+      });
 
     return () => {
-      unsubscribeRequests();
-      unsubscribeSlots();
-      unsubscribePayroll();
+      isActive = false;
     };
   }, [employee]);
 
@@ -312,23 +345,25 @@ function EmployeeShiftRequestsContent() {
     [sortedRequests],
   );
 
-  async function handleWithdrawRequest(request: ShiftRequest) {
+  function handleWithdrawRequest(request: ShiftRequest) {
     if (!employee || request.status === "承認済") return;
 
-    const confirmed = window.confirm(
-      `${formatDateLabel(request.date)} ${formatShiftTimeRange(request.startTime, request.endTime)} の希望を撤回しますか？`,
-    );
+    setWithdrawConfirmRequest(request);
+  }
 
-    if (!confirmed) return;
+  async function confirmWithdrawRequest() {
+    if (!employee || !withdrawConfirmRequest) return;
 
     try {
-      setWithdrawingRequestId(request.id);
+      setWithdrawingRequestId(withdrawConfirmRequest.id);
       setWithdrawErrorMessage(null);
-      await withdrawEmployeeShiftRequest(request.id, {
+      await withdrawEmployeeShiftRequest(withdrawConfirmRequest.id, {
         organizationId: employee.organizationId,
         employeeId: employee.employeeId,
         employeeEmail: employee.email,
       });
+      await loadShiftData();
+      setWithdrawConfirmRequest(null);
     } catch (error) {
       console.error(error);
       setWithdrawErrorMessage(
@@ -340,7 +375,6 @@ function EmployeeShiftRequestsContent() {
       setWithdrawingRequestId(null);
     }
   }
-
   if (!employee) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] text-[#717182]">
@@ -410,6 +444,70 @@ function EmployeeShiftRequestsContent() {
           )}
         </section>
       </div>
+      {withdrawConfirmRequest && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 px-4 py-8 sm:items-center">
+          <section className="max-h-[calc(100vh-2rem)] w-full max-w-[512px] overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <WarningIcon />
+                <h2 className="text-xl font-semibold">撤回の確認</h2>
+              </div>
+              <button
+                type="button"
+                aria-label="閉じる"
+                disabled={withdrawingRequestId === withdrawConfirmRequest.id}
+                onClick={() => setWithdrawConfirmRequest(null)}
+                className="rounded-md p-1 text-[#596074] transition hover:bg-[#f0f1f4] hover:text-[#030213] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <XIcon />
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-[#717182]">
+              このシフト希望を撤回します。撤回後は、もう一度希望を出し直せます。
+            </p>
+
+            <div className="mt-6 flex flex-col gap-3 rounded-lg bg-[#f7f8fb] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="truncate font-semibold">{formatDateLabel(withdrawConfirmRequest.date)}</p>
+                <p className="mt-1 truncate text-sm font-semibold text-[#1d4ed8]">
+                  {getShiftRequestPositionLabel(withdrawConfirmRequest)}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-2 text-sm text-[#475569] sm:justify-end">
+                <span>{formatShiftTimeRange(withdrawConfirmRequest.startTime, withdrawConfirmRequest.endTime)}</span>
+                {(withdrawConfirmRequest.employeeGenerated || !withdrawConfirmRequest.slotId) && (
+                  <span className="rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
+                    自主追加枠
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <p className="mt-6 text-sm text-[#717182]">
+              ※ 承認済みのシフトは撤回できません。
+            </p>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={withdrawingRequestId === withdrawConfirmRequest.id}
+                onClick={() => setWithdrawConfirmRequest(null)}
+                className="h-10 rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={withdrawingRequestId === withdrawConfirmRequest.id}
+                onClick={confirmWithdrawRequest}
+                className="inline-flex h-10 items-center justify-center rounded-md bg-[#b91c1c] text-sm font-semibold text-white transition hover:bg-[#991b1b] disabled:cursor-not-allowed disabled:bg-[#8e8d95]"
+              >
+                {withdrawingRequestId === withdrawConfirmRequest.id ? "撤回中..." : "撤回する"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

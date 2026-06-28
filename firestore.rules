@@ -15,18 +15,6 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/managers/$(request.auth.uid)/organizations/$(organizationId));
     }
 
-    function isEmployeeForOrganization(organizationId) {
-      return isSignedIn() &&
-        request.auth.token.role == "employee" &&
-        request.auth.token.organizationId == organizationId &&
-        request.auth.token.employeeId is string;
-    }
-
-    function isEmployee(organizationId, employeeId) {
-      return isEmployeeForOrganization(organizationId) &&
-        request.auth.token.employeeId == employeeId;
-    }
-
     match /managers/{managerUid} {
       allow read, write: if isVerifiedManager() && request.auth.uid == managerUid;
 
@@ -48,39 +36,23 @@ service cloud.firestore {
       allow read, update, delete: if isManagerOrganization(organizationId);
 
       match /employees/{employeeId} {
-        allow read: if isManagerOrganization(organizationId) ||
-          isEmployeeForOrganization(organizationId);
-        allow write: if isManagerOrganization(organizationId);
+        allow read, write: if isManagerOrganization(organizationId);
       }
 
       match /shiftSlots/{slotId} {
-        allow read: if isManagerOrganization(organizationId) ||
-          isEmployeeForOrganization(organizationId);
-        allow write: if isManagerOrganization(organizationId);
+        allow read, write: if isManagerOrganization(organizationId);
       }
 
       match /shiftRequests/{requestId} {
-        allow read: if isManagerOrganization(organizationId) ||
-          (
-            isEmployeeForOrganization(organizationId) &&
-            resource.data.employeeId == request.auth.token.employeeId
-          );
-        allow write: if isManagerOrganization(organizationId);
+        allow read, write: if isManagerOrganization(organizationId);
       }
 
       match /compatibilities/{employeeId} {
-        allow read: if isManagerOrganization(organizationId) ||
-          isEmployee(organizationId, employeeId);
-        allow create, update: if isEmployee(organizationId, employeeId) &&
-          request.resource.data.employeeId == employeeId &&
-          request.resource.data.organizationId == organizationId;
-        allow write: if isManagerOrganization(organizationId);
+        allow read, write: if isManagerOrganization(organizationId);
       }
 
       match /settings/payroll {
-        allow read: if isManagerOrganization(organizationId) ||
-          isEmployeeForOrganization(organizationId);
-        allow write: if isManagerOrganization(organizationId);
+        allow read, write: if isManagerOrganization(organizationId);
       }
     }
   }

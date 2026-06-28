@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   getEmployeeSessionServerSnapshot,
   getEmployeeSessionSnapshot,
@@ -12,21 +12,17 @@ import {
 } from "@/lib/people";
 import {
   formatShiftTimeRange,
-  subscribeShiftSlots,
   type ShiftSlot,
 } from "@/lib/shiftSlots";
 import {
   createEmployeeGeneratedShiftRequests,
   createShiftRequests,
   isShiftStartInFuture,
-  subscribeEmployeeShiftRequests,
   withdrawEmployeeShiftRequest,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
-import {
-  subscribePositions,
-  type OrganizationPosition,
-} from "@/lib/managerOrganizations";
+import { type OrganizationPosition } from "@/lib/managerOrganizations";
+import { fetchEmployeeShiftData } from "@/lib/employeeApi";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 const monthFormatter = new Intl.DateTimeFormat("ja-JP", {
@@ -35,14 +31,8 @@ const monthFormatter = new Intl.DateTimeFormat("ja-JP", {
 });
 const timelineLaneHeight = 84;
 const timelineSlotBarHeight = 72;
-const positionColorClasses = [
-  "border-[#93c5fd] bg-[#dbeafe] text-[#1d4ed8]",
-  "border-[#86efac] bg-[#dcfce7] text-[#166534]",
-  "border-[#c4b5fd] bg-[#ede9fe] text-[#6d28d9]",
-  "border-[#fcd34d] bg-[#fef3c7] text-[#92400e]",
-  "border-[#f9a8d4] bg-[#fce7f3] text-[#be185d]",
-  "border-[#67e8f9] bg-[#cffafe] text-[#0e7490]",
-];
+const availableShiftSlotClass = "border-[#86efac] bg-[#dcfce7] text-[#166534]";
+const requestedShiftSlotClass = "cursor-not-allowed border-black/10 bg-[#eef0f4] text-[#717182] opacity-80";
 
 type CalendarDaySummary = {
   slotCount: number;
@@ -164,6 +154,42 @@ function toDateString(date: Date) {
   ].join("-");
 }
 
+function getMonthlyWeekdayDates(anchorDate: string) {
+  const anchor = new Date(`${anchorDate}T00:00:00`);
+  if (Number.isNaN(anchor.getTime())) return [];
+
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth();
+  const weekday = anchor.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const dates: string[] = [];
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const candidate = new Date(year, month, day);
+
+    if (candidate.getDay() === weekday) {
+      dates.push(toDateString(candidate));
+    }
+  }
+
+  return dates;
+}
+
+function isSameMonthlyPatternSlot(slot: ShiftSlot, pattern: ShiftSlot) {
+  const slotDate = new Date(`${slot.date}T00:00:00`);
+  const patternDate = new Date(`${pattern.date}T00:00:00`);
+
+  return (
+    !Number.isNaN(slotDate.getTime()) &&
+    !Number.isNaN(patternDate.getTime()) &&
+    slotDate.getFullYear() === patternDate.getFullYear() &&
+    slotDate.getMonth() === patternDate.getMonth() &&
+    slotDate.getDay() === patternDate.getDay() &&
+    slot.startTime === pattern.startTime &&
+    slot.endTime === pattern.endTime &&
+    slot.positionId === pattern.positionId
+  );
+}
 function getMonthCalendarDays(monthDate: Date) {
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -226,16 +252,27 @@ function toTimelineSlot(slot: ShiftSlot) {
   return { slot, startMinutes, endMinutes };
 }
 
-function getPositionColor(positionName: string) {
-  const source = positionName || "ポジション未設定";
-  const hash = Array.from(source).reduce(
-    (total, character) => total + character.charCodeAt(0),
-    0,
-  );
-
-  return positionColorClasses[hash % positionColorClasses.length];
+function getEmployeeGeneratedRequestSlotId(request: Pick<ShiftRequest, "id">) {
+  return `employee-generated-request:${request.id}`;
 }
 
+function isEmployeeGeneratedRequest(request: Pick<ShiftRequest, "slotId" | "employeeGenerated">) {
+  return request.employeeGenerated || !request.slotId;
+}
+
+function toEmployeeGeneratedRequestSlot(request: ShiftRequest): ShiftSlot {
+  return {
+    id: getEmployeeGeneratedRequestSlotId(request),
+    date: request.date,
+    startTime: request.startTime,
+    endTime: request.endTime,
+    positionId: request.positionId,
+    positionName: request.positionName,
+    employeeGenerated: true,
+    capacity: 1,
+    requestCount: 1,
+  };
+}
 function getTimelineRange(timelineSlots: ReturnType<typeof toTimelineSlot>[]) {
   const firstStart = Math.min(...timelineSlots.map((item) => item.startMinutes));
   const lastEnd = Math.max(...timelineSlots.map((item) => item.endMinutes));
@@ -471,6 +508,7 @@ function SelectedDayShiftTimeline({
   draftSlotIds,
   withdrawingRequestId,
   onAddSlot,
+  onAddMonthlySlots,
   onWithdraw,
 }: {
   date: string;
@@ -481,6 +519,7 @@ function SelectedDayShiftTimeline({
   draftSlotIds: Set<string>;
   withdrawingRequestId: string | null;
   onAddSlot: (slot: ShiftSlot) => void;
+  onAddMonthlySlots: (slot: ShiftSlot) => void;
   onWithdraw: (request: ShiftRequest) => void;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -578,8 +617,8 @@ function SelectedDayShiftTimeline({
                   className={[
                     "absolute min-w-28 overflow-hidden rounded-md border px-2 py-1 text-left shadow-sm transition",
                     disabled
-                      ? "cursor-not-allowed border-black/10 bg-[#eef0f4] text-[#717182] opacity-80"
-                      : getPositionColor(positionName),
+                      ? requestedShiftSlotClass
+                      : availableShiftSlotClass,
                   ].join(" ")}
                   style={{
                     left: `${left}%`,
@@ -601,7 +640,9 @@ function SelectedDayShiftTimeline({
                         ? "追加済み"
                         : approved
                           ? "承認済み"
-                          : "希望済み"
+                          : slot.employeeGenerated
+                            ? "自主希望済み"
+                            : "希望済み"
                       : `募集 ${slot.capacity}人 / 希望 ${slot.requestCount}人`}
                   </span>
                 </button>
@@ -623,7 +664,9 @@ function SelectedDayShiftTimeline({
             : approved
               ? "承認済み"
               : pendingRequest
-                ? "希望済み"
+                ? slot.employeeGenerated
+                  ? "自主希望済み"
+                  : "希望済み"
                 : null;
           const disabled = drafted || withdrawing || approved;
 
@@ -655,6 +698,16 @@ function SelectedDayShiftTimeline({
                   <span className="inline-flex h-9 items-center whitespace-nowrap rounded-md bg-[#eef0f4] px-3 text-xs font-semibold text-[#717182]">
                     {statusLabel}
                   </span>
+                )}
+                {!requested && (
+                  <button
+                    type="button"
+                    disabled={withdrawing}
+                    onClick={() => onAddMonthlySlots(slot)}
+                    className="h-9 rounded-md border border-[#bbf7d0] px-3 text-xs font-semibold text-[#166534] transition hover:bg-[#f0fdf4] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182]"
+                  >
+                    月内追加
+                  </button>
                 )}
                 {!requested && !drafted && (
                   <button
@@ -724,73 +777,95 @@ function EmployeeShiftRequestContent() {
     return () => window.clearInterval(timerId);
   }, []);
 
+  const loadShiftData = useCallback(async () => {
+    if (!employee) return;
+
+    try {
+      const data = await fetchEmployeeShiftData();
+
+      setSlots(data.slots);
+      setRequests(data.requests);
+      setPositions(data.positions);
+      setErrorMessage(null);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "シフト情報の読み込みに失敗しました。",
+      );
+    } finally {
+      setIsSlotsLoading(false);
+      setIsRequestsLoading(false);
+      setIsPositionsLoading(false);
+    }
+  }, [employee]);
+
   useEffect(() => {
     if (!employee) return;
 
-    const unsubscribeSlots = subscribeShiftSlots(
-      (nextSlots) => {
-        setSlots(nextSlots);
-        setIsSlotsLoading(false);
+    let isActive = true;
+
+    void fetchEmployeeShiftData()
+      .then((data) => {
+        if (!isActive) return;
+
+        setSlots(data.slots);
+        setRequests(data.requests);
+        setPositions(data.positions);
         setErrorMessage(null);
-      },
-      (error) => {
+      })
+      .catch((error) => {
         console.error(error);
-        setIsSlotsLoading(false);
-        setErrorMessage("シフト枠の読み込みに失敗しました。");
-      },
-      employee.organizationId,
-    );
-    const unsubscribeRequests = subscribeEmployeeShiftRequests(
-      employee.employeeId,
-      (nextRequests) => {
-        setRequests(nextRequests);
-        setIsRequestsLoading(false);
-        setErrorMessage(null);
-      },
-      (error) => {
-        console.error(error);
-        setIsRequestsLoading(false);
-        setErrorMessage("希望シフトの読み込みに失敗しました。");
-      },
-      employee.organizationId,
-    );
-    const unsubscribePositions = subscribePositions(
-      employee.organizationId,
-      (nextPositions) => {
-        setPositions(nextPositions);
-        setIsPositionsLoading(false);
-      },
-      (error) => {
-        console.error(error);
-        setIsPositionsLoading(false);
-        setErrorMessage("ポジションの読み込みに失敗しました。");
-      },
-    );
+        if (isActive) {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "シフト情報の読み込みに失敗しました。",
+          );
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsSlotsLoading(false);
+          setIsRequestsLoading(false);
+          setIsPositionsLoading(false);
+        }
+      });
 
     return () => {
-      unsubscribeSlots();
-      unsubscribeRequests();
-      unsubscribePositions();
+      isActive = false;
     };
   }, [employee]);
 
+  const employeeGeneratedRequestSlots = useMemo(() => {
+    return requests
+      .filter((request) => isEmployeeGeneratedRequest(request))
+      .filter((request) => isShiftStartInFuture(request, now))
+      .map(toEmployeeGeneratedRequestSlot);
+  }, [now, requests]);
   const requestedSlotIds = useMemo(
-    () => new Set(requests.map((request) => request.slotId)),
-    [requests],
+    () =>
+      new Set([
+        ...requests.map((request) => request.slotId).filter(Boolean),
+        ...employeeGeneratedRequestSlots.map((slot) => slot.id),
+      ]),
+    [employeeGeneratedRequestSlots, requests],
   );
   const approvedSlotIds = useMemo(
     () =>
       new Set(
         requests
           .filter((request) => request.status === "承認済")
-          .map((request) => request.slotId),
+          .map((request) => request.slotId || getEmployeeGeneratedRequestSlotId(request))
+          .filter(Boolean),
       ),
     [requests],
   );
   const pendingRequestBySlotId = useMemo(() => {
     return requests.reduce<Record<string, ShiftRequest>>((requestBySlotId, request) => {
-      if (request.status !== "承認済" && request.slotId) {
-        requestBySlotId[request.slotId] = request;
+      if (request.status !== "承認済") {
+        requestBySlotId[request.slotId || getEmployeeGeneratedRequestSlotId(request)] = request;
       }
 
       return requestBySlotId;
@@ -803,14 +878,17 @@ function EmployeeShiftRequestContent() {
   const requestableSlots = useMemo(() => {
     return slots.filter((slot) => isShiftStartInFuture(slot, now));
   }, [now, slots]);
+  const displaySlots = useMemo(() => {
+    return [...requestableSlots, ...employeeGeneratedRequestSlots];
+  }, [employeeGeneratedRequestSlots, requestableSlots]);
   const slotsByDate = useMemo(() => {
-    return requestableSlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
+    return displaySlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
       groups[slot.date] = [...(groups[slot.date] ?? []), slot];
       return groups;
     }, {});
-  }, [requestableSlots]);
+  }, [displaySlots]);
   const summaryByDate = useMemo(() => {
-    return requestableSlots.reduce<Record<string, CalendarDaySummary>>((summaries, slot) => {
+    return displaySlots.reduce<Record<string, CalendarDaySummary>>((summaries, slot) => {
       const current = summaries[slot.date] ?? {
         slotCount: 0,
         availableCount: 0,
@@ -829,7 +907,7 @@ function EmployeeShiftRequestContent() {
 
       return summaries;
     }, {});
-  }, [draftSlotIds, requestableSlots, requestedSlotIds]);
+  }, [displaySlots, draftSlotIds, requestedSlotIds]);
   const selectedDateSlots = useMemo(() => {
     if (!selectedDate) return [];
 
@@ -868,6 +946,20 @@ function EmployeeShiftRequestContent() {
     setErrorMessage(null);
   }
 
+  function addMonthlyDraftSlots(patternSlot: ShiftSlot) {
+    const monthlySlots = requestableSlots
+      .filter((slot) => isSameMonthlyPatternSlot(slot, patternSlot))
+      .filter((slot) => !requestedSlotIds.has(slot.id))
+      .filter((slot) => !draftSlotIds.has(slot.id));
+
+    if (monthlySlots.length === 0) {
+      setErrorMessage("月内で追加できる同じ曜日・時間の募集枠はありません。");
+      return;
+    }
+
+    setDraftSlots((current) => sortSlots([...current, ...monthlySlots]));
+    setErrorMessage(null);
+  }
   function addEmployeeGeneratedDraft() {
     if (!selectedDate) {
       setErrorMessage("日付を選択してください。");
@@ -921,6 +1013,77 @@ function EmployeeShiftRequestContent() {
     setDraftSlots((current) => sortSlots([...current, draft]));
     setErrorMessage(null);
   }
+  function addMonthlyEmployeeGeneratedDrafts() {
+    if (!selectedDate) {
+      setErrorMessage("日付を選択してください。");
+      return;
+    }
+
+    const selectedPosition = positions.find(
+      (position) => position.id === customDraftForm.positionId,
+    );
+
+    if (
+      !isValidShiftTimeRange(customDraftForm.startTime, customDraftForm.endTime) ||
+      !selectedPosition
+    ) {
+      setErrorMessage("時間とポジションを正しく入力してください。");
+      return;
+    }
+
+    const drafts = getMonthlyWeekdayDates(selectedDate)
+      .map<DraftShift>((date) => ({
+        id: `employee-generated:${date}:${customDraftForm.startTime}:${customDraftForm.endTime}:${customDraftForm.positionId}`,
+        date,
+        startTime: customDraftForm.startTime,
+        endTime: customDraftForm.endTime,
+        positionId: selectedPosition.id,
+        positionName: selectedPosition.name,
+        employeeGenerated: true,
+        capacity: 1,
+        requestCount: 0,
+        isEmployeeGenerated: true,
+      }))
+      .filter((draft) => isShiftStartInFuture(draft, now))
+      .filter(
+        (draft) =>
+          !requestableSlots.some(
+            (slot) =>
+              slot.date === draft.date &&
+              slot.startTime === draft.startTime &&
+              slot.endTime === draft.endTime &&
+              slot.positionId === draft.positionId,
+          ),
+      )
+      .filter(
+        (draft) =>
+          !draftSlots.some(
+            (currentDraft) =>
+              currentDraft.date === draft.date &&
+              currentDraft.startTime === draft.startTime &&
+              currentDraft.endTime === draft.endTime &&
+              currentDraft.positionId === draft.positionId,
+          ),
+      )
+      .filter(
+        (draft) =>
+          !requests.some(
+            (request) =>
+              request.date === draft.date &&
+              request.startTime === draft.startTime &&
+              request.endTime === draft.endTime &&
+              request.positionId === draft.positionId,
+          ),
+      );
+
+    if (drafts.length === 0) {
+      setErrorMessage("月内で追加できる同じ曜日・時間の自主希望はありません。");
+      return;
+    }
+
+    setDraftSlots((current) => sortSlots([...current, ...drafts]));
+    setErrorMessage(null);
+  }
   function removeDraftSlot(slotId: string) {
     setDraftSlots((current) => current.filter((slot) => slot.id !== slotId));
   }
@@ -943,6 +1106,7 @@ function EmployeeShiftRequestContent() {
         employeeId: employee.employeeId,
         employeeEmail: employee.email,
       });
+      await loadShiftData();
       setWithdrawConfirmRequest(null);
     } catch (error) {
       console.error(error);
@@ -1013,6 +1177,7 @@ function EmployeeShiftRequestContent() {
           employee.organizationId,
         );
       }
+      await loadShiftData();
       setDraftSlots([]);
       setIsConfirmOpen(false);
     } catch (error) {
@@ -1096,6 +1261,7 @@ function EmployeeShiftRequestContent() {
                     draftSlotIds={draftSlotIds}
                     withdrawingRequestId={withdrawingRequestId}
                     onAddSlot={addDraftSlot}
+                    onAddMonthlySlots={addMonthlyDraftSlots}
                     onWithdraw={openWithdrawConfirm}
                   />
                   <section className="w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-white p-3 sm:p-4">
@@ -1105,7 +1271,7 @@ function EmployeeShiftRequestContent() {
                         募集されていない時間でも、管理者に希望として送信できます
                       </p>
                     </div>
-                    <div className="mt-4 grid gap-3 min-[520px]:grid-cols-2 sm:grid-cols-[1fr_1fr_minmax(0,1.5fr)_auto] sm:items-end">
+                    <div className="mt-4 grid gap-3 min-[520px]:grid-cols-2 sm:grid-cols-[1fr_1fr_minmax(0,1.5fr)_auto_auto] sm:items-end">
                       <label className="grid gap-1 text-xs font-semibold text-[#475569]">
                         開始
                         <input
@@ -1154,6 +1320,14 @@ function EmployeeShiftRequestContent() {
                           ))}
                         </select>
                       </label>
+                      <button
+                        type="button"
+                        onClick={addMonthlyEmployeeGeneratedDrafts}
+                        disabled={positions.length === 0}
+                        className="h-10 rounded-md border border-[#bbf7d0] px-4 text-sm font-semibold text-[#166534] transition hover:bg-[#f0fdf4] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182] min-[520px]:col-span-2 sm:col-span-1"
+                      >
+                        月内追加
+                      </button>
                       <button
                         type="button"
                         onClick={addEmployeeGeneratedDraft}

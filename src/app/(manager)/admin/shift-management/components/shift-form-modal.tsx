@@ -14,6 +14,9 @@ export function ShiftFormModal({
   form,
   positions,
   onFormChange,
+  isMonthlyPattern,
+  onMonthlyPatternChange,
+  monthlyPatternCount,
   isEditingRequestedSlot,
   editedSlotStartsInFuture,
   formStartsInFuture,
@@ -29,6 +32,9 @@ export function ShiftFormModal({
   form: ShiftForm;
   positions: OrganizationPosition[];
   onFormChange: (form: ShiftForm) => void;
+  isMonthlyPattern: boolean;
+  onMonthlyPatternChange: (enabled: boolean) => void;
+  monthlyPatternCount: number;
   isEditingRequestedSlot: boolean;
   editedSlotStartsInFuture: boolean;
   formStartsInFuture: boolean;
@@ -90,6 +96,25 @@ export function ShiftFormModal({
               }}
               className="mt-2 h-10 w-full rounded-md border border-black/20 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#f0f1f4] disabled:text-[#717182]"
             />
+            {!editingId && !isEditingRequestedSlot && (
+              <label className="mt-3 flex items-start gap-2 rounded-md border border-black/10 bg-[#f7f8fb] px-3 py-2 text-sm text-[#475569]">
+                <input
+                  type="checkbox"
+                  checked={isMonthlyPattern}
+                  onChange={(event) => onMonthlyPatternChange(event.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-black/20"
+                />
+                <span>
+                  <span className="block font-semibold text-[#030213]">
+                    この曜日で月内一括作成
+                  </span>
+                  <span className="mt-1 block text-xs text-[#717182]">
+                    選択した日付と同じ曜日の未来日をまとめて募集します。
+                    {isMonthlyPattern && ` 作成予定: ${monthlyPatternCount}件`}
+                  </span>
+                </span>
+              </label>
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -228,7 +253,7 @@ export function ShiftFormModal({
                 : "cursor-not-allowed bg-[#8e8d95]",
             ].join(" ")}
           >
-            {isSaving ? "保存中..." : editingId ? "更新" : "追加"}
+            {isSaving ? "保存中..." : editingId ? "更新" : isMonthlyPattern ? `一括作成（${monthlyPatternCount}件）` : "追加"}
           </button>
         </div>
       </form>
