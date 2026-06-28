@@ -1,6 +1,7 @@
 import type { EmployeeProfile } from "./people";
 import type { PayrollSettings } from "./payroll";
 import type { ShiftRequest } from "./shiftRequests";
+import type { ShiftRequestSettings } from "./shiftRequestSettings";
 import type { ShiftSlot } from "./shiftSlots";
 import type { OrganizationPosition } from "./managerOrganizations";
 import type { CompatibilityScores } from "./compatibilities";
@@ -10,6 +11,7 @@ export type EmployeeShiftData = {
   slots: ShiftSlot[];
   positions: OrganizationPosition[];
   payrollSettings: PayrollSettings;
+  shiftRequestSettings: ShiftRequestSettings;
 };
 
 export type EmployeeCompatibilityData = {

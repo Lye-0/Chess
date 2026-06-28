@@ -18,6 +18,12 @@ import {
   updateRecommendationSettings,
   type RecommendationSettings,
 } from "@/lib/recommendationSettings";
+import {
+  defaultShiftRequestSettings,
+  subscribeShiftRequestSettings,
+  updateShiftRequestSettings,
+  type ShiftRequestSettings,
+} from "@/lib/shiftRequestSettings";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import { BackHeader, Card } from "../../_components/shift-ui";
 import { WeightSelector } from "../shift-management/components/weight-selector";
@@ -125,14 +131,21 @@ function AdminSettingsContent() {
   const [payrollForm, setPayrollForm] = useState(() =>
     toPayrollForm(defaultPayrollSettings),
   );
+  const [shiftRequestSettings, setShiftRequestSettings] = useState<ShiftRequestSettings>(
+    defaultShiftRequestSettings,
+  );
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [isLoadingPayroll, setIsLoadingPayroll] = useState(true);
+  const [isLoadingShiftRequestSettings, setIsLoadingShiftRequestSettings] = useState(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingPayroll, setIsSavingPayroll] = useState(false);
+  const [isSavingShiftRequestSettings, setIsSavingShiftRequestSettings] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsErrorMessage, setSettingsErrorMessage] = useState("");
   const [payrollMessage, setPayrollMessage] = useState("");
   const [payrollErrorMessage, setPayrollErrorMessage] = useState("");
+  const [shiftRequestSettingsMessage, setShiftRequestSettingsMessage] = useState("");
+  const [shiftRequestSettingsErrorMessage, setShiftRequestSettingsErrorMessage] = useState("");
   const [isDeletingOrganization, setIsDeletingOrganization] = useState(false);
   const [isDeleteOrganizationModalOpen, setIsDeleteOrganizationModalOpen] =
     useState(false);
@@ -175,6 +188,24 @@ function AdminSettingsContent() {
 
     return () => unsubscribe();
   }, [currentOrganization, organizationId]);
+  useEffect(() => {
+    if (!currentOrganization) return;
+
+    const unsubscribe = subscribeShiftRequestSettings(
+      (nextSettings) => {
+        setShiftRequestSettings(nextSettings);
+        setIsLoadingShiftRequestSettings(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsLoadingShiftRequestSettings(false);
+        setShiftRequestSettingsErrorMessage("シフト希望設定の読み込みに失敗しました。");
+      },
+      organizationId,
+    );
+
+    return () => unsubscribe();
+  }, [currentOrganization, organizationId]);
 
   async function saveSettings(nextSettings: RecommendationSettings) {
     const previousSettings = settings;
@@ -196,6 +227,25 @@ function AdminSettingsContent() {
     }
   }
 
+  async function saveShiftRequestSettings(nextSettings: ShiftRequestSettings) {
+    const previousSettings = shiftRequestSettings;
+
+    setShiftRequestSettings(nextSettings);
+    setIsSavingShiftRequestSettings(true);
+    setShiftRequestSettingsMessage("");
+    setShiftRequestSettingsErrorMessage("");
+
+    try {
+      await updateShiftRequestSettings(nextSettings, organizationId);
+      setShiftRequestSettingsMessage("シフト希望設定を保存しました。");
+    } catch (error) {
+      console.error(error);
+      setShiftRequestSettings(previousSettings);
+      setShiftRequestSettingsErrorMessage("シフト希望設定の保存に失敗しました。");
+    } finally {
+      setIsSavingShiftRequestSettings(false);
+    }
+  }
   async function handlePayrollSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -342,6 +392,57 @@ function AdminSettingsContent() {
             />
           </Card>
 
+          <Card className="p-4 sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">シフト希望設定</h2>
+                <p className="mt-1 text-sm text-[#717182]">
+                  従業員が募集枠なしの希望を送信できるかを設定します
+                </p>
+              </div>
+              {isSavingShiftRequestSettings && (
+                <span className="text-sm font-semibold text-[#1763ff]">
+                  保存中...
+                </span>
+              )}
+            </div>
+
+            {shiftRequestSettingsMessage && (
+              <p className="mt-4 rounded-md bg-[#ecfdf3] px-4 py-3 text-sm font-semibold text-[#15803d]">
+                {shiftRequestSettingsMessage}
+              </p>
+            )}
+            {shiftRequestSettingsErrorMessage && (
+              <p className="mt-4 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-semibold text-[#be123c]">
+                {shiftRequestSettingsErrorMessage}
+              </p>
+            )}
+
+            <div className="mt-5 rounded-lg border border-black/10 px-4 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-semibold">従業員の自主希望を許可する</p>
+                  <p className="mt-1 text-sm text-[#717182]">
+                    {shiftRequestSettings.employeeGeneratedRequestsEnabled
+                      ? "募集枠なしの希望を送信できます"
+                      : "管理者が作成した募集枠だけ希望できます"}
+                  </p>
+                </div>
+                <ToggleSwitch
+                  checked={shiftRequestSettings.employeeGeneratedRequestsEnabled}
+                  disabled={
+                    isLoadingShiftRequestSettings || isSavingShiftRequestSettings
+                  }
+                  onChange={(checked) =>
+                    saveShiftRequestSettings({
+                      ...shiftRequestSettings,
+                      employeeGeneratedRequestsEnabled: checked,
+                    })
+                  }
+                />
+              </div>
+            </div>
+          </Card>
           <Card className="p-4 sm:p-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>

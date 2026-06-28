@@ -3,6 +3,7 @@ import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { EmployeeAuthError, verifyEmployeeRequest } from "@/lib/employeeAuthServer";
 import { normalizePayrollSettings } from "@/lib/payroll";
+import { normalizeShiftRequestSettings } from "@/lib/shiftRequestSettings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,17 +65,24 @@ export async function GET(request: Request) {
       .collection("organizations")
       .doc(employeeAuth.organizationId);
 
-    const [employeeSnapshot, requestsSnapshot, slotsSnapshot, positionsSnapshot, payrollSnapshot] =
-      await Promise.all([
-        organizationRef.collection("employees").doc(employeeAuth.employeeId).get(),
-        organizationRef
-          .collection("shiftRequests")
-          .where("employeeId", "==", employeeAuth.employeeId)
-          .get(),
-        organizationRef.collection("shiftSlots").get(),
-        organizationRef.collection("positions").get(),
-        organizationRef.collection("settings").doc("payroll").get(),
-      ]);
+    const [
+      employeeSnapshot,
+      requestsSnapshot,
+      slotsSnapshot,
+      positionsSnapshot,
+      payrollSnapshot,
+      shiftRequestSettingsSnapshot,
+    ] = await Promise.all([
+      organizationRef.collection("employees").doc(employeeAuth.employeeId).get(),
+      organizationRef
+        .collection("shiftRequests")
+        .where("employeeId", "==", employeeAuth.employeeId)
+        .get(),
+      organizationRef.collection("shiftSlots").get(),
+      organizationRef.collection("positions").get(),
+      organizationRef.collection("settings").doc("payroll").get(),
+      organizationRef.collection("settings").doc("shiftRequests").get(),
+    ]);
 
     if (!employeeSnapshot.exists) {
       return NextResponse.json(
@@ -92,6 +100,9 @@ export async function GET(request: Request) {
         )
         .sort((a, b) => a.name.localeCompare(b.name)),
       payrollSettings: normalizePayrollSettings(payrollSnapshot.data()),
+      shiftRequestSettings: normalizeShiftRequestSettings(
+        shiftRequestSettingsSnapshot.data(),
+      ),
     });
   } catch (error) {
     if (error instanceof EmployeeAuthError) {

@@ -23,6 +23,7 @@ import {
 } from "@/lib/shiftRequests";
 import { type OrganizationPosition } from "@/lib/managerOrganizations";
 import { fetchEmployeeShiftData } from "@/lib/employeeApi";
+import { defaultShiftRequestSettings } from "@/lib/shiftRequestSettings";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 const monthFormatter = new Intl.DateTimeFormat("ja-JP", {
@@ -743,6 +744,9 @@ function EmployeeShiftRequestContent() {
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [positions, setPositions] = useState<OrganizationPosition[]>([]);
+  const [shiftRequestSettings, setShiftRequestSettings] = useState(
+    defaultShiftRequestSettings,
+  );
   const [displayMonth, setDisplayMonth] = useState(() => getMonthStart(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [draftSlots, setDraftSlots] = useState<DraftShift[]>([]);
@@ -786,6 +790,7 @@ function EmployeeShiftRequestContent() {
       setSlots(data.slots);
       setRequests(data.requests);
       setPositions(data.positions);
+      setShiftRequestSettings(data.shiftRequestSettings);
       setErrorMessage(null);
     } catch (error) {
       console.error(error);
@@ -813,6 +818,7 @@ function EmployeeShiftRequestContent() {
         setSlots(data.slots);
         setRequests(data.requests);
         setPositions(data.positions);
+        setShiftRequestSettings(data.shiftRequestSettings);
         setErrorMessage(null);
       })
       .catch((error) => {
@@ -838,12 +844,17 @@ function EmployeeShiftRequestContent() {
     };
   }, [employee]);
 
+  const employeeGeneratedRequestsEnabled =
+    shiftRequestSettings.employeeGeneratedRequestsEnabled;
   const employeeGeneratedRequestSlots = useMemo(() => {
+    if (!employeeGeneratedRequestsEnabled) return [];
+
     return requests
       .filter((request) => isEmployeeGeneratedRequest(request))
       .filter((request) => isShiftStartInFuture(request, now))
       .map(toEmployeeGeneratedRequestSlot);
-  }, [now, requests]);
+  }, [employeeGeneratedRequestsEnabled, now, requests]);
+
   const requestedSlotIds = useMemo(
     () =>
       new Set([
@@ -961,6 +972,11 @@ function EmployeeShiftRequestContent() {
     setErrorMessage(null);
   }
   function addEmployeeGeneratedDraft() {
+    if (!employeeGeneratedRequestsEnabled) {
+      setErrorMessage("募集枠なしのシフト希望は現在送信できません。");
+      return;
+    }
+
     if (!selectedDate) {
       setErrorMessage("日付を選択してください。");
       return;
@@ -1014,6 +1030,11 @@ function EmployeeShiftRequestContent() {
     setErrorMessage(null);
   }
   function addMonthlyEmployeeGeneratedDrafts() {
+    if (!employeeGeneratedRequestsEnabled) {
+      setErrorMessage("募集枠なしのシフト希望は現在送信できません。");
+      return;
+    }
+
     if (!selectedDate) {
       setErrorMessage("日付を選択してください。");
       return;
@@ -1139,9 +1160,9 @@ function EmployeeShiftRequestContent() {
       const slotDrafts = requestableDraftSlots.filter(
         (slot) => !slot.isEmployeeGenerated,
       );
-      const employeeGeneratedDrafts = requestableDraftSlots.filter(
-        (slot) => slot.isEmployeeGenerated,
-      );
+      const employeeGeneratedDrafts = employeeGeneratedRequestsEnabled
+        ? requestableDraftSlots.filter((slot) => slot.isEmployeeGenerated)
+        : [];
 
       if (slotDrafts.length > 0) {
         await createShiftRequests(
@@ -1264,85 +1285,87 @@ function EmployeeShiftRequestContent() {
                     onAddMonthlySlots={addMonthlyDraftSlots}
                     onWithdraw={openWithdrawConfirm}
                   />
-                  <section className="w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-white p-3 sm:p-4">
-                    <div className="min-w-0">
-                      <h2 className="text-sm font-semibold">募集枠なしで希望を追加</h2>
-                      <p className="mt-1 text-xs text-[#717182]">
-                        募集されていない時間でも、管理者に希望として送信できます
-                      </p>
-                    </div>
-                    <div className="mt-4 grid gap-3 min-[520px]:grid-cols-2 sm:grid-cols-[1fr_1fr_minmax(0,1.5fr)_auto_auto] sm:items-end">
-                      <label className="grid gap-1 text-xs font-semibold text-[#475569]">
-                        開始
-                        <input
-                          type="time"
-                          value={customDraftForm.startTime}
-                          onChange={(event) =>
-                            setCustomDraftForm((current) => ({
-                              ...current,
-                              startTime: event.target.value,
-                            }))
-                          }
-                          className="h-10 rounded-md border border-black/10 px-3 text-sm text-[#030213]"
-                        />
-                      </label>
-                      <label className="grid gap-1 text-xs font-semibold text-[#475569]">
-                        終了
-                        <input
-                          type="time"
-                          value={customDraftForm.endTime}
-                          onChange={(event) =>
-                            setCustomDraftForm((current) => ({
-                              ...current,
-                              endTime: event.target.value,
-                            }))
-                          }
-                          className="h-10 rounded-md border border-black/10 px-3 text-sm text-[#030213]"
-                        />
-                      </label>
-                      <label className="grid min-w-0 gap-1 text-xs font-semibold text-[#475569]">
-                        ポジション
-                        <select
-                          value={customDraftForm.positionId}
-                          onChange={(event) =>
-                            setCustomDraftForm((current) => ({
-                              ...current,
-                              positionId: event.target.value,
-                            }))
-                          }
-                          className="h-10 min-w-0 rounded-md border border-black/10 px-3 text-sm text-[#030213]"
+                  {employeeGeneratedRequestsEnabled && (
+                    <section className="w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-black/10 bg-white p-3 sm:p-4">
+                      <div className="min-w-0">
+                        <h2 className="text-sm font-semibold">募集枠なしで希望を追加</h2>
+                        <p className="mt-1 text-xs text-[#717182]">
+                          募集されていない時間でも、管理者に希望として送信できます
+                        </p>
+                      </div>
+                      <div className="mt-4 grid gap-3 min-[520px]:grid-cols-2 sm:grid-cols-[1fr_1fr_minmax(0,1.5fr)_auto_auto] sm:items-end">
+                        <label className="grid gap-1 text-xs font-semibold text-[#475569]">
+                          開始
+                          <input
+                            type="time"
+                            value={customDraftForm.startTime}
+                            onChange={(event) =>
+                              setCustomDraftForm((current) => ({
+                                ...current,
+                                startTime: event.target.value,
+                              }))
+                            }
+                            className="h-10 rounded-md border border-black/10 px-3 text-sm text-[#030213]"
+                          />
+                        </label>
+                        <label className="grid gap-1 text-xs font-semibold text-[#475569]">
+                          終了
+                          <input
+                            type="time"
+                            value={customDraftForm.endTime}
+                            onChange={(event) =>
+                              setCustomDraftForm((current) => ({
+                                ...current,
+                                endTime: event.target.value,
+                              }))
+                            }
+                            className="h-10 rounded-md border border-black/10 px-3 text-sm text-[#030213]"
+                          />
+                        </label>
+                        <label className="grid min-w-0 gap-1 text-xs font-semibold text-[#475569]">
+                          ポジション
+                          <select
+                            value={customDraftForm.positionId}
+                            onChange={(event) =>
+                              setCustomDraftForm((current) => ({
+                                ...current,
+                                positionId: event.target.value,
+                              }))
+                            }
+                            className="h-10 min-w-0 rounded-md border border-black/10 px-3 text-sm text-[#030213]"
+                          >
+                            <option value="">選択してください</option>
+                            {positions.map((position) => (
+                              <option key={position.id} value={position.id}>
+                                {position.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={addMonthlyEmployeeGeneratedDrafts}
+                          disabled={positions.length === 0}
+                          className="h-10 rounded-md border border-[#bbf7d0] px-4 text-sm font-semibold text-[#166534] transition hover:bg-[#f0fdf4] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182] min-[520px]:col-span-2 sm:col-span-1"
                         >
-                          <option value="">選択してください</option>
-                          {positions.map((position) => (
-                            <option key={position.id} value={position.id}>
-                              {position.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={addMonthlyEmployeeGeneratedDrafts}
-                        disabled={positions.length === 0}
-                        className="h-10 rounded-md border border-[#bbf7d0] px-4 text-sm font-semibold text-[#166534] transition hover:bg-[#f0fdf4] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182] min-[520px]:col-span-2 sm:col-span-1"
-                      >
-                        月内追加
-                      </button>
-                      <button
-                        type="button"
-                        onClick={addEmployeeGeneratedDraft}
-                        disabled={positions.length === 0}
-                        className="h-10 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#eef0f4] disabled:text-[#717182] min-[520px]:col-span-2 sm:col-span-1"
-                      >
-                        追加
-                      </button>
-                    </div>
-                    {positions.length === 0 && !isPositionsLoading && (
-                      <p className="mt-3 text-xs text-[#b91c1c]">
-                        管理者がポジションを登録すると、募集枠なしの希望を追加できます。
-                      </p>
-                    )}
-                  </section>
+                          月内追加
+                        </button>
+                        <button
+                          type="button"
+                          onClick={addEmployeeGeneratedDraft}
+                          disabled={positions.length === 0}
+                          className="h-10 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#eef0f4] disabled:text-[#717182] min-[520px]:col-span-2 sm:col-span-1"
+                        >
+                          追加
+                        </button>
+                      </div>
+                      {positions.length === 0 && !isPositionsLoading && (
+                        <p className="mt-3 text-xs text-[#b91c1c]">
+                          管理者がポジションを登録すると、募集枠なしの希望を追加できます。
+                        </p>
+                      )}
+                    </section>
+                  )}
                 </>
               ) : (
                 <section className="w-full max-w-full min-w-0 rounded-lg border border-black/10 bg-white p-3 text-xs text-[#717182] sm:p-4 sm:text-sm">
