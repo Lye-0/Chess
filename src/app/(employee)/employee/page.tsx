@@ -883,14 +883,15 @@ function EmployeePageContent() {
     () => approvedRequests.find((request) => isWithinNextDays(request, 7, now)),
     [approvedRequests, now],
   );
+  const myCalendarRequests = approvedRequests;
   const requestsByDate = useMemo(() => {
-    return sortedRequests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
+    return myCalendarRequests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
       groups[request.date] = [...(groups[request.date] ?? []), request];
       return groups;
     }, {});
-  }, [sortedRequests]);
+  }, [myCalendarRequests]);
   const calendarSummaryByDate = useMemo(() => {
-    return sortedRequests.reduce<Record<string, MyCalendarDaySummary>>((summaries, request) => {
+    return myCalendarRequests.reduce<Record<string, MyCalendarDaySummary>>((summaries, request) => {
       const current = summaries[request.date] ?? {
         totalCount: 0,
         pendingCount: 0,
@@ -899,13 +900,13 @@ function EmployeePageContent() {
 
       summaries[request.date] = {
         totalCount: current.totalCount + 1,
-        pendingCount: current.pendingCount + (request.status === "承認済" ? 0 : 1),
-        approvedCount: current.approvedCount + (request.status === "承認済" ? 1 : 0),
+        pendingCount: current.pendingCount,
+        approvedCount: current.approvedCount + 1,
       };
 
       return summaries;
     }, {});
-  }, [sortedRequests]);
+  }, [myCalendarRequests]);
   const calendarDays = useMemo(
     () => getMonthCalendarDays(displayMonth),
     [displayMonth],

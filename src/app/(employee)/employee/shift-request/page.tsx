@@ -35,14 +35,8 @@ const monthFormatter = new Intl.DateTimeFormat("ja-JP", {
 });
 const timelineLaneHeight = 84;
 const timelineSlotBarHeight = 72;
-const positionColorClasses = [
-  "border-[#93c5fd] bg-[#dbeafe] text-[#1d4ed8]",
-  "border-[#86efac] bg-[#dcfce7] text-[#166534]",
-  "border-[#c4b5fd] bg-[#ede9fe] text-[#6d28d9]",
-  "border-[#fcd34d] bg-[#fef3c7] text-[#92400e]",
-  "border-[#f9a8d4] bg-[#fce7f3] text-[#be185d]",
-  "border-[#67e8f9] bg-[#cffafe] text-[#0e7490]",
-];
+const availableShiftSlotClass = "border-[#86efac] bg-[#dcfce7] text-[#166534]";
+const requestedShiftSlotClass = "cursor-not-allowed border-black/10 bg-[#eef0f4] text-[#717182] opacity-80";
 
 type CalendarDaySummary = {
   slotCount: number;
@@ -226,16 +220,27 @@ function toTimelineSlot(slot: ShiftSlot) {
   return { slot, startMinutes, endMinutes };
 }
 
-function getPositionColor(positionName: string) {
-  const source = positionName || "ポジション未設定";
-  const hash = Array.from(source).reduce(
-    (total, character) => total + character.charCodeAt(0),
-    0,
-  );
-
-  return positionColorClasses[hash % positionColorClasses.length];
+function getEmployeeGeneratedRequestSlotId(request: Pick<ShiftRequest, "id">) {
+  return `employee-generated-request:${request.id}`;
 }
 
+function isEmployeeGeneratedRequest(request: Pick<ShiftRequest, "slotId" | "employeeGenerated">) {
+  return request.employeeGenerated || !request.slotId;
+}
+
+function toEmployeeGeneratedRequestSlot(request: ShiftRequest): ShiftSlot {
+  return {
+    id: getEmployeeGeneratedRequestSlotId(request),
+    date: request.date,
+    startTime: request.startTime,
+    endTime: request.endTime,
+    positionId: request.positionId,
+    positionName: request.positionName,
+    employeeGenerated: true,
+    capacity: 1,
+    requestCount: 1,
+  };
+}
 function getTimelineRange(timelineSlots: ReturnType<typeof toTimelineSlot>[]) {
   const firstStart = Math.min(...timelineSlots.map((item) => item.startMinutes));
   const lastEnd = Math.max(...timelineSlots.map((item) => item.endMinutes));
@@ -578,8 +583,8 @@ function SelectedDayShiftTimeline({
                   className={[
                     "absolute min-w-28 overflow-hidden rounded-md border px-2 py-1 text-left shadow-sm transition",
                     disabled
-                      ? "cursor-not-allowed border-black/10 bg-[#eef0f4] text-[#717182] opacity-80"
-                      : getPositionColor(positionName),
+                      ? requestedShiftSlotClass
+                      : availableShiftSlotClass,
                   ].join(" ")}
                   style={{
                     left: `${left}%`,
@@ -601,7 +606,9 @@ function SelectedDayShiftTimeline({
                         ? "追加済み"
                         : approved
                           ? "承認済み"
-                          : "希望済み"
+                          : slot.employeeGenerated
+                            ? "自主希望済み"
+                            : "希望済み"
                       : `募集 ${slot.capacity}人 / 希望 ${slot.requestCount}人`}
                   </span>
                 </button>
@@ -623,7 +630,9 @@ function SelectedDayShiftTimeline({
             : approved
               ? "承認済み"
               : pendingRequest
-                ? "希望済み"
+                ? slot.employeeGenerated
+                  ? "自主希望済み"
+                  : "希望済み"
                 : null;
           const disabled = drafted || withdrawing || approved;
 
@@ -774,23 +783,34 @@ function EmployeeShiftRequestContent() {
     };
   }, [employee]);
 
+  const employeeGeneratedRequestSlots = useMemo(() => {
+    return requests
+      .filter((request) => isEmployeeGeneratedRequest(request))
+      .filter((request) => isShiftStartInFuture(request, now))
+      .map(toEmployeeGeneratedRequestSlot);
+  }, [now, requests]);
   const requestedSlotIds = useMemo(
-    () => new Set(requests.map((request) => request.slotId)),
-    [requests],
+    () =>
+      new Set([
+        ...requests.map((request) => request.slotId).filter(Boolean),
+        ...employeeGeneratedRequestSlots.map((slot) => slot.id),
+      ]),
+    [employeeGeneratedRequestSlots, requests],
   );
   const approvedSlotIds = useMemo(
     () =>
       new Set(
         requests
           .filter((request) => request.status === "承認済")
-          .map((request) => request.slotId),
+          .map((request) => request.slotId || getEmployeeGeneratedRequestSlotId(request))
+          .filter(Boolean),
       ),
     [requests],
   );
   const pendingRequestBySlotId = useMemo(() => {
     return requests.reduce<Record<string, ShiftRequest>>((requestBySlotId, request) => {
-      if (request.status !== "承認済" && request.slotId) {
-        requestBySlotId[request.slotId] = request;
+      if (request.status !== "承認済") {
+        requestBySlotId[request.slotId || getEmployeeGeneratedRequestSlotId(request)] = request;
       }
 
       return requestBySlotId;
@@ -803,14 +823,17 @@ function EmployeeShiftRequestContent() {
   const requestableSlots = useMemo(() => {
     return slots.filter((slot) => isShiftStartInFuture(slot, now));
   }, [now, slots]);
+  const displaySlots = useMemo(() => {
+    return [...requestableSlots, ...employeeGeneratedRequestSlots];
+  }, [employeeGeneratedRequestSlots, requestableSlots]);
   const slotsByDate = useMemo(() => {
-    return requestableSlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
+    return displaySlots.reduce<Record<string, ShiftSlot[]>>((groups, slot) => {
       groups[slot.date] = [...(groups[slot.date] ?? []), slot];
       return groups;
     }, {});
-  }, [requestableSlots]);
+  }, [displaySlots]);
   const summaryByDate = useMemo(() => {
-    return requestableSlots.reduce<Record<string, CalendarDaySummary>>((summaries, slot) => {
+    return displaySlots.reduce<Record<string, CalendarDaySummary>>((summaries, slot) => {
       const current = summaries[slot.date] ?? {
         slotCount: 0,
         availableCount: 0,
@@ -829,7 +852,7 @@ function EmployeeShiftRequestContent() {
 
       return summaries;
     }, {});
-  }, [draftSlotIds, requestableSlots, requestedSlotIds]);
+  }, [displaySlots, draftSlotIds, requestedSlotIds]);
   const selectedDateSlots = useMemo(() => {
     if (!selectedDate) return [];
 
