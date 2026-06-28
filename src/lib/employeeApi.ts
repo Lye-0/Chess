@@ -31,10 +31,19 @@ async function readApiResponse<T>(response: Response, fallbackMessage: string) {
   return result as T;
 }
 
-export async function fetchEmployeeShiftData() {
-  const response = await fetch("/api/employee/shift-data", {
-    cache: "no-store",
-  });
+export async function fetchEmployeeShiftData(month?: string) {
+  const searchParams = new URLSearchParams();
+
+  if (month) {
+    searchParams.set("month", month);
+  }
+
+  const response = await fetch(
+    `/api/employee/shift-data${searchParams.size > 0 ? `?${searchParams}` : ""}`,
+    {
+      cache: "no-store",
+    },
+  );
 
   return readApiResponse<EmployeeShiftData>(
     response,

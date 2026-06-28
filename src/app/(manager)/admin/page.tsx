@@ -89,6 +89,12 @@ function isRequestInWeek(request: ShiftRequest, weekStart: Date, weekEnd: Date) 
   );
 }
 
+function isShiftStartInFuture(slot: ShiftSlot, now = new Date()) {
+  const startAt = new Date(`${slot.date}T${slot.startTime}:00`);
+
+  return !Number.isNaN(startAt.getTime()) && startAt > now;
+}
+
 function formatHoursOnly(minutes: number) {
   const roundedHours = Math.round((minutes / 60) * 10) / 10;
 
@@ -156,8 +162,11 @@ function AdminContent() {
   }, [requests]);
 
   const understaffedSlotIds = useMemo(() => {
+    const now = new Date();
+
     return new Set(
       slots
+        .filter((slot) => isShiftStartInFuture(slot, now))
         .filter((slot) => (approvedCountBySlot[slot.id] ?? 0) < slot.capacity)
         .map((slot) => slot.id),
     );
@@ -167,8 +176,8 @@ function AdminContent() {
     return requests.filter(
       (request) =>
         request.status !== "承認済" &&
-        Boolean(request.slotId) &&
-        understaffedSlotIds.has(request.slotId),
+        ((Boolean(request.slotId) && understaffedSlotIds.has(request.slotId)) ||
+          (request.employeeGenerated === true && !request.slotId)),
     ).length;
   }, [requests, understaffedSlotIds]);
 
@@ -278,7 +287,7 @@ function AdminContent() {
             <p className="mt-4 text-3xl font-semibold">
               {isLoadingRequests || isLoadingSlots ? "..." : `${pendingRequestCount}件`}
             </p>
-            <p className="mt-4 text-sm text-[#475569]">未承認かつ定員未達の希望</p>
+            <p className="mt-4 text-sm text-[#475569]">未承認の対応が必要な希望</p>
           </Card>
           <Card className="p-4 sm:p-5 lg:p-6">
             <p className="text-sm text-[#717182]">人員不足の枠</p>

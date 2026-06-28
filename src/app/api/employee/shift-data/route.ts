@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
+import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { EmployeeAuthError, verifyEmployeeRequest } from "@/lib/employeeAuthServer";
 import { normalizePayrollSettings } from "@/lib/payroll";
@@ -7,6 +7,10 @@ import { normalizeShiftRequestSettings } from "@/lib/shiftRequestSettings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function normalizeMonth(value: string | null) {
+  return value && /^\d{4}-\d{2}$/.test(value) ? value : null;
+}
 
 function toShiftRequest(snapshot: QueryDocumentSnapshot) {
   const data = snapshot.data() ?? {};
@@ -60,10 +64,19 @@ function toPosition(snapshot: QueryDocumentSnapshot, organizationId: string) {
 export async function GET(request: Request) {
   try {
     const employeeAuth = await verifyEmployeeRequest(request);
+    const requestedMonth = normalizeMonth(
+      new URL(request.url).searchParams.get("month"),
+    );
     const adminDb = await getAdminDb();
     const organizationRef = adminDb
       .collection("organizations")
       .doc(employeeAuth.organizationId);
+    const slotsQuery: Query = requestedMonth
+      ? organizationRef
+          .collection("shiftSlots")
+          .where("date", ">=", `${requestedMonth}-01`)
+          .where("date", "<=", `${requestedMonth}-31`)
+      : organizationRef.collection("shiftSlots");
 
     const [
       employeeSnapshot,
@@ -78,7 +91,7 @@ export async function GET(request: Request) {
         .collection("shiftRequests")
         .where("employeeId", "==", employeeAuth.employeeId)
         .get(),
-      organizationRef.collection("shiftSlots").get(),
+      slotsQuery.get(),
       organizationRef.collection("positions").get(),
       organizationRef.collection("settings").doc("payroll").get(),
       organizationRef.collection("settings").doc("shiftRequests").get(),

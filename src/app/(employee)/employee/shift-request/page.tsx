@@ -155,6 +155,10 @@ function toDateString(date: Date) {
   ].join("-");
 }
 
+function getMonthValue(date: Date) {
+  return [date.getFullYear(), padDatePart(date.getMonth() + 1)].join("-");
+}
+
 function getMonthlyWeekdayDates(anchorDate: string) {
   const anchor = new Date(`${anchorDate}T00:00:00`);
   if (Number.isNaN(anchor.getTime())) return [];
@@ -616,15 +620,15 @@ function SelectedDayShiftTimeline({
                   disabled={disabled}
                   onClick={() => onAddSlot(slot)}
                   className={[
-                    "absolute min-w-28 overflow-hidden rounded-md border px-2 py-1 text-left shadow-sm transition",
+                    "absolute min-w-0 overflow-hidden rounded-md border px-2 py-1 text-left shadow-sm transition",
                     disabled
                       ? requestedShiftSlotClass
                       : availableShiftSlotClass,
                   ].join(" ")}
                   style={{
-                    left: `${left}%`,
+                    left: `calc(${left}% + 2px)`,
                     top: 12 + lane * timelineLaneHeight,
-                    width: `${width}%`,
+                    width: `calc(${width}% - 4px)`,
                     height: timelineSlotBarHeight,
                   }}
                   title={`${formatShiftTimeRange(slot.startTime, slot.endTime)} / ${positionName}`}
@@ -785,7 +789,7 @@ function EmployeeShiftRequestContent() {
     if (!employee) return;
 
     try {
-      const data = await fetchEmployeeShiftData();
+      const data = await fetchEmployeeShiftData(getMonthValue(displayMonth));
 
       setSlots(data.slots);
       setRequests(data.requests);
@@ -804,14 +808,14 @@ function EmployeeShiftRequestContent() {
       setIsRequestsLoading(false);
       setIsPositionsLoading(false);
     }
-  }, [employee]);
+  }, [displayMonth, employee]);
 
   useEffect(() => {
     if (!employee) return;
 
     let isActive = true;
 
-    void fetchEmployeeShiftData()
+    void fetchEmployeeShiftData(getMonthValue(displayMonth))
       .then((data) => {
         if (!isActive) return;
 
@@ -842,18 +846,16 @@ function EmployeeShiftRequestContent() {
     return () => {
       isActive = false;
     };
-  }, [employee]);
+  }, [displayMonth, employee]);
 
   const employeeGeneratedRequestsEnabled =
     shiftRequestSettings.employeeGeneratedRequestsEnabled;
   const employeeGeneratedRequestSlots = useMemo(() => {
-    if (!employeeGeneratedRequestsEnabled) return [];
-
     return requests
       .filter((request) => isEmployeeGeneratedRequest(request))
       .filter((request) => isShiftStartInFuture(request, now))
       .map(toEmployeeGeneratedRequestSlot);
-  }, [employeeGeneratedRequestsEnabled, now, requests]);
+  }, [now, requests]);
 
   const requestedSlotIds = useMemo(
     () =>
