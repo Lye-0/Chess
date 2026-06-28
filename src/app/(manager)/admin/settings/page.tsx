@@ -16,6 +16,11 @@ import {
   defaultRecommendationSettings,
   subscribeRecommendationSettings,
   updateRecommendationSettings,
+  type AutoApprovalMode,
+  type AutoApprovalPeriodTarget,
+  type AutoApprovalRequestScope,
+  type AutoApprovalTiming,
+  type AutoApprovalWindow,
   type RecommendationSettings,
 } from "@/lib/recommendationSettings";
 import {
@@ -28,6 +33,50 @@ import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess
 import { BackHeader, Card } from "../../_components/shift-ui";
 import { WeightSelector } from "../shift-management/components/weight-selector";
 
+const autoApprovalModeOptions: Array<{ id: AutoApprovalMode; label: string }> = [
+  { id: "manual", label: "手動" },
+  { id: "rollingWindow", label: "期限到達で自動承認" },
+  { id: "periodic", label: "期間ごとに自動承認" },
+];
+
+const autoApprovalWindowOptions: Array<{ id: AutoApprovalWindow; label: string }> = [
+  { id: "oneDay", label: "1日前" },
+  { id: "threeDays", label: "3日前" },
+  { id: "oneWeek", label: "1週間前" },
+  { id: "twoWeeks", label: "2週間前" },
+  { id: "oneMonth", label: "1か月前" },
+  { id: "twoMonths", label: "2か月前" },
+  { id: "threeMonths", label: "3か月前" },
+];
+
+const autoApprovalPeriodTargetOptions: Array<{
+  id: AutoApprovalPeriodTarget;
+  label: string;
+}> = [
+  { id: "nextWeek", label: "翌週分" },
+  { id: "secondNextWeek", label: "翌々週分" },
+  { id: "nextMonth", label: "翌月分" },
+  { id: "secondNextMonth", label: "翌々月分" },
+];
+
+const autoApprovalTimingOptions: Array<{ id: AutoApprovalTiming; label: string }> = [
+  { id: "oneDay", label: "1日前" },
+  { id: "threeDays", label: "3日前" },
+  { id: "oneWeek", label: "1週間前" },
+  { id: "twoWeeks", label: "2週間前" },
+  { id: "fifteenDays", label: "15日前" },
+  { id: "oneMonth", label: "1か月前" },
+  { id: "twoMonths", label: "2か月前" },
+  { id: "threeMonths", label: "3か月前" },
+];
+
+const autoApprovalRequestScopeOptions: Array<{
+  id: AutoApprovalRequestScope;
+  label: string;
+}> = [
+  { id: "managerSlotsOnly", label: "管理者が作成したシフトのみ" },
+  { id: "includeEmployeeGenerated", label: "自主希望も含める" },
+];
 function TrashIcon() {
   return (
     <svg
@@ -390,6 +439,133 @@ function AdminSettingsContent() {
               selectedWeightId={settings.weightId}
               onSelect={(weightId) => saveSettings({ ...settings, weightId })}
             />
+            <div className="mt-6 rounded-lg border border-black/10 px-4 py-4">
+              <p className="font-semibold">自動承認設定</p>
+              <p className="mt-1 text-sm text-[#717182]">
+                条件を満たしたシフトを、おすすめ承認から自動で確定する設定です
+              </p>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="text-sm font-semibold">承認方法</span>
+                  <select
+                    value={settings.autoApprovalMode}
+                    disabled={isLoadingSettings || isSavingSettings}
+                    onChange={(event) =>
+                      saveSettings({
+                        ...settings,
+                        autoApprovalMode: event.target.value as AutoApprovalMode,
+                      })
+                    }
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#eef0f4]"
+                  >
+                    {autoApprovalModeOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-sm font-semibold">自動承認の対象</span>
+                  <select
+                    value={settings.autoApprovalRequestScope}
+                    disabled={isLoadingSettings || isSavingSettings}
+                    onChange={(event) =>
+                      saveSettings({
+                        ...settings,
+                        autoApprovalRequestScope: event.target
+                          .value as AutoApprovalRequestScope,
+                      })
+                    }
+                    className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#eef0f4]"
+                  >
+                    {autoApprovalRequestScopeOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {settings.autoApprovalMode === "rollingWindow" && (
+                  <label className="block">
+                    <span className="text-sm font-semibold">自動承認する範囲</span>
+                    <select
+                      value={settings.autoApprovalWindow}
+                      disabled={isLoadingSettings || isSavingSettings}
+                      onChange={(event) =>
+                        saveSettings({
+                          ...settings,
+                          autoApprovalWindow: event.target
+                            .value as AutoApprovalWindow,
+                        })
+                      }
+                      className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#eef0f4]"
+                    >
+                      {autoApprovalWindowOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {settings.autoApprovalMode === "periodic" && (
+                  <>
+                    <label className="block">
+                      <span className="text-sm font-semibold">自動承認する対象</span>
+                      <select
+                        value={settings.autoApprovalPeriodTarget}
+                        disabled={isLoadingSettings || isSavingSettings}
+                        onChange={(event) =>
+                          saveSettings({
+                            ...settings,
+                            autoApprovalPeriodTarget: event.target
+                              .value as AutoApprovalPeriodTarget,
+                          })
+                        }
+                        className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#eef0f4]"
+                      >
+                        {autoApprovalPeriodTargetOptions.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-semibold">確定タイミング</span>
+                      <select
+                        value={settings.autoApprovalTiming}
+                        disabled={isLoadingSettings || isSavingSettings}
+                        onChange={(event) =>
+                          saveSettings({
+                            ...settings,
+                            autoApprovalTiming: event.target
+                              .value as AutoApprovalTiming,
+                          })
+                        }
+                        className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none focus:border-[#030213] disabled:cursor-not-allowed disabled:bg-[#eef0f4]"
+                      >
+                        {autoApprovalTimingOptions.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                )}
+              </div>
+
+              <p className="mt-4 text-xs leading-relaxed text-[#717182]">
+                ※ 自動承認は未確定の希望だけを対象にします。すでに手動で確定したシフトは変更されません。
+              </p>
+            </div>
+
           </Card>
 
           <Card className="p-4 sm:p-6">

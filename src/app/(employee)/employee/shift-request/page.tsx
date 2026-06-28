@@ -789,6 +789,9 @@ function EmployeeShiftRequestContent() {
     if (!employee) return;
 
     try {
+      setIsSlotsLoading(true);
+      setIsRequestsLoading(true);
+      setIsPositionsLoading(true);
       const data = await fetchEmployeeShiftData(getMonthValue(displayMonth));
 
       setSlots(data.slots);
@@ -933,6 +936,9 @@ function EmployeeShiftRequestContent() {
   const todayDate = useMemo(() => toDateString(new Date()), []);
 
   function changeDisplayMonth(offset: number) {
+    setIsSlotsLoading(true);
+    setIsRequestsLoading(true);
+    setIsPositionsLoading(true);
     setDisplayMonth((currentMonth) => {
       return new Date(
         currentMonth.getFullYear(),

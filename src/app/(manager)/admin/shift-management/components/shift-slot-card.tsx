@@ -101,12 +101,17 @@ function ShiftSlotCard({
     slot.employeeGenerated || slot.id.startsWith("employee-generated:");
 
   const recommendedCombination = useMemo(() => {
+    if (remainingApprovalCount <= 0) return null;
+
+    const pendingRequests = requests.filter(
+      (request) => request.status !== "承認済",
+    );
     const employeeMonthlyMinutes =
       monthlyRequestMinutesByEmployee[getSlotMonth(slot)] ?? {};
 
     return getRecommendedCombination({
-      requests,
-      capacity: slot.capacity,
+      requests: pendingRequests,
+      capacity: remainingApprovalCount,
       scores: compatibilityScores,
       employeeWorkScores,
       employeeMonthlyMinutes,
@@ -115,6 +120,7 @@ function ShiftSlotCard({
     });
   }, [
     requests,
+    remainingApprovalCount,
     slot,
     compatibilityScores,
     employeeWorkScores,
@@ -206,6 +212,7 @@ function ShiftSlotCard({
               weights={weights}
               fairnessEnabled={fairnessEnabled}
               remainingApprovalCount={remainingApprovalCount}
+              isApprovalLimitReached={isApprovalLimitReached}
               isApproving={isApprovingRecommended}
               isDisabled={isPastSlot}
               onApprove={handleApproveRecommended}
