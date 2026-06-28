@@ -48,9 +48,13 @@ import {
   type ShiftExportScope,
 } from "@/lib/shiftExports";
 import { emptyForm, recommendationWeightOptions } from "./constants";
+import {
+  defaultRecommendationSettings,
+  subscribeRecommendationSettings,
+} from "@/lib/recommendationSettings";
 import { stabilizeRecord } from "./group-utils";
 import { getDisplayedRequestCount } from "./request-utils";
-import type { RecommendedCombination, RecommendationWeightOption, ShiftForm } from "./types";
+import type { RecommendedCombination, ShiftForm } from "./types";
 
 function parseTimeToMinutes(time: string) {
   const [hour, minute] = time.split(":").map(Number);
@@ -145,8 +149,9 @@ export function useShiftManagement() {
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
     defaultPayrollSettings,
   );
-  const [selectedWeightId, setSelectedWeightId] =
-    useState<RecommendationWeightOption["id"]>("balanced");
+  const [recommendationSettings, setRecommendationSettings] = useState(
+    defaultRecommendationSettings,
+  );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMonthlyPattern, setIsMonthlyPattern] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ShiftSlot | null>(null);
@@ -172,8 +177,9 @@ export function useShiftManagement() {
   const [selectedExportScope, setSelectedExportScope] =
     useState<ShiftExportScope>("month");
   const selectedWeights =
-    recommendationWeightOptions.find((option) => option.id === selectedWeightId) ??
-    recommendationWeightOptions[1];
+    recommendationWeightOptions.find(
+      (option) => option.id === recommendationSettings.weightId,
+    ) ?? recommendationWeightOptions[2];
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
@@ -252,6 +258,13 @@ export function useShiftManagement() {
       },
       organizationId,
     );
+    const unsubscribeRecommendationSettings = subscribeRecommendationSettings(
+      setRecommendationSettings,
+      (error) => {
+        console.error(error);
+      },
+      organizationId,
+    );
 
     return () => {
       unsubscribeSlots();
@@ -260,6 +273,7 @@ export function useShiftManagement() {
       unsubscribePayroll();
       unsubscribePositions();
       unsubscribeCompatibilityScores();
+      unsubscribeRecommendationSettings();
     };
   }, [currentOrganization, organizationId]);
 
@@ -766,9 +780,8 @@ export function useShiftManagement() {
     setSelectedExportScope,
     hasExportData,
     handleExport,
-    selectedWeightId,
+    recommendationSettings,
     selectedWeights,
-    setSelectedWeightId,
     isModalOpen,
     isMonthlyPattern,
     setIsMonthlyPattern,

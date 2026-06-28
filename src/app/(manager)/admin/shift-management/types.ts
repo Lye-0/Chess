@@ -1,3 +1,4 @@
+import type { RecommendationWeightId } from "@/lib/recommendationSettings";
 import type { ShiftRequest } from "@/lib/shiftRequests";
 
 export type ShiftForm = {
@@ -17,7 +18,7 @@ export type RecommendedCombination = {
 };
 
 export type RecommendationWeightOption = {
-  id: "compatibility" | "balanced" | "workScore";
+  id: RecommendationWeightId;
   label: string;
   compatibilityWeight: number;
   workScoreWeight: number;
