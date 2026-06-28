@@ -291,6 +291,7 @@ export async function POST(request: Request) {
         employeeEmail: String(employee.email ?? ""),
         employmentType: String(employee.employmentType ?? ""),
         slotId: "",
+        employeeGenerated: true,
         date: generatedRequest.date,
         startTime: generatedRequest.startTime,
         endTime: generatedRequest.endTime,

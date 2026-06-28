@@ -281,7 +281,7 @@ function AdminShiftManagementContent() {
         <Card className="min-h-[260px] p-6">
           <h1 className="text-xl font-semibold">シフト管理</h1>
           <p className="mt-2 text-sm text-[#717182]">
-            ここで設定したシフト枠のみ従業員が希望を出せます。鉛筆アイコンで募集人数を変更できます。
+            管理者が設定したシフト枠と、従業員から届いた募集枠なしの希望を確認・承認できます。鉛筆アイコンで募集人数を変更できます。
           </p>
 
           <WeightSelector

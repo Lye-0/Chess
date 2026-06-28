@@ -400,6 +400,7 @@ export async function approveShiftRequest(
       endTime: String(requestData.endTime ?? ""),
       positionId: String(requestData.positionId ?? ""),
       positionName: String(requestData.positionName ?? ""),
+      employeeGenerated: true,
       capacity: 1,
       requestCount: 1,
       createdAt: serverTimestamp(),
@@ -407,6 +408,7 @@ export async function approveShiftRequest(
     });
     batch.update(requestRef, {
       slotId: slotRef.id,
+      employeeGenerated: true,
       status: "承認済",
       approvedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),

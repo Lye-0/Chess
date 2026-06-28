@@ -456,8 +456,8 @@ function ShiftRequestRow({
 
 type MyCalendarDaySummary = {
   totalCount: number;
-  pendingCount: number;
-  approvedCount: number;
+  firstStartTime: string;
+  firstPositionName: string;
 };
 
 function EmployeeFeatureCard({
@@ -520,7 +520,7 @@ function EmployeeMyCalendar({
         <div className="min-w-0">
           <h2 className="text-lg font-semibold sm:text-xl">マイカレンダー</h2>
           <p className="mt-1 text-xs text-[#717182] sm:text-sm">
-            自分の希望・確定シフトを月ごとに確認できます
+            自分の確定シフトを月ごとに確認できます
           </p>
         </div>
         <div className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 sm:w-auto">
@@ -561,7 +561,7 @@ function EmployeeMyCalendar({
               type="button"
               onClick={() => onSelectDate(day.date)}
               className={[
-                "flex min-h-[68px] flex-col items-start justify-start border-b border-r border-black/10 p-1 text-left transition sm:min-h-24 sm:p-2",
+                "flex min-h-[68px] min-w-0 flex-col items-start justify-start overflow-hidden border-b border-r border-black/10 p-1 text-left transition sm:min-h-24 sm:p-2",
                 selected
                   ? "bg-[#eef2ff] ring-2 ring-inset ring-[#1d4ed8]"
                   : day.outside
@@ -585,13 +585,9 @@ function EmployeeMyCalendar({
                 )}
               </div>
               {summary && (
-                <div className="mt-1 space-y-0.5 text-[10px] font-semibold leading-tight sm:mt-2 sm:space-y-1 sm:text-[11px]">
-                  {summary.pendingCount > 0 && (
-                    <p className="truncate text-[#1d4ed8]">希望 {summary.pendingCount}</p>
-                  )}
-                  {summary.approvedCount > 0 && (
-                    <p className="truncate text-[#15803d]">承認 {summary.approvedCount}</p>
-                  )}
+                <div className="mt-1 grid w-full min-w-0 gap-0.5 overflow-hidden text-[9px] font-semibold leading-tight text-[#15803d] sm:mt-2 sm:text-[11px]">
+                  <p className="truncate">{summary.firstStartTime}～</p>
+                  <p className="truncate">{summary.firstPositionName}</p>
                 </div>
               )}
             </button>
@@ -659,7 +655,7 @@ function SelectedDayTimeline({
         <div>
           <h2 className="text-xl font-semibold">{formatDateLabel(date)} の予定</h2>
           <p className="mt-1 text-sm text-[#717182]">
-            選択した日の希望・確定シフト
+            選択した日の承認済みシフト
           </p>
         </div>
         <span className="rounded-full bg-[#eef2f7] px-3 py-1 text-sm font-semibold text-[#475569]">
@@ -669,7 +665,7 @@ function SelectedDayTimeline({
 
       {timelineItems.length === 0 ? (
         <div className="mt-5 flex min-h-32 items-center justify-center rounded-lg border border-dashed border-black/10 text-sm text-[#717182]">
-          この日のシフト希望はありません
+          この日の承認済みシフトはありません
         </div>
       ) : (
         <>
@@ -894,14 +890,14 @@ function EmployeePageContent() {
     return myCalendarRequests.reduce<Record<string, MyCalendarDaySummary>>((summaries, request) => {
       const current = summaries[request.date] ?? {
         totalCount: 0,
-        pendingCount: 0,
-        approvedCount: 0,
+        firstStartTime: request.startTime,
+        firstPositionName: getShiftRequestPositionLabel(request),
       };
 
       summaries[request.date] = {
         totalCount: current.totalCount + 1,
-        pendingCount: current.pendingCount,
-        approvedCount: current.approvedCount + 1,
+        firstStartTime: current.firstStartTime,
+        firstPositionName: current.firstPositionName,
       };
 
       return summaries;
