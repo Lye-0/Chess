@@ -6,8 +6,7 @@ import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
-import { subscribeShiftSlots } from "@/lib/shiftSlots";
-import { subscribeEmployees } from "@/lib/people";
+import { subscribeShiftSlots, type ShiftSlot } from "@/lib/shiftSlots";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   ArrowLeftIcon,
@@ -69,6 +68,27 @@ function calculateWorkMinutes(request: ShiftRequest) {
   return diff >= 0 ? diff : diff + 24 * 60;
 }
 
+function getWeekRange(date: Date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - start.getDay());
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7);
+
+  return { start, end };
+}
+
+function isRequestInWeek(request: ShiftRequest, weekStart: Date, weekEnd: Date) {
+  const requestDate = new Date(`${request.date}T00:00:00`);
+
+  return (
+    !Number.isNaN(requestDate.getTime()) &&
+    requestDate >= weekStart &&
+    requestDate < weekEnd
+  );
+}
+
 function formatHoursOnly(minutes: number) {
   const roundedHours = Math.round((minutes / 60) * 10) / 10;
 
@@ -90,11 +110,9 @@ function AdminContent() {
     isCheckingOrganization,
   } = useManagerOrganizationAccess();
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
-  const [slotCount, setSlotCount] = useState(0);
-  const [employeeCount, setEmployeeCount] = useState(0);
+  const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
   const [isLoadingSlots, setIsLoadingSlots] = useState(true);
-  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
 
   useEffect(() => {
     if (!currentOrganization) return;
@@ -111,24 +129,13 @@ function AdminContent() {
       organizationId,
     );
     const unsubscribeSlots = subscribeShiftSlots(
-      (slots) => {
-        setSlotCount(slots.length);
+      (nextSlots) => {
+        setSlots(nextSlots);
         setIsLoadingSlots(false);
       },
       (error) => {
         console.error(error);
         setIsLoadingSlots(false);
-      },
-      organizationId,
-    );
-    const unsubscribeEmployees = subscribeEmployees(
-      (employees) => {
-        setEmployeeCount(employees.length);
-        setIsLoadingEmployees(false);
-      },
-      (error) => {
-        console.error(error);
-        setIsLoadingEmployees(false);
       },
       organizationId,
     );
@@ -136,15 +143,44 @@ function AdminContent() {
     return () => {
       unsubscribeRequests();
       unsubscribeSlots();
-      unsubscribeEmployees();
     };
   }, [currentOrganization, organizationId]);
 
-  const totalWorkMinutes = useMemo(() => {
-    return requests.reduce(
-      (total, request) => total + calculateWorkMinutes(request),
-      0,
+  const approvedCountBySlot = useMemo(() => {
+    return requests.reduce<Record<string, number>>((counts, request) => {
+      if (request.status !== "承認済" || !request.slotId) return counts;
+
+      counts[request.slotId] = (counts[request.slotId] ?? 0) + 1;
+      return counts;
+    }, {});
+  }, [requests]);
+
+  const understaffedSlotIds = useMemo(() => {
+    return new Set(
+      slots
+        .filter((slot) => (approvedCountBySlot[slot.id] ?? 0) < slot.capacity)
+        .map((slot) => slot.id),
     );
+  }, [approvedCountBySlot, slots]);
+
+  const pendingRequestCount = useMemo(() => {
+    return requests.filter(
+      (request) =>
+        request.status !== "承認済" &&
+        Boolean(request.slotId) &&
+        understaffedSlotIds.has(request.slotId),
+    ).length;
+  }, [requests, understaffedSlotIds]);
+
+  const understaffedSlotCount = understaffedSlotIds.size;
+
+  const totalWorkMinutes = useMemo(() => {
+    const { start, end } = getWeekRange(new Date());
+
+    return requests
+      .filter((request) => request.status === "承認済")
+      .filter((request) => isRequestInWeek(request, start, end))
+      .reduce((total, request) => total + calculateWorkMinutes(request), 0);
   }, [requests]);
 
   if (isCheckingOrganization || !currentOrganization) {
@@ -238,25 +274,25 @@ function AdminContent() {
 
         <section className="mt-8 grid grid-cols-1 gap-4 min-[560px]:grid-cols-2 sm:gap-5 xl:grid-cols-3">
           <Card className="p-4 sm:p-5 lg:p-6">
-            <p className="text-sm text-[#717182]">登録シフト枠数</p>
+            <p className="text-sm text-[#717182]">対応待ちの希望</p>
             <p className="mt-4 text-3xl font-semibold">
-              {isLoadingSlots ? "..." : `${slotCount}件`}
+              {isLoadingRequests || isLoadingSlots ? "..." : `${pendingRequestCount}件`}
             </p>
-            <p className="mt-4 text-sm text-[#475569]">この組織のシフト枠</p>
+            <p className="mt-4 text-sm text-[#475569]">未承認かつ定員未達の希望</p>
           </Card>
           <Card className="p-4 sm:p-5 lg:p-6">
-            <p className="text-sm text-[#717182]">登録従業員数</p>
+            <p className="text-sm text-[#717182]">人員不足の枠</p>
             <p className="mt-4 text-3xl font-semibold">
-              {isLoadingEmployees ? "..." : `${employeeCount}人`}
+              {isLoadingRequests || isLoadingSlots ? "..." : `${understaffedSlotCount}件`}
             </p>
-            <p className="mt-4 text-sm text-[#475569]">この組織の従業員</p>
+            <p className="mt-4 text-sm text-[#475569]">承認済み人数が募集人数未満の枠</p>
           </Card>
           <Card className="p-4 sm:p-5 lg:p-6">
-            <p className="text-sm text-[#717182]">今週の勤務時間</p>
+            <p className="text-sm text-[#717182]">今週の確定時間</p>
             <p className="mt-4 text-3xl font-semibold">
               {isLoadingRequests ? "..." : formatHoursOnly(totalWorkMinutes)}
             </p>
-            <p className="mt-4 text-sm text-[#475569]">全従業員の希望時間合計</p>
+            <p className="mt-4 text-sm text-[#475569]">今週の承認済みシフト合計</p>
           </Card>
         </section>
       </div>
