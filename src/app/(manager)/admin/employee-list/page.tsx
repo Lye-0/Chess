@@ -274,6 +274,9 @@ function AdminEmployeeListContent() {
         payrollSettings,
       )
     : null;
+  const isEditingActualPayChanged = editingActualPayroll
+    ? editingActualPayroll.totalPay !== editingActualPayroll.scheduledPay
+    : false;
 
   function closeActualModal() {
     if (isSavingActual) return;
@@ -567,7 +570,7 @@ function AdminEmployeeListContent() {
                     const canEditActuals = requestView === "completed" && request.status === "承認済";
                     const hasActualTime = payroll?.usesActualTime ?? false;
                     const hasActualPay = payroll
-                      ? payroll.usesActualPay || payroll.totalPay !== payroll.scheduledPay
+                      ? payroll.totalPay !== payroll.scheduledPay
                       : false;
 
                     return (
@@ -753,10 +756,15 @@ function AdminEmployeeListContent() {
             <div className="mt-5 rounded-md border border-black/10 px-4 py-3 text-sm">
               <p className="text-[#717182]">保存後の表示</p>
               <p className="mt-2">
-                <span className="text-[#94a3b8] line-through">
-                  {formatCurrency(editingActualPayroll.scheduledPay)}
-                </span>
-                <span className="ml-3 font-semibold text-[#00a63e]">
+                {isEditingActualPayChanged && (
+                  <span className="text-[#94a3b8] line-through">
+                    {formatCurrency(editingActualPayroll.scheduledPay)}
+                  </span>
+                )}
+                <span className={[
+                  "font-semibold text-[#00a63e]",
+                  isEditingActualPayChanged ? "ml-3" : "",
+                ].join(" ")}>
                   {formatCurrency(editingActualPayroll.totalPay)}
                 </span>
               </p>
