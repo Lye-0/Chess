@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
@@ -154,6 +154,67 @@ function ToggleSwitch({
   );
 }
 
+function SettingsAccordion({
+  title,
+  description,
+  status,
+  children,
+  defaultOpen = false,
+  danger = false,
+}: {
+  title: string;
+  description: string;
+  status?: ReactNode;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  danger?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <Card className={danger ? "border-[#fecdd3]" : ""}>
+      <details
+        className="group"
+        open={isOpen}
+        onToggle={(event) => setIsOpen(event.currentTarget.open)}
+      >
+        <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-4 py-4 marker:hidden sm:px-6 sm:py-5">
+          <div>
+            <h2
+              className={[
+                "text-lg font-semibold",
+                danger ? "text-[#be123c]" : "",
+              ].join(" ")}
+            >
+              {title}
+            </h2>
+            <p className="mt-1 text-sm leading-relaxed text-[#717182]">
+              {description}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            {status}
+            <span className="mt-1 grid h-8 w-8 place-items-center rounded-md border border-black/10 bg-white text-[#596074] transition group-open:rotate-180">
+              <svg
+                aria-hidden="true"
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+              </svg>
+            </span>
+          </div>
+        </summary>
+        <div className="border-t border-black/10 px-4 pb-4 pt-4 sm:px-6 sm:pb-6">
+          {children}
+        </div>
+      </details>
+    </Card>
+  );
+}
 function toPayrollForm(settings: PayrollSettings) {
   return {
     hourlyRates: employmentTypes.reduce<Record<string, string>>((rates, type) => {
@@ -389,21 +450,18 @@ function AdminSettingsContent() {
         </header>
 
         <div className="mt-7 grid gap-5">
-          <Card className="p-4 sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">おすすめ計算設定</h2>
-                <p className="mt-1 text-sm text-[#717182]">
-                  シフト承認候補を選ぶ計算ルール
-                </p>
-              </div>
-              {isSavingSettings && (
+          <SettingsAccordion
+            defaultOpen
+            title="おすすめ計算設定"
+            description="シフト承認候補を選ぶ計算ルール"
+            status={
+              isSavingSettings ? (
                 <span className="text-sm font-semibold text-[#1763ff]">
                   保存中...
                 </span>
-              )}
-            </div>
-
+              ) : null
+            }
+          >
             {settingsMessage && (
               <p className="mt-4 rounded-md bg-[#ecfdf3] px-4 py-3 text-sm font-semibold text-[#15803d]">
                 {settingsMessage}
@@ -567,24 +625,19 @@ function AdminSettingsContent() {
                 ※ 自動承認は未確定の希望だけを対象にします。すでに手動で確定したシフトは変更されません。
               </p>
             </div>
+          </SettingsAccordion>
 
-          </Card>
-
-          <Card className="p-4 sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">シフト希望設定</h2>
-                <p className="mt-1 text-sm text-[#717182]">
-                  従業員が募集枠なしの希望を送信できるかを設定します
-                </p>
-              </div>
-              {isSavingShiftRequestSettings && (
+          <SettingsAccordion
+            title="シフト希望設定"
+            description="従業員が募集枠なしの希望を送信できるかを設定します"
+            status={
+              isSavingShiftRequestSettings ? (
                 <span className="text-sm font-semibold text-[#1763ff]">
                   保存中...
                 </span>
-              )}
-            </div>
-
+              ) : null
+            }
+          >
             {shiftRequestSettingsMessage && (
               <p className="mt-4 rounded-md bg-[#ecfdf3] px-4 py-3 text-sm font-semibold text-[#15803d]">
                 {shiftRequestSettingsMessage}
@@ -620,22 +673,19 @@ function AdminSettingsContent() {
                 />
               </div>
             </div>
-          </Card>
-          <Card className="p-4 sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">給与設定</h2>
-                <p className="mt-1 text-sm text-[#717182]">
-                  雇用形態ごとの時給と深夜割増
-                </p>
-              </div>
-              {isSavingPayroll && (
+          </SettingsAccordion>
+
+          <SettingsAccordion
+            title="給与設定"
+            description="雇用形態ごとの時給と深夜割増"
+            status={
+              isSavingPayroll ? (
                 <span className="text-sm font-semibold text-[#1763ff]">
                   保存中...
                 </span>
-              )}
-            </div>
-
+              ) : null
+            }
+          >
             {payrollMessage && (
               <p className="mt-4 rounded-md bg-[#ecfdf3] px-4 py-3 text-sm font-semibold text-[#15803d]">
                 {payrollMessage}
@@ -726,29 +776,23 @@ function AdminSettingsContent() {
                 {isSavingPayroll ? "保存中..." : "給与設定を保存"}
               </button>
             </form>
-          </Card>
+          </SettingsAccordion>
 
-          <Card className="border-[#fecdd3] p-4 sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-[#be123c]">
-                  危険な操作
-                </h2>
-                <p className="mt-1 text-sm leading-relaxed text-[#717182]">
-                  組織と関連データを削除します
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={isDeletingOrganization}
-                onClick={openDeleteOrganizationModal}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#ffccd6] bg-white px-4 text-sm font-semibold text-[#ff003d] transition hover:bg-[#ffe8ee] disabled:cursor-not-allowed disabled:border-[#f3c7d0] disabled:text-[#c56c7f]"
-              >
-                <TrashIcon />
-                {isDeletingOrganization ? "組織を削除中..." : "組織を削除"}
-              </button>
-            </div>
-          </Card>
+          <SettingsAccordion
+            title="危険な操作"
+            description="組織と関連データを削除します"
+            danger
+          >
+            <button
+              type="button"
+              disabled={isDeletingOrganization}
+              onClick={openDeleteOrganizationModal}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#ffccd6] bg-white px-4 text-sm font-semibold text-[#ff003d] transition hover:bg-[#ffe8ee] disabled:cursor-not-allowed disabled:border-[#f3c7d0] disabled:text-[#c56c7f]"
+            >
+              <TrashIcon />
+              {isDeletingOrganization ? "組織を削除中..." : "組織を削除"}
+            </button>
+          </SettingsAccordion>
         </div>
       </div>
 
