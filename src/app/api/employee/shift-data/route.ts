@@ -12,6 +12,13 @@ function normalizeMonth(value: string | null) {
   return value && /^\d{4}-\d{2}$/.test(value) ? value : null;
 }
 
+function normalizeActualPay(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+}
+
 function toShiftRequest(snapshot: QueryDocumentSnapshot) {
   const data = snapshot.data() ?? {};
 
@@ -30,6 +37,11 @@ function toShiftRequest(snapshot: QueryDocumentSnapshot) {
     employeeGenerated: data.employeeGenerated === true,
     status: data.status === "承認済" ? "承認済" : "希望済",
     submittedDate: String(data.submittedDate ?? ""),
+    actualStartTime: String(data.actualStartTime ?? ""),
+    actualEndTime: String(data.actualEndTime ?? ""),
+    actualPay: normalizeActualPay(data.actualPay),
+    actualMemo: String(data.actualMemo ?? ""),
+    actualUpdatedAt: String(data.actualUpdatedAt ?? ""),
   };
 }
 

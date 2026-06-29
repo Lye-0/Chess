@@ -47,11 +47,24 @@ export type ShiftRequest = {
   employeeGenerated: boolean;
   status: ShiftRequestStatus;
   submittedDate: string;
+  actualStartTime: string;
+  actualEndTime: string;
+  actualPay: number | null;
+  actualMemo: string;
+  actualUpdatedAt: string;
 };
 
 export type ShiftRequestInput = Omit<
   ShiftRequest,
-  "id" | "status" | "submittedDate" | "employeeGenerated"
+  | "id"
+  | "status"
+  | "submittedDate"
+  | "employeeGenerated"
+  | "actualStartTime"
+  | "actualEndTime"
+  | "actualPay"
+  | "actualMemo"
+  | "actualUpdatedAt"
 >;
 
 export type EmployeeGeneratedShiftRequestInput = Omit<
@@ -72,6 +85,13 @@ type EmployeeRequestAuthContext = {
 
 function normalizeShiftRequestStatus(status: unknown): ShiftRequestStatus {
   return status === "承認済" ? "承認済" : "希望済";
+}
+
+function normalizeActualPay(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
 }
 
 function normalizeShiftSlotCapacity(capacity: unknown) {
@@ -117,6 +137,11 @@ function toShiftRequest(
     employeeGenerated: data.employeeGenerated === true,
     status: normalizeShiftRequestStatus(data.status),
     submittedDate: String(data.submittedDate ?? ""),
+    actualStartTime: String(data.actualStartTime ?? ""),
+    actualEndTime: String(data.actualEndTime ?? ""),
+    actualPay: normalizeActualPay(data.actualPay),
+    actualMemo: String(data.actualMemo ?? ""),
+    actualUpdatedAt: String(data.actualUpdatedAt ?? ""),
   };
 }
 

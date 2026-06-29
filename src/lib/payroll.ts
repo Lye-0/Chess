@@ -26,7 +26,30 @@ export type ShiftPayroll = {
   regularMinutes: number;
   nightMinutes: number;
   totalPay: number;
+  scheduledPay: number;
+  calculatedPay: number;
+  actualPay: number | null;
+  usesActualTime: boolean;
+  usesActualPay: boolean;
 };
+
+type ShiftPayrollRequest = Pick<
+  ShiftRequest,
+  "date" | "startTime" | "endTime" | "employmentType"
+> &
+  Partial<
+    Pick<
+      ShiftRequest,
+      "actualStartTime" | "actualEndTime" | "actualPay" | "actualMemo"
+    >
+  >;
+
+type ShiftTimeRange = Pick<ShiftRequest, "date" | "startTime" | "endTime">;
+
+type BaseShiftPayroll = Pick<
+  ShiftPayroll,
+  "hourlyRate" | "totalMinutes" | "regularMinutes" | "nightMinutes" | "totalPay"
+>;
 
 export const defaultPayrollSettings: PayrollSettings = {
   hourlyRates: {
@@ -51,7 +74,14 @@ function parseTimeToMinutes(time: string) {
   return hour * 60 + minute;
 }
 
-function getShiftStartEnd(request: ShiftRequest) {
+function normalizeActualPay(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+}
+
+function getShiftStartEnd(request: ShiftTimeRange) {
   const startAt = new Date(`${request.date}T${request.startTime}:00`);
   const endAt = new Date(`${request.date}T${request.endTime}:00`);
 
@@ -75,7 +105,7 @@ function buildDateAtMinutes(baseDay: Date, minutes: number) {
   return date;
 }
 
-function getNightMinutes(request: ShiftRequest, settings: PayrollSettings) {
+function getNightMinutes(request: ShiftTimeRange, settings: PayrollSettings) {
   const { startAt, endAt } = getShiftStartEnd(request);
   const nightStartMinutes = parseTimeToMinutes(settings.nightStartTime);
   const nightEndMinutes = parseTimeToMinutes(settings.nightEndTime);
@@ -101,6 +131,78 @@ function getNightMinutes(request: ShiftRequest, settings: PayrollSettings) {
   }
 
   return nightMinutes;
+}
+
+function hasActualTimeRange(request: ShiftPayrollRequest) {
+  return Boolean(request.actualStartTime?.trim() && request.actualEndTime?.trim());
+}
+
+export function hasActualShiftAdjustment(request: ShiftPayrollRequest) {
+  return Boolean(
+    hasActualTimeRange(request) ||
+      normalizeActualPay(request.actualPay) !== null ||
+      request.actualMemo?.trim(),
+  );
+}
+
+export function getEffectiveShiftTimeRange(
+  request: ShiftPayrollRequest,
+): ShiftTimeRange {
+  if (hasActualTimeRange(request)) {
+    return {
+      date: request.date,
+      startTime: request.actualStartTime!.trim(),
+      endTime: request.actualEndTime!.trim(),
+    };
+  }
+
+  return {
+    date: request.date,
+    startTime: request.startTime,
+    endTime: request.endTime,
+  };
+}
+
+function calculateBaseShiftPayroll(
+  request: ShiftPayrollRequest,
+  settings: PayrollSettings,
+): BaseShiftPayroll {
+  const { startAt, endAt } = getShiftStartEnd(request);
+  const totalMinutes = Math.max(
+    0,
+    Math.round((endAt.getTime() - startAt.getTime()) / 60000),
+  );
+  const nightMinutes = Math.min(totalMinutes, getNightMinutes(request, settings));
+  const regularMinutes = totalMinutes - nightMinutes;
+  const hourlyRate = settings.hourlyRates[request.employmentType] ?? 0;
+  const totalPay = Math.round(
+    (regularMinutes / 60) * hourlyRate +
+      (nightMinutes / 60) * hourlyRate * settings.nightMultiplier,
+  );
+
+  return {
+    hourlyRate,
+    totalMinutes,
+    regularMinutes,
+    nightMinutes,
+    totalPay,
+  };
+}
+
+export function calculateScheduledShiftPayroll(
+  request: ShiftPayrollRequest,
+  settings: PayrollSettings,
+): ShiftPayroll {
+  const scheduledPayroll = calculateBaseShiftPayroll(request, settings);
+
+  return {
+    ...scheduledPayroll,
+    scheduledPay: scheduledPayroll.totalPay,
+    calculatedPay: scheduledPayroll.totalPay,
+    actualPay: null,
+    usesActualTime: false,
+    usesActualPay: false,
+  };
 }
 
 export function normalizePayrollSettings(data?: DocumentData): PayrollSettings {
@@ -156,32 +258,32 @@ export async function updatePayrollSettings(
 }
 
 export function calculateShiftPayroll(
-  request: ShiftRequest,
+  request: ShiftPayrollRequest,
   settings: PayrollSettings,
 ): ShiftPayroll {
-  const { startAt, endAt } = getShiftStartEnd(request);
-  const totalMinutes = Math.max(
-    0,
-    Math.round((endAt.getTime() - startAt.getTime()) / 60000),
+  const scheduledPayroll = calculateBaseShiftPayroll(request, settings);
+  const effectiveTimeRange = getEffectiveShiftTimeRange(request);
+  const calculatedPayroll = calculateBaseShiftPayroll(
+    { ...request, ...effectiveTimeRange },
+    settings,
   );
-  const nightMinutes = Math.min(totalMinutes, getNightMinutes(request, settings));
-  const regularMinutes = totalMinutes - nightMinutes;
-  const hourlyRate = settings.hourlyRates[request.employmentType] ?? 0;
-  const totalPay = Math.round(
-    (regularMinutes / 60) * hourlyRate +
-      (nightMinutes / 60) * hourlyRate * settings.nightMultiplier,
-  );
+  const actualPay = normalizeActualPay(request.actualPay);
 
   return {
-    hourlyRate,
-    totalMinutes,
-    regularMinutes,
-    nightMinutes,
-    totalPay,
+    ...calculatedPayroll,
+    totalPay: actualPay ?? calculatedPayroll.totalPay,
+    scheduledPay: scheduledPayroll.totalPay,
+    calculatedPay: calculatedPayroll.totalPay,
+    actualPay,
+    usesActualTime: hasActualTimeRange(request),
+    usesActualPay: actualPay !== null,
   };
 }
 
-export function sumShiftPay(requests: ShiftRequest[], settings: PayrollSettings) {
+export function sumShiftPay(
+  requests: ShiftPayrollRequest[],
+  settings: PayrollSettings,
+) {
   return requests.reduce(
     (total, request) => total + calculateShiftPayroll(request, settings).totalPay,
     0,
