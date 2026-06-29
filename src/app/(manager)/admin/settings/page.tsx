@@ -451,7 +451,6 @@ function AdminSettingsContent() {
 
         <div className="mt-7 grid gap-5">
           <SettingsAccordion
-            defaultOpen
             title="おすすめ計算設定"
             description="シフト承認候補を選ぶ計算ルール"
             status={
