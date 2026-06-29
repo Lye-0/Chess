@@ -10,7 +10,6 @@ import {
 } from "./date-utils";
 import { getDisplayedRequestCount } from "./request-utils";
 import { useShiftManagement } from "./use-shift-management";
-import { WeightSelector } from "./components/weight-selector";
 import { AdminShiftCalendar } from "./components/admin-shift-calendar";
 import { SelectedDayTimeline } from "./components/selected-day-timeline";
 import { MemoizedShiftSlotCard } from "./components/shift-slot-card";
@@ -52,6 +51,7 @@ function AdminShiftManagementContent() {
     requestsBySlot,
     compatibilityScores,
     employeeWorkScores,
+    monthlyRequestMinutesByEmployee,
     payrollSettings,
     positions,
     exportMonths,
@@ -64,9 +64,8 @@ function AdminShiftManagementContent() {
     setSelectedExportScope,
     hasExportData,
     handleExport,
-    selectedWeightId,
+    recommendationSettings,
     selectedWeights,
-    setSelectedWeightId,
     isModalOpen,
     isMonthlyPattern,
     setIsMonthlyPattern,
@@ -284,10 +283,6 @@ function AdminShiftManagementContent() {
             管理者が設定したシフト枠と、従業員から届いた募集枠なしの希望を確認・承認できます。鉛筆アイコンで募集人数を変更できます。
           </p>
 
-          <WeightSelector
-            selectedWeightId={selectedWeightId}
-            onSelect={setSelectedWeightId}
-          />
 
           {!isLoading && slotDates.length > 0 && (
             <AdminShiftCalendar
@@ -393,7 +388,9 @@ function AdminShiftManagementContent() {
                         displayedRequestCount={displayedRequestCount}
                         compatibilityScores={compatibilityScores}
                         employeeWorkScores={employeeWorkScores}
+                        monthlyRequestMinutesByEmployee={monthlyRequestMinutesByEmployee}
                         weights={selectedWeights}
+                        fairnessEnabled={recommendationSettings.fairnessEnabled}
                         payrollSettings={payrollSettings}
                         approvingRequestId={approvingRequestIdForSlot}
                         deletingRequestId={deletingRequestIdForSlot}

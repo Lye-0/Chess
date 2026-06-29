@@ -1,11 +1,25 @@
 import { memo } from "react";
 import type { RecommendationWeightOption, RecommendedCombination } from "../types";
 
+function formatHours(minutes: number) {
+  const roundedHours = Math.round((minutes / 60) * 10) / 10;
+
+  if (Number.isInteger(roundedHours)) {
+    return `${roundedHours.toLocaleString()}h`;
+  }
+
+  return `${roundedHours.toLocaleString(undefined, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}h`;
+}
 export const RecommendedCombinationPanel = memo(function RecommendedCombinationPanel({
   recommendedCombination,
   capacity,
   weights,
+  fairnessEnabled,
   remainingApprovalCount,
+  isApprovalLimitReached,
   isApproving,
   isDisabled = false,
   onApprove,
@@ -13,16 +27,18 @@ export const RecommendedCombinationPanel = memo(function RecommendedCombinationP
   recommendedCombination: RecommendedCombination | null;
   capacity: number;
   weights: RecommendationWeightOption;
+  fairnessEnabled: boolean;
   remainingApprovalCount: number;
+  isApprovalLimitReached: boolean;
   isApproving: boolean;
   isDisabled?: boolean;
   onApprove: () => void;
 }) {
-  if (!recommendedCombination) return null;
+  if (!recommendedCombination && !isApprovalLimitReached) return null;
 
-  const pendingRecommendedRequests = recommendedCombination.requests.filter(
+  const pendingRecommendedRequests = recommendedCombination?.requests.filter(
     (request) => request.status !== "承認済",
-  );
+  ) ?? [];
   const canApproveRecommended =
     !isDisabled &&
     pendingRecommendedRequests.length > 0 &&
@@ -34,25 +50,36 @@ export const RecommendedCombinationPanel = memo(function RecommendedCombinationP
         <div>
           <p className="text-sm font-semibold">おすすめ承認組み合わせ</p>
           <p className="mt-1 text-xs">
-            募集{capacity}人に対して、おすすめの承認候補です
+            {fairnessEnabled
+              ? `募集${capacity}人に対して、公平性を優先した承認候補です`
+              : `募集${capacity}人に対して、おすすめの承認候補です`}
           </p>
           <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="rounded-md bg-white/80 px-2.5 py-1">
-              最終 {recommendedCombination.finalScore.toFixed(1)}
-            </span>
-            <span className="rounded-md bg-white/80 px-2.5 py-1">
-              相性平均 {recommendedCombination.compatibilityAverage.toFixed(1)}
-            </span>
-            <span className="rounded-md bg-white/80 px-2.5 py-1">
-              業務スキル平均 {recommendedCombination.workScoreAverage.toFixed(1)}
-            </span>
+            {recommendedCombination && (
+              <>
+                {fairnessEnabled && (
+                  <span className="rounded-md bg-white/80 px-2.5 py-1">
+                    公平性 月平均 {formatHours(recommendedCombination.fairnessAverageMinutes)}
+                  </span>
+                )}
+                <span className="rounded-md bg-white/80 px-2.5 py-1">
+                  {fairnessEnabled ? "補助スコア" : "最終"} {recommendedCombination.finalScore.toFixed(1)}
+                </span>
+                <span className="rounded-md bg-white/80 px-2.5 py-1">
+                  相性平均 {recommendedCombination.compatibilityAverage.toFixed(1)}
+                </span>
+                <span className="rounded-md bg-white/80 px-2.5 py-1">
+                  業務スキル平均 {recommendedCombination.workScoreAverage.toFixed(1)}
+                </span>
+              </>
+            )}
             <span className="rounded-md bg-white/80 px-2.5 py-1">
               {Math.round(weights.compatibilityWeight * 100)}% /{" "}
               {Math.round(weights.workScoreWeight * 100)}%
             </span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            {recommendedCombination.requests.map((request) => (
+            {recommendedCombination?.requests.map((request) => (
               <span
                 key={request.id}
                 className="rounded-md bg-white/80 px-2.5 py-1 text-xs font-semibold"
@@ -73,12 +100,12 @@ export const RecommendedCombinationPanel = memo(function RecommendedCombinationP
           >
             {isDisabled
               ? "過去のシフト"
-              : pendingRecommendedRequests.length === 0
-                ? "承認済み"
-                : isApproving
-                  ? "承認中..."
-                  : remainingApprovalCount <= 0
-                    ? "募集人数に達しました"
+              : isApprovalLimitReached
+                ? "募集人数に達しました"
+                : pendingRecommendedRequests.length === 0
+                  ? "承認済み"
+                  : isApproving
+                    ? "承認中..."
                     : pendingRecommendedRequests.length > remainingApprovalCount
                       ? "承認枠不足"
                       : "おすすめを一括承認"}

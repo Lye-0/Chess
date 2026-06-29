@@ -11,6 +11,12 @@ export const emptyForm: ShiftForm = {
 
 export const recommendationWeightOptions: RecommendationWeightOption[] = [
   {
+    id: "compatibilityOnly",
+    label: "相性のみ",
+    compatibilityWeight: 1,
+    workScoreWeight: 0,
+  },
+  {
     id: "compatibility",
     label: "相性重視",
     compatibilityWeight: 0.7,
@@ -27,6 +33,12 @@ export const recommendationWeightOptions: RecommendationWeightOption[] = [
     label: "業務スキル重視",
     compatibilityWeight: 0.3,
     workScoreWeight: 0.7,
+  },
+  {
+    id: "workScoreOnly",
+    label: "業務スキルのみ",
+    compatibilityWeight: 0,
+    workScoreWeight: 1,
   },
 ];
 

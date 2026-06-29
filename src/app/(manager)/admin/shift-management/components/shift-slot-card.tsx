@@ -28,6 +28,10 @@ function isShiftEnded(slot: Pick<ShiftSlot, "date" | "startTime" | "endTime">) {
   return !Number.isNaN(endAt.getTime()) && endAt <= new Date();
 }
 
+function getSlotMonth(slot: Pick<ShiftSlot, "date">) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(slot.date) ? slot.date.slice(0, 7) : "";
+}
+
 function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
@@ -52,7 +56,9 @@ function ShiftSlotCard({
   displayedRequestCount,
   compatibilityScores,
   employeeWorkScores,
+  monthlyRequestMinutesByEmployee,
   weights,
+  fairnessEnabled,
   payrollSettings,
   approvingRequestId,
   deletingRequestId,
@@ -68,7 +74,9 @@ function ShiftSlotCard({
   displayedRequestCount: number;
   compatibilityScores: CompatibilityScoreMap;
   employeeWorkScores: Record<string, number>;
+  monthlyRequestMinutesByEmployee: Record<string, Record<string, number>>;
   weights: RecommendationWeightOption;
+  fairnessEnabled: boolean;
   payrollSettings: PayrollSettings;
   approvingRequestId: string | null;
   deletingRequestId: string | null;
@@ -92,17 +100,38 @@ function ShiftSlotCard({
   const isEmployeeGeneratedSlot =
     slot.employeeGenerated || slot.id.startsWith("employee-generated:");
 
-  const recommendedCombination = useMemo(
-    () =>
-      getRecommendedCombination({
-        requests,
-        capacity: slot.capacity,
-        scores: compatibilityScores,
-        employeeWorkScores,
-        weights,
-      }),
-    [requests, slot.capacity, compatibilityScores, employeeWorkScores, weights],
-  );
+  const recommendedCombination = useMemo(() => {
+    if (remainingApprovalCount <= 0) return null;
+
+    const approvedRequests = requests.filter(
+      (request) => request.status === "承認済",
+    );
+    const pendingRequests = requests.filter(
+      (request) => request.status !== "承認済",
+    );
+    const employeeMonthlyMinutes =
+      monthlyRequestMinutesByEmployee[getSlotMonth(slot)] ?? {};
+
+    return getRecommendedCombination({
+      requests: pendingRequests,
+      fixedRequests: approvedRequests,
+      capacity: remainingApprovalCount,
+      scores: compatibilityScores,
+      employeeWorkScores,
+      employeeMonthlyMinutes,
+      weights,
+      fairnessEnabled,
+    });
+  }, [
+    requests,
+    remainingApprovalCount,
+    slot,
+    compatibilityScores,
+    employeeWorkScores,
+    monthlyRequestMinutesByEmployee,
+    weights,
+    fairnessEnabled,
+  ]);
 
   const handleToggle = useCallback(() => {
     setIsOpen((current) => !current);
@@ -185,7 +214,9 @@ function ShiftSlotCard({
               recommendedCombination={recommendedCombination}
               capacity={slot.capacity}
               weights={weights}
+              fairnessEnabled={fairnessEnabled}
               remainingApprovalCount={remainingApprovalCount}
+              isApprovalLimitReached={isApprovalLimitReached}
               isApproving={isApprovingRecommended}
               isDisabled={isPastSlot}
               onApprove={handleApproveRecommended}

@@ -286,6 +286,8 @@ export async function deleteManagerOrganization(
   });
 
   batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "payroll"));
+  batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "recommendation"));
+  batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "shiftRequests"));
   batch.delete(doc(db, "organizations", trimmedOrganizationId));
   batch.delete(doc(getManagerOrganizationsCollection(managerUid), trimmedOrganizationId));
 

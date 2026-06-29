@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { EmployeeAuthError, verifyEmployeeRequest } from "@/lib/employeeAuthServer";
+import { normalizeShiftRequestSettings } from "@/lib/shiftRequestSettings";
 
 export const runtime = "nodejs";
 
@@ -119,11 +120,27 @@ export async function POST(request: Request) {
     const employeeRef = organizationRef
       .collection("employees")
       .doc(employeeAuth.employeeId);
-    const employeeSnapshot = await employeeRef.get();
+    const [employeeSnapshot, shiftRequestSettingsSnapshot] = await Promise.all([
+      employeeRef.get(),
+      organizationRef.collection("settings").doc("shiftRequests").get(),
+    ]);
+    const shiftRequestSettings = normalizeShiftRequestSettings(
+      shiftRequestSettingsSnapshot.data(),
+    );
 
     if (!employeeSnapshot.exists) {
       return NextResponse.json(
         { error: "従業員情報を確認できませんでした。" },
+        { status: 403 },
+      );
+    }
+
+    if (
+      employeeGeneratedRequests.length > 0 &&
+      !shiftRequestSettings.employeeGeneratedRequestsEnabled
+    ) {
+      return NextResponse.json(
+        { error: "募集枠なしのシフト希望は現在送信できません。" },
         { status: 403 },
       );
     }
