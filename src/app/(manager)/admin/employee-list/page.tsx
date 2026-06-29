@@ -373,7 +373,28 @@ function AdminEmployeeListContent() {
 
               <div className="my-6 h-px bg-black/10" />
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <section className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-lg bg-[#eaf3ff] p-5 text-center">
+                  <p className="text-2xl font-semibold text-[#1763ff]">
+                    {selectedRequests.length}
+                  </p>
+                  <p className="mt-1 text-sm text-[#1763ff]">希望件数</p>
+                </div>
+                <div className="rounded-lg bg-[#eafbf0] p-5 text-center">
+                  <p className="text-2xl font-semibold text-[#00a63e]">
+                    {formatWorkHours(totalWorkMinutes)}
+                  </p>
+                  <p className="mt-1 text-sm text-[#00a63e]">承認済み合計時間</p>
+                </div>
+                <div className="rounded-lg bg-[#fff7ed] p-5 text-center">
+                  <p className="text-2xl font-semibold text-[#c2410c]">
+                    {formatCurrency(totalPay)}
+                  </p>
+                  <p className="mt-1 text-sm text-[#c2410c]">承認済み給与合計</p>
+                </div>
+              </section>
+
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-[#717182]">シフト希望一覧</p>
                 <div className="inline-flex rounded-md border border-black/10 bg-white p-1 shadow-sm">
                   <button
@@ -475,29 +496,6 @@ function AdminEmployeeListContent() {
                   })}
                 </div>
               )}
-
-              <div className="my-6 h-px bg-black/10" />
-
-              <section className="grid gap-4 sm:grid-cols-3">
-                <div className="rounded-lg bg-[#eaf3ff] p-5 text-center">
-                  <p className="text-2xl font-semibold text-[#1763ff]">
-                    {selectedRequests.length}
-                  </p>
-                  <p className="mt-1 text-sm text-[#1763ff]">希望件数</p>
-                </div>
-                <div className="rounded-lg bg-[#eafbf0] p-5 text-center">
-                  <p className="text-2xl font-semibold text-[#00a63e]">
-                    {formatWorkHours(totalWorkMinutes)}
-                  </p>
-                  <p className="mt-1 text-sm text-[#00a63e]">承認済み合計時間</p>
-                </div>
-                <div className="rounded-lg bg-[#fff7ed] p-5 text-center">
-                  <p className="text-2xl font-semibold text-[#c2410c]">
-                    {formatCurrency(totalPay)}
-                  </p>
-                  <p className="mt-1 text-sm text-[#c2410c]">承認済み給与合計</p>
-                </div>
-              </section>
             </>
           ) : (
             <div className="flex min-h-[204px] items-center justify-center text-center text-[#717182]">
