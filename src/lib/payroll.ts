@@ -163,15 +163,30 @@ export function getEffectiveShiftTimeRange(
   };
 }
 
+export function calculateShiftWorkMinutes(request: ShiftPayrollRequest) {
+  const effectiveTimeRange = getEffectiveShiftTimeRange(request);
+  const { startAt, endAt } = getShiftStartEnd(effectiveTimeRange);
+  const diff = endAt.getTime() - startAt.getTime();
+
+  if (!Number.isFinite(diff) || diff < 0) return 0;
+
+  return Math.round(diff / 60000);
+}
+
+export function calculateScheduledShiftWorkMinutes(request: ShiftPayrollRequest) {
+  const { startAt, endAt } = getShiftStartEnd(request);
+  const diff = endAt.getTime() - startAt.getTime();
+
+  if (!Number.isFinite(diff) || diff < 0) return 0;
+
+  return Math.round(diff / 60000);
+}
+
 function calculateBaseShiftPayroll(
   request: ShiftPayrollRequest,
   settings: PayrollSettings,
 ): BaseShiftPayroll {
-  const { startAt, endAt } = getShiftStartEnd(request);
-  const totalMinutes = Math.max(
-    0,
-    Math.round((endAt.getTime() - startAt.getTime()) / 60000),
-  );
+  const totalMinutes = calculateScheduledShiftWorkMinutes(request);
   const nightMinutes = Math.min(totalMinutes, getNightMinutes(request, settings));
   const regularMinutes = totalMinutes - nightMinutes;
   const hourlyRate = settings.hourlyRates[request.employmentType] ?? 0;

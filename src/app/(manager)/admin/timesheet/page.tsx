@@ -12,6 +12,7 @@ import {
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   calculateShiftPayroll,
+  calculateShiftWorkMinutes,
   defaultPayrollSettings,
   formatCurrency,
   subscribePayrollSettings,
@@ -37,33 +38,11 @@ function formatMonthLabel(month: string) {
   return `${year}年${Number(monthNumber)}月`;
 }
 
-function parseShiftDateTime(date: string, time: string) {
-  return new Date(`${date}T${time}:00`);
-}
-
-function getShiftStartEnd(request: ShiftRequest) {
-  const startAt = parseShiftDateTime(request.date, request.startTime);
-  const endAt = parseShiftDateTime(request.date, request.endTime);
-
-  if (endAt <= startAt) {
-    endAt.setDate(endAt.getDate() + 1);
-  }
-
-  return { startAt, endAt };
-}
 
 function isApprovedShift(request: ShiftRequest) {
   return request.status === "承認済";
 }
 
-function calculateWorkMinutes(request: ShiftRequest) {
-  const { startAt, endAt } = getShiftStartEnd(request);
-  const diff = endAt.getTime() - startAt.getTime();
-
-  if (!Number.isFinite(diff) || diff < 0) return 0;
-
-  return Math.round(diff / 60000);
-}
 
 function formatHoursOnly(minutes: number) {
   const roundedHours = Math.round((minutes / 60) * 10) / 10;
@@ -178,7 +157,7 @@ function AdminTimesheetContent() {
       (groups, request) => {
         const current = groups[request.employeeId] ?? { minutes: 0, count: 0 };
         groups[request.employeeId] = {
-          minutes: current.minutes + calculateWorkMinutes(request),
+          minutes: current.minutes + calculateShiftWorkMinutes(request),
           count: current.count + 1,
         };
         return groups;
@@ -214,7 +193,7 @@ function AdminTimesheetContent() {
 
   const totalWorkMinutes = useMemo(() => {
     return approvedRequests.reduce(
-      (total, request) => total + calculateWorkMinutes(request),
+      (total, request) => total + calculateShiftWorkMinutes(request),
       0,
     );
   }, [approvedRequests]);

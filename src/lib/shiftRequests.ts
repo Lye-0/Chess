@@ -478,6 +478,74 @@ export async function resetShiftRequestApproval(
   });
 }
 
+export type ShiftRequestActualInput = {
+  actualStartTime: string;
+  actualEndTime: string;
+  actualPay: number | null;
+  actualMemo: string;
+};
+
+function normalizeActualTime(value: string) {
+  return /^\d{2}:\d{2}$/.test(value.trim()) ? value.trim() : "";
+}
+
+export async function updateShiftRequestActuals(
+  requestId: string,
+  actuals: ShiftRequestActualInput,
+  organizationId = defaultOrganizationId,
+) {
+  const requestRef = doc(getShiftRequestsCollection(organizationId), requestId);
+  const requestSnapshot = await getDoc(requestRef);
+
+  if (!requestSnapshot.exists()) {
+    throw new Error("Shift request not found.");
+  }
+
+  if (normalizeShiftRequestStatus(requestSnapshot.data().status) !== "承認済") {
+    throw new Error("Only approved shift requests can be adjusted.");
+  }
+
+  const actualStartTime = normalizeActualTime(actuals.actualStartTime);
+  const actualEndTime = normalizeActualTime(actuals.actualEndTime);
+
+  if (!actualStartTime || !actualEndTime) {
+    throw new Error("Actual shift time is invalid.");
+  }
+
+  await updateDoc(requestRef, {
+    actualStartTime,
+    actualEndTime,
+    actualPay: normalizeActualPay(actuals.actualPay),
+    actualMemo: actuals.actualMemo.trim(),
+    actualUpdatedAt: new Date().toISOString(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function clearShiftRequestActuals(
+  requestId: string,
+  organizationId = defaultOrganizationId,
+) {
+  const requestRef = doc(getShiftRequestsCollection(organizationId), requestId);
+  const requestSnapshot = await getDoc(requestRef);
+
+  if (!requestSnapshot.exists()) {
+    throw new Error("Shift request not found.");
+  }
+
+  if (normalizeShiftRequestStatus(requestSnapshot.data().status) !== "承認済") {
+    throw new Error("Only approved shift requests can be adjusted.");
+  }
+
+  await updateDoc(requestRef, {
+    actualStartTime: "",
+    actualEndTime: "",
+    actualPay: null,
+    actualMemo: "",
+    actualUpdatedAt: "",
+    updatedAt: serverTimestamp(),
+  });
+}
 export async function countApprovedShiftRequestsBySlot(
   slotId: string,
   organizationId = defaultOrganizationId,
