@@ -753,10 +753,10 @@ function AdminEmployeeRegistrationContent() {
       )}
 
       {editingEmployee && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 px-3 py-4 sm:items-center sm:px-4 sm:py-8">
           <form
             onSubmit={handleUpdate}
-            className="w-full max-w-[560px] rounded-xl bg-white p-6 shadow-xl"
+            className="max-h-[88svh] w-full max-w-[560px] overflow-y-auto rounded-lg bg-white p-4 shadow-xl sm:max-h-[calc(100vh-4rem)] sm:rounded-xl sm:p-6"
           >
             <div className="flex items-start justify-between gap-4">
               <div>
