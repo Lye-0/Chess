@@ -459,74 +459,118 @@ function drawCompactShiftExportBlock(
   });
 }
 function drawEmployeeRoster(data: MonthlyShiftExportData) {
-  const rows = data.rows;
-  const width = 1100;
-  const headerHeight = 132;
-  const rowHeight = 58;
-  const footerHeight = 52;
-  const height = headerHeight + Math.max(1, rows.length) * rowHeight + footerHeight;
+  const rowsByDate = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
+    (groups, row) => {
+      groups[row.request.date] = [...(groups[row.request.date] ?? []), row];
+      return groups;
+    },
+    {},
+  );
+  const dateGroups = Object.entries(rowsByDate)
+    .sort(([aDate], [bDate]) => aDate.localeCompare(bDate))
+    .map(([date, rows]) => ({
+      date,
+      rows: rows.slice().sort((a, b) => {
+        if (a.request.startTime !== b.request.startTime) {
+          return a.request.startTime.localeCompare(b.request.startTime);
+        }
+        return getShiftRequestPositionLabel(a.request).localeCompare(
+          getShiftRequestPositionLabel(b.request),
+          "ja",
+        );
+      }),
+    }));
+  const width = 760;
+  const marginX = 32;
+  const headerHeight = 126;
+  const emptyHeight = 96;
+  const footerHeight = 48;
+  const dateHeaderHeight = 34;
+  const shiftLineHeight = 30;
+  const groupGap = 14;
+  const bodyHeight = dateGroups.length > 0
+    ? dateGroups.reduce(
+        (total, group) =>
+          total + dateHeaderHeight + group.rows.length * shiftLineHeight + groupGap,
+        0,
+      )
+    : emptyHeight;
+  const height = headerHeight + bodyHeight + footerHeight;
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
 
   if (!context) throw new Error("Canvas is not available.");
 
-  context.fillStyle = "#ffffff";
+  context.fillStyle = "#f8fafc";
   context.fillRect(0, 0, width, height);
   context.textBaseline = "middle";
   context.fillStyle = "#111827";
   context.font = "bold 30px Arial, sans-serif";
-  context.fillText("月間シフト表", 32, 38);
+  context.fillText("マイカレンダー", marginX, 38);
   context.font = "16px Arial, sans-serif";
-  context.fillText(`${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 32, 74);
-  context.fillText(formatMonthLabel(data.month), 32, 102);
+  context.fillStyle = "#475569";
+  context.fillText(`${data.organizationName}${data.department ? ` ${data.department}` : ""}`, marginX, 72);
+  context.fillText(formatMonthLabel(data.month), marginX, 98);
 
-  const columns = [
-    { label: "日付", x: 32 },
-    { label: "勤務時間", x: 202 },
-    { label: "ポジション", x: 372 },
-    { label: "氏名", x: 542 },
-    { label: "合計", x: 742 },
-    { label: "給与目安", x: 862 },
-  ];
+  let y = headerHeight;
 
-  context.fillStyle = "#f3f4f6";
-  context.fillRect(24, headerHeight - 38, width - 48, 38);
-  context.fillStyle = "#111827";
-  context.font = "bold 14px Arial, sans-serif";
-  columns.forEach((column) => context.fillText(column.label, column.x + 12, headerHeight - 19));
-
-  if (rows.length === 0) {
+  if (dateGroups.length === 0) {
+    context.fillStyle = "#ffffff";
+    context.fillRect(marginX, y, width - marginX * 2, 72);
+    context.strokeStyle = "#dbe3ea";
+    context.strokeRect(marginX, y, width - marginX * 2, 72);
     context.fillStyle = "#717182";
     context.font = "16px Arial, sans-serif";
-    context.fillText("この月の承認済みシフトはありません", 32, headerHeight + 28);
+    context.fillText("この月の承認済みシフトはありません", marginX + 20, y + 36);
   } else {
-    rows.forEach((row, index) => {
-      const y = headerHeight + index * rowHeight;
+    dateGroups.forEach((group) => {
+      const groupHeight = dateHeaderHeight + group.rows.length * shiftLineHeight;
 
-      context.fillStyle = index % 2 === 0 ? "#ffffff" : "#f8fafc";
-      context.fillRect(24, y, width - 48, rowHeight);
+      context.fillStyle = "#ffffff";
+      context.fillRect(marginX, y, width - marginX * 2, groupHeight);
+      context.strokeStyle = "#dbe3ea";
+      context.lineWidth = 1;
+      context.strokeRect(marginX, y, width - marginX * 2, groupHeight);
+      context.fillStyle = "#e0f2fe";
+      context.fillRect(marginX, y, width - marginX * 2, dateHeaderHeight);
       context.fillStyle = "#111827";
-      context.font = "14px Arial, sans-serif";
-      context.fillText(formatDateLabel(row.request.date), columns[0].x + 12, y + rowHeight / 2);
-      context.fillText(`${row.request.startTime} - ${row.request.endTime}`, columns[1].x + 12, y + rowHeight / 2);
-      context.fillText(getShiftRequestPositionLabel(row.request), columns[2].x + 12, y + rowHeight / 2);
-      context.fillText(row.request.employeeName, columns[3].x + 12, y + rowHeight / 2);
-      context.fillText(formatHours(row.payroll.totalMinutes), columns[4].x + 12, y + rowHeight / 2);
-      context.fillText(formatCurrency(row.payroll.totalPay), columns[5].x + 12, y + rowHeight / 2);
-    });
-  }
+      context.font = "bold 17px Arial, sans-serif";
+      context.fillText(formatFullDateLabel(group.date), marginX + 16, y + dateHeaderHeight / 2);
 
-  context.strokeStyle = "#cbd5e1";
-  for (let y = headerHeight - 38; y <= height - footerHeight; y += rowHeight) {
-    context.beginPath();
-    context.moveTo(24, y);
-    context.lineTo(width - 24, y);
-    context.stroke();
+      group.rows.forEach((row, index) => {
+        const lineY = y + dateHeaderHeight + index * shiftLineHeight;
+        const positionName = getShiftRequestPositionLabel(row.request);
+
+        context.fillStyle = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+        context.fillRect(marginX + 1, lineY, width - marginX * 2 - 2, shiftLineHeight);
+        context.fillStyle = "#1d4ed8";
+        context.font = "bold 15px Arial, sans-serif";
+        context.fillText(
+          `${row.request.startTime} - ${row.request.endTime}`,
+          marginX + 24,
+          lineY + shiftLineHeight / 2,
+        );
+        context.fillStyle = "#111827";
+        context.font = "15px Arial, sans-serif";
+        context.save();
+        context.beginPath();
+        context.rect(marginX + 146, lineY, width - marginX * 2 - 170, shiftLineHeight);
+        context.clip();
+        context.fillText(
+          `（${positionName}）`,
+          marginX + 146,
+          lineY + shiftLineHeight / 2,
+        );
+        context.restore();
+      });
+
+      y += groupHeight + groupGap;
+    });
   }
 
   context.fillStyle = "#475569";
   context.font = "13px Arial, sans-serif";
-  context.fillText(`出力日時: ${new Date().toLocaleString("ja-JP")}`, 32, height - 24);
+  context.fillText(`出力日時: ${new Date().toLocaleString("ja-JP")}`, marginX, height - 24);
 
   return canvas;
 }
