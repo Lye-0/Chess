@@ -1143,7 +1143,7 @@ function EmployeePageContent() {
                 { format: "ics", label: "ICS" },
                 {
                   format: "calendarSubscription",
-                  label: "カレンダー購読",
+                  label: "ICS (カレンダー購読)",
                   actionLabel: "URLをコピー",
                   requiresData: false,
                 },

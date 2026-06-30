@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDownIcon, DownloadIcon } from "@/components/icons";
 import type { ShiftExportFormat, ShiftExportScope } from "@/lib/shiftExports";
 
@@ -73,6 +73,7 @@ export function ShiftExportMenu({
     formats[0]?.format ?? "png",
   );
   const usesDate = selectedScope === "day";
+  const showsTargetDate = selectedFormat !== "calendarSubscription";
   const selectedOption =
     formats.find((option) => option.format === selectedFormat) ?? formats[0];
   const requiresData = selectedOption?.requiresData ?? true;
@@ -82,6 +83,19 @@ export function ShiftExportMenu({
     !selectedOption.disabled &&
     (!requiresData || hasData);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function closeOnScroll() {
+      setIsOpen(false);
+    }
+
+    window.addEventListener("scroll", closeOnScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", closeOnScroll);
+    };
+  }, [isOpen]);
 
   return (
     <div className="relative">
@@ -136,7 +150,7 @@ export function ShiftExportMenu({
             </>
           )}
 
-          {usesDate ? (
+          {showsTargetDate && (usesDate ? (
             <>
               <label className="mt-3 block text-xs font-semibold text-[#717182]" htmlFor="shift-export-date">
                 対象日
@@ -172,7 +186,7 @@ export function ShiftExportMenu({
                 ))}
               </select>
             </>
-          )}
+          ))}
 
           {!hasData && requiresData && (
             <p className="mt-3 rounded-md bg-[#f7f8fb] px-3 py-2 text-sm text-[#717182]">
