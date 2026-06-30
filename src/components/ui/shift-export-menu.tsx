@@ -72,10 +72,18 @@ export function ShiftExportMenu({
   const [selectedFormat, setSelectedFormat] = useState<ShiftExportFormat>(
     formats[0]?.format ?? "png",
   );
-  const usesDate = selectedScope === "day";
   const showsTargetDate = selectedFormat !== "calendarSubscription";
   const selectedOption =
     formats.find((option) => option.format === selectedFormat) ?? formats[0];
+  const availableScopeOptions = selectedFormat === "csv"
+    ? scopeOptions?.filter((option) => option.scope !== "monthDaily")
+    : scopeOptions;
+  const selectedScopeValue = availableScopeOptions?.some(
+    (option) => option.scope === selectedScope,
+  )
+    ? selectedScope
+    : availableScopeOptions?.[0]?.scope ?? selectedScope;
+  const usesDate = selectedScopeValue === "day";
   const requiresData = selectedOption?.requiresData ?? true;
   const canExport =
     !isExporting &&
@@ -130,18 +138,18 @@ export function ShiftExportMenu({
             ))}
           </select>
 
-          {scopeOptions && onScopeChange && (
+          {availableScopeOptions && onScopeChange && (
             <>
               <label className="mt-3 block text-xs font-semibold text-[#717182]" htmlFor="shift-export-scope">
                 出力単位
               </label>
               <select
                 id="shift-export-scope"
-                value={selectedScope}
+                value={selectedScopeValue}
                 onChange={(event) => onScopeChange(event.target.value as ShiftExportScope)}
                 className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm font-semibold outline-none"
               >
-                {scopeOptions.map((option) => (
+                {availableScopeOptions.map((option) => (
                   <option key={option.scope} value={option.scope}>
                     {option.label}
                   </option>
