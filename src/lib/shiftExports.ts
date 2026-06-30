@@ -489,7 +489,12 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
   const marginX = 24;
   const headerHeight = 86;
   const weekdayHeight = 40;
-  const rowHeight = 120;
+  const shiftLineHeight = 20;
+  const maxShiftCount = Math.max(
+    1,
+    ...calendarDays.map((day) => rowsByDate[day.date]?.length ?? 0),
+  );
+  const rowHeight = Math.max(120, 50 + maxShiftCount * shiftLineHeight);
   const footerHeight = 42;
   const calendarWidth = width - marginX * 2;
   const cellWidth = calendarWidth / 7;
@@ -578,26 +583,23 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
       context.textAlign = "left";
     }
 
-    dayRows.slice(0, 2).forEach((rowItem, rowIndex) => {
-      const textY = y + 60 + rowIndex * 34;
+    dayRows.forEach((rowItem, rowIndex) => {
+      const textY = y + 55 + rowIndex * shiftLineHeight;
       const positionName = getShiftRequestPositionLabel(rowItem.request);
 
       context.save();
       context.beginPath();
-      context.rect(x + 12, textY - 15, cellWidth - 24, 30);
+      context.rect(x + 12, textY - 10, cellWidth - 24, shiftLineHeight);
       context.clip();
       context.fillStyle = "#15803d";
-      context.font = "bold 14px Arial, sans-serif";
-      context.fillText(`${rowItem.request.startTime}～`, x + 12, textY - 7);
-      context.fillText(positionName, x + 12, textY + 11);
+      context.font = "bold 13px Arial, sans-serif";
+      context.fillText(
+        `${rowItem.request.startTime}～${rowItem.request.endTime}（${positionName}）`,
+        x + 12,
+        textY,
+      );
       context.restore();
     });
-
-    if (dayRows.length > 2) {
-      context.fillStyle = "#475569";
-      context.font = "bold 12px Arial, sans-serif";
-      context.fillText(`+${dayRows.length - 2}件`, x + 12, y + rowHeight - 12);
-    }
   });
 
   context.fillStyle = "#475569";
