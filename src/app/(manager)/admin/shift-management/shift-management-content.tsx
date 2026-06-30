@@ -40,6 +40,11 @@ function getPreferredDateForMonth(dates: string[], month: Date, todayDate: strin
 }
 
 function AdminShiftManagementContent() {
+  const [calendarState, setCalendarState] = useState(() => ({
+    displayMonth: getMonthStart(new Date()),
+    selectedDate: null as string | null,
+    hasUserMovedCalendar: false,
+  }));
   const {
     organizationQuery,
     currentOrganization,
@@ -99,12 +104,7 @@ function AdminShiftManagementContent() {
     openDeleteRequestModal,
     closeDeleteRequestModal,
     confirmDeleteRequest,
-  } = useShiftManagement();
-  const [calendarState, setCalendarState] = useState(() => ({
-    displayMonth: getMonthStart(new Date()),
-    selectedDate: null as string | null,
-    hasUserMovedCalendar: false,
-  }));
+  } = useShiftManagement(calendarState.displayMonth);
   const todayDate = useMemo(() => toDateString(new Date()), []);
   const slotDates = useMemo(() => Object.keys(groupedSlots).sort(), [groupedSlots]);
   const fallbackSelectedDate = useMemo(() => {

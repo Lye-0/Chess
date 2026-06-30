@@ -83,6 +83,28 @@ type EmployeeRequestAuthContext = {
   employeeEmail: string;
 };
 
+function getMonthDateRange(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+
+  const year = Number(month.slice(0, 4));
+  const monthIndex = Number(month.slice(5, 7)) - 1;
+  const start = new Date(year, monthIndex, 1);
+  const end = new Date(year, monthIndex + 1, 1);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+
+  const format = (date: Date) =>
+    [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+
+  return {
+    startDate: format(start),
+    endDate: format(end),
+  };
+}
 function normalizeShiftRequestStatus(status: unknown): ShiftRequestStatus {
   return status === "承認済" ? "承認済" : "希望済";
 }
@@ -203,6 +225,57 @@ export function subscribeEmployeeShiftRequests(
   );
 }
 
+export function subscribeShiftRequestsByMonth(
+  month: string,
+  onNext: (requests: ShiftRequest[]) => void,
+  onError?: (error: FirestoreError) => void,
+  organizationId = defaultOrganizationId,
+): Unsubscribe {
+  const range = getMonthDateRange(month);
+  if (!range) {
+    onNext([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    query(
+      getShiftRequestsCollection(organizationId),
+      where("date", ">=", range.startDate),
+      where("date", "<", range.endDate),
+    ),
+    (snapshot) => {
+      onNext(snapshot.docs.map(toShiftRequest));
+    },
+    onError,
+  );
+}
+
+export function subscribeShiftRequestsByEmployeeAndMonth(
+  employeeId: string,
+  month: string,
+  onNext: (requests: ShiftRequest[]) => void,
+  onError?: (error: FirestoreError) => void,
+  organizationId = defaultOrganizationId,
+): Unsubscribe {
+  const range = getMonthDateRange(month);
+  if (!employeeId || !range) {
+    onNext([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    query(
+      getShiftRequestsCollection(organizationId),
+      where("employeeId", "==", employeeId),
+      where("date", ">=", range.startDate),
+      where("date", "<", range.endDate),
+    ),
+    (snapshot) => {
+      onNext(snapshot.docs.map(toShiftRequest));
+    },
+    onError,
+  );
+}
 export async function createShiftRequests(
   inputs: ShiftRequestInput[],
   organizationId = defaultOrganizationId,

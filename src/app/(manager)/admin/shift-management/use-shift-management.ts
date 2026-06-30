@@ -5,7 +5,7 @@ import {
   isFourDigitShiftDate,
   isValidShiftTimeRange,
   removeShiftSlot,
-  subscribeShiftSlots,
+  subscribeShiftSlotsByMonth,
   updateShiftSlot,
   type ShiftSlot,
   type ShiftSlotInput,
@@ -16,7 +16,7 @@ import {
   isShiftStartInFuture,
   removeShiftRequest,
   resetShiftRequestApproval,
-  subscribeShiftRequests,
+  subscribeShiftRequestsByMonth,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import {
@@ -69,6 +69,9 @@ function padDatePart(value: number) {
   return String(value).padStart(2, "0");
 }
 
+function getMonthValue(date: Date) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0")].join("-");
+}
 function toShiftDateString(date: Date) {
   return [
     date.getFullYear(),
@@ -204,7 +207,7 @@ function getAutoApprovalPeriodRange(date: Date, target: string) {
 
   return { start, end };
 }
-export function useShiftManagement() {
+export function useShiftManagement(displayMonth: Date) {
   const {
     organizationId,
     organizationQuery,
@@ -248,6 +251,7 @@ export function useShiftManagement() {
   );
   const [selectedExportScope, setSelectedExportScope] =
     useState<ShiftExportScope>("month");
+  const selectedMonth = useMemo(() => getMonthValue(displayMonth), [displayMonth]);
   const selectedWeights =
     recommendationWeightOptions.find(
       (option) => option.id === recommendationSettings.weightId,
@@ -264,7 +268,8 @@ export function useShiftManagement() {
   useEffect(() => {
     if (!currentOrganization) return;
 
-    const unsubscribeSlots = subscribeShiftSlots(
+    const unsubscribeSlots = subscribeShiftSlotsByMonth(
+      selectedMonth,
       (nextSlots) => {
         setSlots(nextSlots);
         setIsLoading(false);
@@ -277,7 +282,8 @@ export function useShiftManagement() {
       },
       organizationId,
     );
-    const unsubscribeRequests = subscribeShiftRequests(
+    const unsubscribeRequests = subscribeShiftRequestsByMonth(
+      selectedMonth,
       (nextRequests) => {
         setRequests(nextRequests);
       },
@@ -347,7 +353,7 @@ export function useShiftManagement() {
       unsubscribeCompatibilityScores();
       unsubscribeRecommendationSettings();
     };
-  }, [currentOrganization, organizationId]);
+  }, [currentOrganization, organizationId, selectedMonth]);
 
   const exportMonths = useMemo(() => getShiftExportMonths(requests), [requests]);
   const activeExportMonth = exportMonths.includes(selectedExportMonth)

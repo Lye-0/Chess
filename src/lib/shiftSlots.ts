@@ -4,8 +4,10 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  query,
   serverTimestamp,
   updateDoc,
+  where,
   type DocumentData,
   type FirestoreError,
   type QueryDocumentSnapshot,
@@ -42,6 +44,28 @@ export type ShiftSlotInput = Omit<ShiftSlot, "id" | "requestCount" | "employeeGe
 const fourDigitDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
 
+function getMonthDateRange(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+
+  const year = Number(month.slice(0, 4));
+  const monthIndex = Number(month.slice(5, 7)) - 1;
+  const start = new Date(year, monthIndex, 1);
+  const end = new Date(year, monthIndex + 1, 1);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+
+  const format = (date: Date) =>
+    [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+
+  return {
+    startDate: format(start),
+    endDate: format(end),
+  };
+}
 export function isFourDigitShiftDate(date: string) {
   if (!fourDigitDatePattern.test(date)) return false;
 
@@ -148,6 +172,30 @@ export function subscribeShiftSlots(
   );
 }
 
+export function subscribeShiftSlotsByMonth(
+  month: string,
+  onNext: (slots: ShiftSlot[]) => void,
+  onError?: (error: FirestoreError) => void,
+  organizationId = defaultOrganizationId,
+): Unsubscribe {
+  const range = getMonthDateRange(month);
+  if (!range) {
+    onNext([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    query(
+      getShiftSlotsCollection(organizationId),
+      where("date", ">=", range.startDate),
+      where("date", "<", range.endDate),
+    ),
+    (snapshot) => {
+      onNext(snapshot.docs.map(toShiftSlot));
+    },
+    onError,
+  );
+}
 export async function createShiftSlot(
   input: ShiftSlotInput,
   organizationId = defaultOrganizationId,

@@ -9,13 +9,13 @@ import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess
 import {
   clearShiftRequestActuals,
   getShiftRequestPositionLabel,
-  subscribeShiftRequests,
+  subscribeShiftRequestsByMonth,
   updateShiftRequestActuals,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import {
   formatShiftTimeRange,
-  subscribeShiftSlots,
+  subscribeShiftSlotsByMonth,
   type ShiftSlot,
 } from "@/lib/shiftSlots";
 import {
@@ -35,6 +35,26 @@ import {
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 
+function getMonthValue(date = new Date()) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0")].join("-");
+}
+
+function getMonthOptions(baseDate = new Date()) {
+  const months: string[] = [];
+  const base = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+
+  for (let offset = -12; offset <= 6; offset += 1) {
+    const date = new Date(base.getFullYear(), base.getMonth() + offset, 1);
+    months.push(getMonthValue(date));
+  }
+
+  return months;
+}
+
+function formatMonthLabel(month: string) {
+  const [year, monthNumber] = month.split("-");
+  return `${year}年${Number(monthNumber)}月`;
+}
 type ActualShiftForm = {
   actualStartTime: string;
   actualEndTime: string;
@@ -117,6 +137,7 @@ function AdminEmployeeListContent() {
     defaultPayrollSettings,
   );
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(() => getMonthValue());
   const [requestView, setRequestView] = useState<"upcoming" | "completed">("upcoming");
   const [searchQuery, setSearchQuery] = useState("");
   const [isEmployeesLoading, setIsEmployeesLoading] = useState(true);
@@ -136,6 +157,7 @@ function AdminEmployeeListContent() {
   const [actualErrorMessage, setActualErrorMessage] = useState<string | null>(null);
   const isLoading =
     isEmployeesLoading || isRequestsLoading || isShiftSlotsLoading || isPayrollLoading;
+  const monthOptions = useMemo(() => getMonthOptions(), []);
 
   useEffect(() => {
     if (!currentOrganization) return;
@@ -160,18 +182,6 @@ function AdminEmployeeListContent() {
       },
       organizationId,
     );
-    const unsubscribeRequests = subscribeShiftRequests(
-      (nextRequests) => {
-        setRequests(nextRequests);
-        setIsRequestsLoading(false);
-      },
-      (error) => {
-        console.error(error);
-        setIsRequestsLoading(false);
-        setErrorMessage("シフト希望の読み込みに失敗しました。");
-      },
-      organizationId,
-    );
     const unsubscribePayroll = subscribePayrollSettings(
       (settings) => {
         setPayrollSettings(settings);
@@ -184,7 +194,18 @@ function AdminEmployeeListContent() {
       },
       organizationId,
     );
-    const unsubscribeShiftSlots = subscribeShiftSlots(
+
+    return () => {
+      unsubscribeEmployees();
+      unsubscribePayroll();
+    };
+  }, [currentOrganization, organizationId]);
+
+  useEffect(() => {
+    if (!currentOrganization) return;
+
+    const unsubscribeShiftSlots = subscribeShiftSlotsByMonth(
+      selectedMonth,
       (nextShiftSlots) => {
         setShiftSlots(nextShiftSlots);
         setIsShiftSlotsLoading(false);
@@ -198,13 +219,31 @@ function AdminEmployeeListContent() {
     );
 
     return () => {
-      unsubscribeEmployees();
-      unsubscribeRequests();
-      unsubscribePayroll();
       unsubscribeShiftSlots();
     };
-  }, [currentOrganization, organizationId]);
+  }, [currentOrganization, organizationId, selectedMonth]);
 
+  useEffect(() => {
+    if (!currentOrganization) return;
+
+    const unsubscribeRequests = subscribeShiftRequestsByMonth(
+      selectedMonth,
+      (nextRequests) => {
+        setRequests(nextRequests.filter((request) => request.employeeId === selectedEmployeeId));
+        setIsRequestsLoading(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsRequestsLoading(false);
+        setErrorMessage("シフト希望の読み込みに失敗しました。");
+      },
+      organizationId,
+    );
+
+    return () => {
+      unsubscribeRequests();
+    };
+  }, [currentOrganization, organizationId, selectedEmployeeId, selectedMonth]);
   const slotPositionNameById = useMemo(() => {
     return shiftSlots.reduce<Record<string, string>>((namesById, slot) => {
       namesById[slot.id] = slot.positionName;
@@ -212,12 +251,6 @@ function AdminEmployeeListContent() {
     }, {});
   }, [shiftSlots]);
 
-  const requestsByEmployee = useMemo(() => {
-    return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
-      groups[request.employeeId] = [...(groups[request.employeeId] ?? []), request];
-      return groups;
-    }, {});
-  }, [requests]);
   const filteredEmployees = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     if (!normalizedQuery) return registeredEmployees;
@@ -233,13 +266,7 @@ function AdminEmployeeListContent() {
   const selectedEmployee =
     registeredEmployees.find((employee) => employee.employeeId === selectedEmployeeId) ??
     null;
-  const allSelectedRequests = useMemo(
-    () =>
-      selectedEmployee
-        ? sortRequestsDescending(requestsByEmployee[selectedEmployee.employeeId] ?? [])
-        : [],
-    [requestsByEmployee, selectedEmployee],
-  );
+  const allSelectedRequests = useMemo(() => sortRequestsDescending(requests), [requests]);
   const selectedRequests = useMemo(
     () =>
       allSelectedRequests.filter((request) =>
@@ -409,14 +436,52 @@ function AdminEmployeeListContent() {
               className="h-10 w-full rounded-md border border-black/10 bg-white pl-10 pr-3 text-sm shadow-sm outline-none placeholder:text-[#717182]"
             />
           </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="block text-sm font-semibold text-[#475569]">
+              表示月
+              <select
+                value={selectedMonth}
+                onChange={(event) => {
+                  setIsShiftSlotsLoading(true);
+                  setIsRequestsLoading(true);
+                  setSelectedMonth(event.target.value);
+                }}
+                className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm font-normal text-[#030213] shadow-sm outline-none"
+              >
+                {monthOptions.map((month) => (
+                  <option key={month} value={month}>
+                    {formatMonthLabel(month)}
+                  </option>
+                ))}
+              </select>
+            </label>
 
+            <label className="block text-sm font-semibold text-[#475569] md:hidden">
+              従業員
+              <select
+                value={selectedEmployeeId}
+                onChange={(event) => {
+                  setIsRequestsLoading(true);
+                  setSelectedEmployeeId(event.target.value);
+                }}
+                disabled={isEmployeesLoading || filteredEmployees.length === 0}
+                className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm font-normal text-[#030213] shadow-sm outline-none disabled:bg-[#f1f5f9]"
+              >
+                {filteredEmployees.map((employee) => (
+                  <option key={employee.employeeId} value={employee.employeeId}>
+                    {employee.name}（{employee.employeeId}）
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           {errorMessage && (
             <div className="mt-5 rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
               {errorMessage}
             </div>
           )}
 
-          <div className="mt-6 space-y-3">
+          <div className="mt-6 hidden space-y-3 md:block">
             {isEmployeesLoading ? (
               <div className="flex min-h-32 items-center justify-center text-center text-[#717182]">
                 <p>従業員を読み込んでいます</p>
@@ -427,14 +492,16 @@ function AdminEmployeeListContent() {
               </div>
             ) : (
               filteredEmployees.map((employee) => {
-                const employeeRequests = requestsByEmployee[employee.employeeId] ?? [];
                 const selected = employee.employeeId === selectedEmployee?.employeeId;
 
                 return (
                   <button
                     key={employee.employeeId}
                     type="button"
-                    onClick={() => setSelectedEmployeeId(employee.employeeId)}
+                    onClick={() => {
+                      setIsRequestsLoading(true);
+                      setSelectedEmployeeId(employee.employeeId);
+                    }}
                     className={[
                       "w-full rounded-lg border p-4 text-left transition",
                       selected
@@ -453,14 +520,6 @@ function AdminEmployeeListContent() {
                         >
                           {employee.email}
                           <span className="ml-5">{employee.employmentType}</span>
-                        </p>
-                        <p
-                          className={[
-                            "mt-2 text-sm",
-                            selected ? "text-white" : "text-[#475569]",
-                          ].join(" ")}
-                        >
-                          シフト希望: {employeeRequests.length}件
                         </p>
                       </div>
                       <span
