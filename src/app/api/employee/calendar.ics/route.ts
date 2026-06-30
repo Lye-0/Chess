@@ -56,25 +56,40 @@ export async function GET(request: Request) {
 
   try {
     const adminDb = await getAdminDb();
-    const employeesSnapshot = await adminDb
-      .collectionGroup("employees")
-      .where("calendarSubscriptionToken", "==", token)
-      .limit(1)
+    const subscriptionSnapshot = await adminDb
+      .collection("employeeCalendarSubscriptions")
+      .doc(token)
       .get();
-    const employeeSnapshot = employeesSnapshot.docs[0];
-    const organizationRef = employeeSnapshot?.ref.parent.parent;
 
-    if (!employeeSnapshot || !organizationRef) {
+    if (!subscriptionSnapshot.exists) {
       return NextResponse.json(
         { error: "カレンダー購読URLを確認できませんでした。" },
         { status: 404 },
       );
     }
 
+    const subscriptionData = subscriptionSnapshot.data() ?? {};
+    const organizationId = String(subscriptionData.organizationId ?? "");
+    const employeeId = String(subscriptionData.employeeId ?? "");
+
+    if (!organizationId || !employeeId) {
+      return NextResponse.json(
+        { error: "カレンダー購読URLを確認できませんでした。" },
+        { status: 404 },
+      );
+    }
+
+    const organizationRef = adminDb.collection("organizations").doc(organizationId);
+    const employeeSnapshot = await organizationRef.collection("employees").doc(employeeId).get();
+
+    if (!employeeSnapshot.exists) {
+      return NextResponse.json(
+        { error: "従業員情報を確認できませんでした。" },
+        { status: 404 },
+      );
+    }
+
     const employeeData = employeeSnapshot.data() ?? {};
-    const employeeId = String(
-      employeeData.employeeId ?? employeeData.id ?? employeeSnapshot.id,
-    );
     const employeeName = String(employeeData.name ?? "");
     const requestsSnapshot = await organizationRef
       .collection("shiftRequests")

@@ -38,13 +38,31 @@ export async function POST(request: Request) {
     );
     const token = existingToken || createCalendarSubscriptionToken();
 
-    if (!existingToken) {
-      await employeeRef.update({
-        calendarSubscriptionToken: token,
-        calendarSubscriptionTokenCreatedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-    }
+    const subscriptionRef = adminDb
+      .collection("employeeCalendarSubscriptions")
+      .doc(token);
+    const now = FieldValue.serverTimestamp();
+
+    await adminDb.runTransaction(async (transaction) => {
+      if (!existingToken) {
+        transaction.update(employeeRef, {
+          calendarSubscriptionToken: token,
+          calendarSubscriptionTokenCreatedAt: now,
+          updatedAt: now,
+        });
+      }
+
+      transaction.set(
+        subscriptionRef,
+        {
+          organizationId: employeeAuth.organizationId,
+          employeeId: employeeAuth.employeeId,
+          updatedAt: now,
+          createdAt: now,
+        },
+        { merge: true },
+      );
+    });
 
     const calendarUrl = new URL("/api/employee/calendar.ics", request.url);
     calendarUrl.searchParams.set("token", token);
