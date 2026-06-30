@@ -7,7 +7,7 @@ import {
 } from "./payroll";
 import { getShiftRequestPositionLabel, type ShiftRequest } from "./shiftRequests";
 
-export type ShiftExportFormat = "ics" | "png" | "pdf" | "csv" | "calendarSubscription";
+export type ShiftExportFormat = "ics" | "png" | "pdf" | "csv" | "excel" | "calendarSubscription";
 export type ShiftExportScope = "month" | "monthDaily" | "day";
 
 export type MonthlyShiftExportRow = {
@@ -1237,6 +1237,458 @@ export function downloadDailyCsv(data: DailyShiftExportData) {
     .join("\r\n");
 
   downloadTextFile(`${getFilenameBase(data)}.csv`, `\uFEFF${content}`, "text/csv;charset=utf-8");
+}
+
+type XlsxCellValue = string | number;
+
+type XlsxCell = {
+  ref: string;
+  value: XlsxCellValue;
+  style?: number;
+  type?: "inlineStr" | "n";
+};
+
+function getExcelDailyTimeRange(rows: MonthlyShiftExportRow[]) {
+  const shiftRanges = rows.map((row) => getShiftStartEndMinutes(row.request));
+  const defaultStart = 9 * 60;
+  const defaultEnd = 23 * 60 + 30;
+  const minShiftStart = shiftRanges.length > 0
+    ? Math.min(...shiftRanges.map((range) => range.start), defaultStart)
+    : defaultStart;
+  const maxShiftEnd = shiftRanges.length > 0
+    ? Math.max(...shiftRanges.map((range) => range.end), defaultEnd)
+    : defaultEnd;
+  const start = Math.floor(minShiftStart / 30) * 30;
+  const end = Math.max(defaultEnd, Math.ceil(maxShiftEnd / 30) * 30);
+
+  return { start, end };
+}
+
+function formatExcelHourLabel(minutes: number) {
+  const hour = Math.floor((minutes % (24 * 60)) / 60);
+  const minute = minutes % 60;
+
+  return `${hour}:${padDatePart(minute)}`;
+}
+
+function formatExcelWorkHours(minutes: number) {
+  const hours = Math.round((minutes / 60) * 10) / 10;
+
+  return Number.isInteger(hours) ? hours : Number(hours.toFixed(1));
+}
+
+function getColumnName(column: number) {
+  let value = column;
+  let name = "";
+
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    value = Math.floor((value - 1) / 26);
+  }
+
+  return name;
+}
+
+function getCellColumnIndex(ref: string) {
+  const columnName = ref.match(/^[A-Z]+/)?.[0] ?? "";
+
+  return [...columnName].reduce(
+    (total, character) => total * 26 + character.charCodeAt(0) - 64,
+    0,
+  );
+}
+
+function escapeXml(value: XlsxCellValue) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function createXlsxCellXml(cell: XlsxCell) {
+  const style = cell.style !== undefined ? ` s="${cell.style}"` : "";
+
+  if (cell.type === "n" || typeof cell.value === "number") {
+    return `<c r="${cell.ref}"${style}><v>${cell.value}</v></c>`;
+  }
+
+  if (cell.value === "") {
+    return `<c r="${cell.ref}"${style}/>`;
+  }
+
+  return `<c r="${cell.ref}" t="inlineStr"${style}><is><t>${escapeXml(cell.value)}</t></is></c>`;
+}
+
+function getShiftExportXlsxStyleIndex(positionName: string) {
+  const colorIndex = shiftExportColors.indexOf(getShiftExportColor(positionName));
+
+  return 12 + Math.max(0, colorIndex);
+}
+
+function buildDailyRosterSheetXml(data: DailyShiftExportData) {
+  const { start, end } = getExcelDailyTimeRange(data.rows);
+  const slotCount = Math.ceil((end - start) / 30);
+  const timelineStartColumn = 3;
+  const workColumn = timelineStartColumn + slotCount;
+  const noteColumn = workColumn + 1;
+  const maxColumn = noteColumn;
+  const displayEmployees = getEmployeeDisplayRows(data);
+  const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
+    (groups, row) => {
+      groups[row.request.employeeId] = [...(groups[row.request.employeeId] ?? []), row];
+      return groups;
+    },
+    {},
+  );
+  const laneRowsByEmployee = displayEmployees.reduce<Record<string, DailyShiftExportLaneRow[]>>(
+    (groups, employee) => {
+      if (!employee) return groups;
+      groups[employee.employeeId] = assignDailyShiftLanes(rowsByEmployee[employee.employeeId] ?? []);
+      return groups;
+    },
+    {},
+  );
+  const cellsByRow = new Map<number, XlsxCell[]>();
+  const merges: string[] = [];
+  const rowHeights = new Map<number, number>();
+  const addCell = (row: number, column: number, value: XlsxCellValue, style?: number, type?: XlsxCell["type"]) => {
+    const ref = `${getColumnName(column)}${row}`;
+    const cells = [...(cellsByRow.get(row) ?? [])];
+    const cell = { ref, value, style, type };
+    const existingIndex = cells.findIndex((item) => item.ref === ref);
+
+    if (existingIndex >= 0) {
+      cells[existingIndex] = cell;
+    } else {
+      cells.push(cell);
+    }
+
+    cellsByRow.set(row, cells);
+  };
+  const addMerge = (startRow: number, startColumn: number, endRow: number, endColumn: number) => {
+    if (startRow === endRow && startColumn === endColumn) return;
+    merges.push(`${getColumnName(startColumn)}${startRow}:${getColumnName(endColumn)}${endRow}`);
+  };
+  const removeCellsInRange = (row: number, startColumn: number, endColumn: number) => {
+    const cells = cellsByRow.get(row) ?? [];
+    const refsToRemove = new Set(
+      Array.from({ length: endColumn - startColumn + 1 }, (_, index) => (
+        `${getColumnName(startColumn + index)}${row}`
+      )),
+    );
+    cellsByRow.set(row, cells.filter((cell) => !refsToRemove.has(cell.ref)));
+  };
+
+  rowHeights.set(1, 30);
+  rowHeights.set(3, 28);
+  rowHeights.set(4, 24);
+  addCell(1, 1, "従業員シフト表", 1);
+  addCell(1, 4, "日付", 2);
+  addCell(1, 5, formatFullDateLabel(data.date), 3);
+  addMerge(1, 5, 1, Math.min(8, maxColumn));
+  addCell(2, 1, `${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 0);
+  addCell(3, 1, "No.", 4);
+  addCell(3, 2, "名前", 4);
+  addCell(3, timelineStartColumn, "タイムテーブル", 4);
+  addCell(3, workColumn, "勤務時間", 4);
+  addCell(3, noteColumn, "備考", 4);
+  addMerge(3, 1, 4, 1);
+  addMerge(3, 2, 4, 2);
+  addMerge(3, timelineStartColumn, 3, workColumn - 1);
+  addMerge(3, workColumn, 4, workColumn);
+  addMerge(3, noteColumn, 4, noteColumn);
+
+  for (let slot = 0; slot < slotCount; slot += 1) {
+    const minute = start + slot * 30;
+    addCell(4, timelineStartColumn + slot, minute % 60 === 0 || slot === slotCount - 1 ? formatExcelHourLabel(minute) : "", 5);
+  }
+
+  let currentRow = 5;
+  displayEmployees.forEach((employee, rowIndex) => {
+    const employeeRows = employee ? rowsByEmployee[employee.employeeId] ?? [] : [];
+    const laneRows = employee ? laneRowsByEmployee[employee.employeeId] ?? [] : [];
+    const laneCount = getDailyShiftLaneCount(laneRows);
+    const startRow = currentRow;
+    const endRow = currentRow + laneCount - 1;
+    const employeeMinutes = employeeRows.reduce((total, row) => total + row.payroll.totalMinutes, 0);
+
+    addCell(startRow, 1, rowIndex + 1, 6, "n");
+    addCell(startRow, 2, employee?.name ?? "対象従業員なし", 7);
+    addCell(startRow, workColumn, employeeMinutes > 0 ? formatExcelWorkHours(employeeMinutes) : "", 10, employeeMinutes > 0 ? "n" : "inlineStr");
+    addCell(startRow, noteColumn, "", 11);
+    addMerge(startRow, 1, endRow, 1);
+    addMerge(startRow, 2, endRow, 2);
+    addMerge(startRow, workColumn, endRow, workColumn);
+    addMerge(startRow, noteColumn, endRow, noteColumn);
+
+    for (let lane = 0; lane < laneCount; lane += 1) {
+      const rowNumber = startRow + lane;
+      rowHeights.set(rowNumber, 24);
+      for (let slot = 0; slot < slotCount; slot += 1) {
+        const minute = start + slot * 30;
+        addCell(rowNumber, timelineStartColumn + slot, "", minute % 60 === 0 ? 8 : 9);
+      }
+    }
+
+    laneRows.forEach((laneRow) => {
+      const range = getShiftStartEndMinutes(laneRow.request);
+      const blockStart = Math.max(start, range.start);
+      const blockEnd = Math.min(end, range.end);
+      if (blockEnd <= blockStart) return;
+
+      const startColumn = timelineStartColumn + Math.floor((blockStart - start) / 30);
+      const endColumn = timelineStartColumn + Math.max(0, Math.ceil((blockEnd - start) / 30) - 1);
+      const rowNumber = startRow + laneRow.lane;
+      const positionName = getShiftRequestPositionLabel(laneRow.request);
+      const blockText = `${laneRow.request.startTime}-${laneRow.request.endTime} ${positionName}`;
+      const blockStyle = getShiftExportXlsxStyleIndex(positionName);
+
+      removeCellsInRange(rowNumber, startColumn, endColumn);
+      addCell(rowNumber, startColumn, blockText, blockStyle);
+      addMerge(rowNumber, startColumn, rowNumber, endColumn);
+    });
+
+    currentRow += laneCount;
+  });
+
+  const sheetRows = Array.from(cellsByRow.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([row, cells]) => {
+      const height = rowHeights.get(row);
+      const heightAttributes = height ? ` ht="${height}" customHeight="1"` : "";
+      const sortedCells = cells.sort((a, b) => getCellColumnIndex(a.ref) - getCellColumnIndex(b.ref));
+      return `<row r="${row}"${heightAttributes}>${sortedCells.map(createXlsxCellXml).join("")}</row>`;
+    })
+    .join("");
+  const columnXml = [
+    '<col min="1" max="1" width="6" customWidth="1"/>',
+    '<col min="2" max="2" width="18" customWidth="1"/>',
+    `<col min="${timelineStartColumn}" max="${workColumn - 1}" width="4.2" customWidth="1"/>`,
+    `<col min="${workColumn}" max="${workColumn}" width="10" customWidth="1"/>`,
+    `<col min="${noteColumn}" max="${noteColumn}" width="22" customWidth="1"/>`,
+  ].join("");
+  const mergeXml = merges.length > 0
+    ? `<mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>`
+    : "";
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <dimension ref="A1:${getColumnName(maxColumn)}${Math.max(4, currentRow - 1)}"/>
+  <sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>${columnXml}</cols>
+  <sheetData>${sheetRows}</sheetData>
+  ${mergeXml}
+</worksheet>`;
+}
+
+function buildXlsxStylesXml() {
+  const shiftFills = shiftExportColors
+    .map((color) => `<fill><patternFill patternType="solid"><fgColor rgb="FF${color.fill.slice(1).toUpperCase()}"/><bgColor indexed="64"/></patternFill></fill>`)
+    .join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="4">
+    <font><sz val="11"/><name val="Yu Gothic"/></font>
+    <font><b/><sz val="20"/><name val="Yu Gothic"/></font>
+    <font><b/><sz val="11"/><name val="Yu Gothic"/></font>
+    <font><b/><sz val="9"/><name val="Yu Gothic"/></font>
+  </fonts>
+  <fills count="${6 + shiftExportColors.length}">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFFF99"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill>
+    ${shiftFills}
+  </fills>
+  <borders count="5">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
+    <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF999999"/></right><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF999999"/></left><right style="thin"><color rgb="FF999999"/></right><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
+    <border><left style="thin"><color rgb="FF666666"/></left><right style="thin"><color rgb="FF666666"/></right><top style="thin"><color rgb="FF666666"/></top><bottom style="thin"><color rgb="FF666666"/></bottom><diagonal/></border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="${12 + shiftExportColors.length}">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="2" xfId="0" applyBorder="1"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="3" xfId="0" applyBorder="1"/>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
+    ${shiftExportColors.map((_, index) => `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="4" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" shrinkToFit="1"/></xf>`).join("")}
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+}
+
+function stringToBytes(value: string) {
+  return new TextEncoder().encode(value);
+}
+
+const crcTable = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
+  return value >>> 0;
+});
+
+function crc32(bytes: Uint8Array) {
+  let crc = 0xffffffff;
+  bytes.forEach((byte) => {
+    crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  });
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function concatBytes(chunks: Uint8Array[]) {
+  const totalLength = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const output = new Uint8Array(totalLength);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return output;
+}
+
+function createZip(files: { name: string; content: string }[]) {
+  const chunks: Uint8Array[] = [];
+  const centralDirectory: Uint8Array[] = [];
+  let offset = 0;
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  const writeUint16 = (view: DataView, byteOffset: number, value: number) => view.setUint16(byteOffset, value, true);
+  const writeUint32 = (view: DataView, byteOffset: number, value: number) => view.setUint32(byteOffset, value >>> 0, true);
+
+  files.forEach((file) => {
+    const nameBytes = stringToBytes(file.name);
+    const contentBytes = stringToBytes(file.content);
+    const checksum = crc32(contentBytes);
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const localView = new DataView(localHeader.buffer);
+    writeUint32(localView, 0, 0x04034b50);
+    writeUint16(localView, 4, 20);
+    writeUint16(localView, 6, 0);
+    writeUint16(localView, 8, 0);
+    writeUint16(localView, 10, dosTime);
+    writeUint16(localView, 12, dosDate);
+    writeUint32(localView, 14, checksum);
+    writeUint32(localView, 18, contentBytes.length);
+    writeUint32(localView, 22, contentBytes.length);
+    writeUint16(localView, 26, nameBytes.length);
+    writeUint16(localView, 28, 0);
+    localHeader.set(nameBytes, 30);
+    chunks.push(localHeader, contentBytes);
+
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(centralHeader.buffer);
+    writeUint32(centralView, 0, 0x02014b50);
+    writeUint16(centralView, 4, 20);
+    writeUint16(centralView, 6, 20);
+    writeUint16(centralView, 8, 0);
+    writeUint16(centralView, 10, 0);
+    writeUint16(centralView, 12, dosTime);
+    writeUint16(centralView, 14, dosDate);
+    writeUint32(centralView, 16, checksum);
+    writeUint32(centralView, 20, contentBytes.length);
+    writeUint32(centralView, 24, contentBytes.length);
+    writeUint16(centralView, 28, nameBytes.length);
+    writeUint16(centralView, 30, 0);
+    writeUint16(centralView, 32, 0);
+    writeUint16(centralView, 34, 0);
+    writeUint16(centralView, 36, 0);
+    writeUint32(centralView, 38, 0);
+    writeUint32(centralView, 42, offset);
+    centralHeader.set(nameBytes, 46);
+    centralDirectory.push(centralHeader);
+    offset += localHeader.length + contentBytes.length;
+  });
+
+  const centralOffset = offset;
+  const centralBytes = concatBytes(centralDirectory);
+  const endHeader = new Uint8Array(22);
+  const endView = new DataView(endHeader.buffer);
+  writeUint32(endView, 0, 0x06054b50);
+  writeUint16(endView, 4, 0);
+  writeUint16(endView, 6, 0);
+  writeUint16(endView, 8, files.length);
+  writeUint16(endView, 10, files.length);
+  writeUint32(endView, 12, centralBytes.length);
+  writeUint32(endView, 16, centralOffset);
+  writeUint16(endView, 20, 0);
+
+  return concatBytes([...chunks, centralBytes, endHeader]);
+}
+
+function getExcelSheetName(date: string) {
+  const parsedDate = new Date(`${date}T00:00:00`);
+
+  return `${parsedDate.getMonth() + 1}月${parsedDate.getDate()}日`;
+}
+
+function buildDailyRosterXlsxBytes(data: DailyShiftExportData) {
+  return createZip([
+    {
+      name: "[Content_Types].xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`,
+    },
+    {
+      name: "_rels/.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`,
+    },
+    {
+      name: "xl/workbook.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="${escapeXml(getExcelSheetName(data.date))}" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`,
+    },
+    {
+      name: "xl/_rels/workbook.xml.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`,
+    },
+    { name: "xl/styles.xml", content: buildXlsxStylesXml() },
+    { name: "xl/worksheets/sheet1.xml", content: buildDailyRosterSheetXml(data) },
+  ]);
+}
+
+export function downloadDailyRosterExcel(data: DailyShiftExportData) {
+  const bytes = buildDailyRosterXlsxBytes(data);
+
+  downloadBlob(
+    `${getFilenameBase(data)}.xlsx`,
+    new Blob([bytes.buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  );
 }
 
 export function downloadRosterPng(data: MonthlyShiftExportData) {

@@ -246,6 +246,7 @@ function AdminShiftManagementContent() {
               formats={[
                 { format: "pdf", label: "PDF" },
                 { format: "csv", label: "CSV" },
+                { format: "excel", label: "Excel" },
               ]}
               months={exportMonths}
               selectedMonth={activeExportMonth}

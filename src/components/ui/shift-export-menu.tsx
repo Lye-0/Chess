@@ -75,9 +75,11 @@ export function ShiftExportMenu({
   const showsTargetDate = selectedFormat !== "calendarSubscription";
   const selectedOption =
     formats.find((option) => option.format === selectedFormat) ?? formats[0];
-  const availableScopeOptions = selectedFormat === "csv"
-    ? scopeOptions?.filter((option) => option.scope !== "monthDaily")
-    : scopeOptions;
+  const availableScopeOptions = selectedFormat === "excel"
+    ? scopeOptions?.filter((option) => option.scope === "day")
+    : selectedFormat === "csv"
+      ? scopeOptions?.filter((option) => option.scope !== "monthDaily")
+      : scopeOptions;
   const selectedScopeValue = availableScopeOptions?.some(
     (option) => option.scope === selectedScope,
   )

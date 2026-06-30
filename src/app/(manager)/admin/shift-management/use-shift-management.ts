@@ -39,6 +39,7 @@ import {
   buildMonthlyShiftExportData,
   downloadCsv,
   downloadDailyCsv,
+  downloadDailyRosterExcel,
   downloadDailyRosterPdf,
   downloadMonthDailyRosterPdf,
   downloadRosterPdf,
@@ -420,6 +421,11 @@ export function useShiftManagement(displayMonth: Date) {
         }
 
         downloadCsv(monthlyExportData);
+        return;
+      }
+
+      if (format === "excel") {
+        downloadDailyRosterExcel(dailyExportData);
         return;
       }
 
