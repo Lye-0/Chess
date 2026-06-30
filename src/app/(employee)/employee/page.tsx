@@ -23,6 +23,10 @@ import {
   type PayrollSettings,
 } from "@/lib/payroll";
 import {
+  defaultShiftRequestSettings,
+  type ShiftRequestSettings,
+} from "@/lib/shiftRequestSettings";
+import {
   formatShiftTimeRange,
   type ShiftSlot,
 } from "@/lib/shiftSlots";
@@ -395,16 +399,22 @@ function PayCard({
 function ShiftRequestRow({
   request,
   payrollSettings,
+  showActualAdjustments,
   onWithdraw,
   isWithdrawing = false,
 }: {
   request: ShiftRequest;
   payrollSettings: PayrollSettings;
+  showActualAdjustments: boolean;
   onWithdraw?: (request: ShiftRequest) => void;
   isWithdrawing?: boolean;
 }) {
   const parsedDate = new Date(`${request.date}T00:00:00`);
   const payroll = calculateShiftPayroll(request, payrollSettings);
+  const shouldShowActuals = showActualAdjustments && request.status === "承認済";
+  const hasActualTime = shouldShowActuals && payroll.usesActualTime;
+  const hasActualPay = shouldShowActuals && payroll.totalPay !== payroll.scheduledPay;
+  const hasActualMemo = shouldShowActuals && request.actualMemo.trim();
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-black/10 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -419,9 +429,20 @@ function ShiftRequestRow({
             {getShiftRequestPositionLabel(request)}
           </p>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#475569]">
-            <span className="truncate">
-              {formatShiftTimeRange(request.startTime, request.endTime)}
-            </span>
+            {hasActualTime ? (
+              <>
+                <span className="text-[#94a3b8] line-through">
+                  {formatShiftTimeRange(request.startTime, request.endTime)}
+                </span>
+                <span className="font-semibold text-[#030213]">
+                  {formatShiftTimeRange(request.actualStartTime, request.actualEndTime)}
+                </span>
+              </>
+            ) : (
+              <span className="truncate">
+                {formatShiftTimeRange(request.startTime, request.endTime)}
+              </span>
+            )}
             {(request.employeeGenerated || !request.slotId) && (
               <span className="shrink-0 rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
                 自主追加枠
@@ -429,8 +450,18 @@ function ShiftRequestRow({
             )}
           </p>
           <p className="mt-1 text-sm font-semibold text-[#00a63e]">
+            {hasActualPay && (
+              <span className="mr-2 text-xs text-[#94a3b8] line-through">
+                {formatCurrency(payroll.scheduledPay)}
+              </span>
+            )}
             {formatCurrency(payroll.totalPay)}
           </p>
+          {hasActualMemo && (
+            <p className="mt-1 rounded-md bg-[#f7f8fb] px-3 py-2 text-xs text-[#475569]">
+              {request.actualMemo}
+            </p>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
@@ -598,10 +629,12 @@ function SelectedDayTimeline({
   date,
   requests,
   payrollSettings,
+  showActualAdjustments,
 }: {
   date: string;
   requests: ShiftRequest[];
   payrollSettings: PayrollSettings;
+  showActualAdjustments: boolean;
 }) {
   const timelineItems = useMemo(() => assignMyCalendarLanes(requests), [requests]);
   const minimumTimelineMinutes = 9 * 60;
@@ -736,6 +769,7 @@ function SelectedDayTimeline({
                   key={request.id}
                   request={request}
                   payrollSettings={payrollSettings}
+                  showActualAdjustments={showActualAdjustments}
                 />
               ))}
             </div>
@@ -762,6 +796,9 @@ function EmployeePageContent() {
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
     defaultPayrollSettings,
+  );
+  const [shiftRequestSettings, setShiftRequestSettings] = useState<ShiftRequestSettings>(
+    defaultShiftRequestSettings,
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isPayrollLoading, setIsPayrollLoading] = useState(true);
@@ -799,6 +836,7 @@ function EmployeePageContent() {
         setRequests(data.requests);
         setSlots(data.slots);
         setPayrollSettings(data.payrollSettings);
+        setShiftRequestSettings(data.shiftRequestSettings);
       } catch (error) {
         console.error(error);
       } finally {
@@ -933,6 +971,23 @@ function EmployeePageContent() {
       ),
     [completedApprovedRequests, currentYear, payrollSettings],
   );
+  const nearestRequestPayroll = nearestRequest
+    ? calculateShiftPayroll(nearestRequest, payrollSettings)
+    : null;
+  const showNearestActuals =
+    Boolean(nearestRequestPayroll) &&
+    shiftRequestSettings.employeeActualShiftAdjustmentsVisible;
+  const hasNearestActualTime = Boolean(
+    showNearestActuals && nearestRequestPayroll?.usesActualTime,
+  );
+  const hasNearestActualPay = Boolean(
+    showNearestActuals &&
+      nearestRequestPayroll &&
+      nearestRequestPayroll.totalPay !== nearestRequestPayroll.scheduledPay,
+  );
+  const hasNearestActualMemo = Boolean(
+    showNearestActuals && nearestRequest?.actualMemo.trim(),
+  );
 
   const monthlyExportData = useMemo(
     () =>
@@ -1052,23 +1107,50 @@ function EmployeePageContent() {
                     {getShiftRequestPositionLabel(nearestRequest)}
                   </p>
                   <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#475569]">
-                    <span className="truncate">
-                      {formatShiftTimeRange(
-                        nearestRequest.startTime,
-                        nearestRequest.endTime,
-                      )}
-                    </span>
+                    {hasNearestActualTime ? (
+                      <>
+                        <span className="text-[#94a3b8] line-through">
+                          {formatShiftTimeRange(
+                            nearestRequest.startTime,
+                            nearestRequest.endTime,
+                          )}
+                        </span>
+                        <span className="font-semibold text-[#030213]">
+                          {formatShiftTimeRange(
+                            nearestRequest.actualStartTime,
+                            nearestRequest.actualEndTime,
+                          )}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="truncate">
+                        {formatShiftTimeRange(
+                          nearestRequest.startTime,
+                          nearestRequest.endTime,
+                        )}
+                      </span>
+                    )}
                     {nearestRequest.employeeGenerated && (
                       <span className="shrink-0 rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
                         自主追加枠
                       </span>
                     )}
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-[#00a63e]">
-                    {formatCurrency(
-                      calculateShiftPayroll(nearestRequest, payrollSettings).totalPay,
-                    )}
-                  </p>
+                  {nearestRequestPayroll && (
+                    <p className="mt-1 text-sm font-semibold text-[#00a63e]">
+                      {hasNearestActualPay && (
+                        <span className="mr-2 text-xs text-[#94a3b8] line-through">
+                          {formatCurrency(nearestRequestPayroll.scheduledPay)}
+                        </span>
+                      )}
+                      {formatCurrency(nearestRequestPayroll.totalPay)}
+                    </p>
+                  )}
+                  {hasNearestActualMemo && nearestRequest.actualMemo && (
+                    <p className="mt-1 rounded-md bg-white px-3 py-2 text-xs text-[#475569]">
+                      {nearestRequest.actualMemo}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="flex min-h-24 items-center justify-center rounded-lg border border-dashed border-black/10">
@@ -1138,6 +1220,7 @@ function EmployeePageContent() {
             date={selectedDate}
             requests={selectedDateRequests}
             payrollSettings={payrollSettings}
+            showActualAdjustments={shiftRequestSettings.employeeActualShiftAdjustmentsVisible}
           />
         </section>
 

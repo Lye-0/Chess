@@ -672,6 +672,30 @@ function AdminSettingsContent() {
                 />
               </div>
             </div>
+            <div className="mt-4 rounded-lg border border-black/10 px-4 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-semibold">実績補正を従業員に表示する</p>
+                  <p className="mt-1 text-sm text-[#717182]">
+                    {shiftRequestSettings.employeeActualShiftAdjustmentsVisible
+                      ? "実勤務時間・実給与・メモを従業員画面に表示します"
+                      : "従業員画面には登録時のシフト情報として表示します"}
+                  </p>
+                </div>
+                <ToggleSwitch
+                  checked={shiftRequestSettings.employeeActualShiftAdjustmentsVisible}
+                  disabled={
+                    isLoadingShiftRequestSettings || isSavingShiftRequestSettings
+                  }
+                  onChange={(checked) =>
+                    saveShiftRequestSettings({
+                      ...shiftRequestSettings,
+                      employeeActualShiftAdjustmentsVisible: checked,
+                    })
+                  }
+                />
+              </div>
+            </div>
           </SettingsAccordion>
 
           <SettingsAccordion

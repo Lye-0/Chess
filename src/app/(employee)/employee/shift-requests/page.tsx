@@ -21,6 +21,10 @@ import {
   formatCurrency,
   type PayrollSettings,
 } from "@/lib/payroll";
+import {
+  defaultShiftRequestSettings,
+  type ShiftRequestSettings,
+} from "@/lib/shiftRequestSettings";
 import { fetchEmployeeShiftData } from "@/lib/employeeApi";
 import {
   formatShiftTimeRange,
@@ -140,16 +144,22 @@ function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
 function ShiftRequestRow({
   request,
   payrollSettings,
+  showActualAdjustments,
   onWithdraw,
   isWithdrawing = false,
 }: {
   request: ShiftRequest;
   payrollSettings: PayrollSettings;
+  showActualAdjustments: boolean;
   onWithdraw?: (request: ShiftRequest) => void;
   isWithdrawing?: boolean;
 }) {
   const parsedDate = new Date(`${request.date}T00:00:00`);
   const payroll = calculateShiftPayroll(request, payrollSettings);
+  const shouldShowActuals = showActualAdjustments && request.status === "承認済";
+  const hasActualTime = shouldShowActuals && payroll.usesActualTime;
+  const hasActualPay = shouldShowActuals && payroll.totalPay !== payroll.scheduledPay;
+  const hasActualMemo = shouldShowActuals && request.actualMemo.trim();
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-black/10 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -164,9 +174,20 @@ function ShiftRequestRow({
             {getShiftRequestPositionLabel(request)}
           </p>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#475569]">
-            <span className="truncate">
-              {formatShiftTimeRange(request.startTime, request.endTime)}
-            </span>
+            {hasActualTime ? (
+              <>
+                <span className="text-[#94a3b8] line-through">
+                  {formatShiftTimeRange(request.startTime, request.endTime)}
+                </span>
+                <span className="font-semibold text-[#030213]">
+                  {formatShiftTimeRange(request.actualStartTime, request.actualEndTime)}
+                </span>
+              </>
+            ) : (
+              <span className="truncate">
+                {formatShiftTimeRange(request.startTime, request.endTime)}
+              </span>
+            )}
             {(request.employeeGenerated || !request.slotId) && (
               <span className="shrink-0 rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
                 自主追加枠
@@ -174,8 +195,18 @@ function ShiftRequestRow({
             )}
           </p>
           <p className="mt-1 text-sm font-semibold text-[#00a63e]">
+            {hasActualPay && (
+              <span className="mr-2 text-xs text-[#94a3b8] line-through">
+                {formatCurrency(payroll.scheduledPay)}
+              </span>
+            )}
             {formatCurrency(payroll.totalPay)}
           </p>
+          {hasActualMemo && (
+            <p className="mt-1 rounded-md bg-[#f7f8fb] px-3 py-2 text-xs text-[#475569]">
+              {request.actualMemo}
+            </p>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
@@ -203,6 +234,7 @@ function ShiftRequestGroup({
   payrollSettings,
   onWithdraw,
   withdrawingRequestId,
+  showActualAdjustments,
 }: {
   title: string;
   description: string;
@@ -211,6 +243,7 @@ function ShiftRequestGroup({
   payrollSettings: PayrollSettings;
   onWithdraw?: (request: ShiftRequest) => void;
   withdrawingRequestId?: string | null;
+  showActualAdjustments: boolean;
 }) {
   return (
     <section className="rounded-md border border-black/10 bg-white px-4 py-4">
@@ -235,6 +268,7 @@ function ShiftRequestGroup({
               key={request.id}
               request={request}
               payrollSettings={payrollSettings}
+              showActualAdjustments={showActualAdjustments}
               onWithdraw={onWithdraw}
               isWithdrawing={withdrawingRequestId === request.id}
             />
@@ -261,6 +295,9 @@ function EmployeeShiftRequestsContent() {
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
     defaultPayrollSettings,
+  );
+  const [shiftRequestSettings, setShiftRequestSettings] = useState<ShiftRequestSettings>(
+    defaultShiftRequestSettings,
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isPayrollLoading, setIsPayrollLoading] = useState(true);
@@ -303,6 +340,7 @@ function EmployeeShiftRequestsContent() {
         setRequests(data.requests);
         setSlots(data.slots);
         setPayrollSettings(data.payrollSettings);
+        setShiftRequestSettings(data.shiftRequestSettings);
       })
       .catch((error) => {
         console.error(error);
@@ -432,6 +470,7 @@ function EmployeeShiftRequestsContent() {
                 payrollSettings={payrollSettings}
                 onWithdraw={handleWithdrawRequest}
                 withdrawingRequestId={withdrawingRequestId}
+                showActualAdjustments={shiftRequestSettings.employeeActualShiftAdjustmentsVisible}
               />
               <ShiftRequestGroup
                 title="承認済み"
@@ -439,6 +478,7 @@ function EmployeeShiftRequestsContent() {
                 requests={approvedRequests}
                 emptyText="承認済みのシフトはありません"
                 payrollSettings={payrollSettings}
+                showActualAdjustments={shiftRequestSettings.employeeActualShiftAdjustmentsVisible}
               />
             </div>
           )}
