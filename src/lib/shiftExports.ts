@@ -1271,6 +1271,13 @@ function formatExcelHourLabel(minutes: number) {
   return `${hour}:${padDatePart(minute)}`;
 }
 
+function formatExcelTimelineLabel(minutes: number) {
+  const hour = Math.floor((minutes % (24 * 60)) / 60);
+  const minute = minutes % 60;
+
+  return minute === 0 ? String(hour) : formatExcelHourLabel(minutes);
+}
+
 function formatExcelWorkHours(minutes: number) {
   const hours = Math.round((minutes / 60) * 10) / 10;
 
@@ -1403,17 +1410,10 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   for (let slot = 0; slot < slotCount; slot += 1) {
     const minute = start + slot * 30;
     const column = timelineStartColumn + slot;
+    const isHour = minute % 60 === 0;
+    const label = isHour || slot === 0 ? formatExcelTimelineLabel(minute) : "";
 
-    if (minute % 60 === 0) {
-      const nextColumn = slot + 1 < slotCount ? column + 1 : column;
-      addCell(4, column, formatExcelHourLabel(minute), 5);
-      addMerge(4, column, 4, nextColumn);
-      continue;
-    }
-
-    if (slot === 0) {
-      addCell(4, column, formatExcelHourLabel(minute), 5);
-    }
+    addCell(4, column, label, isHour ? 5 : 9);
   }
 
   let currentRow = 5;
@@ -1436,7 +1436,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
 
     for (let lane = 0; lane < laneCount; lane += 1) {
       const rowNumber = startRow + lane;
-      rowHeights.set(rowNumber, 28);
+      rowHeights.set(rowNumber, 19);
       for (let slot = 0; slot < slotCount; slot += 1) {
         const minute = start + slot * 30;
         addCell(rowNumber, timelineStartColumn + slot, "", minute % 60 === 0 ? 8 : 9);
@@ -1474,11 +1474,11 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
     })
     .join("");
   const columnXml = [
-    '<col min="1" max="1" width="6" customWidth="1"/>',
-    '<col min="2" max="2" width="18" customWidth="1"/>',
-    `<col min="${timelineStartColumn}" max="${workColumn - 1}" width="5.6" customWidth="1"/>`,
-    `<col min="${workColumn}" max="${workColumn}" width="11" customWidth="1"/>`,
-    `<col min="${noteColumn}" max="${noteColumn}" width="20" customWidth="1"/>`,
+    '<col min="1" max="1" width="4.8" customWidth="1"/>',
+    '<col min="2" max="2" width="13.5" customWidth="1"/>',
+    `<col min="${timelineStartColumn}" max="${workColumn - 1}" width="2.35" customWidth="1"/>`,
+    `<col min="${workColumn}" max="${workColumn}" width="7.5" customWidth="1"/>`,
+    `<col min="${noteColumn}" max="${noteColumn}" width="11" customWidth="1"/>`,
   ].join("");
   const mergeXml = merges.length > 0
     ? `<mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>`
@@ -1495,7 +1495,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   ${mergeXml}
   <printOptions horizontalCentered="1"/>
   <pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.2" footer="0.2"/>
-  <pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>
+  <pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>
 </worksheet>`;
 }
 
@@ -1510,7 +1510,7 @@ function buildXlsxStylesXml() {
     <font><sz val="11"/><name val="Yu Gothic"/></font>
     <font><b/><sz val="20"/><name val="Yu Gothic"/></font>
     <font><b/><sz val="11"/><name val="Yu Gothic"/></font>
-    <font><b/><sz val="10"/><name val="Yu Gothic"/></font>
+    <font><b/><sz val="8"/><name val="Yu Gothic"/></font>
   </fonts>
   <fills count="${6 + shiftExportColors.length}">
     <fill><patternFill patternType="none"/></fill>
@@ -1524,8 +1524,8 @@ function buildXlsxStylesXml() {
   <borders count="5">
     <border><left/><right/><top/><bottom/><diagonal/></border>
     <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
-    <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF999999"/></right><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
-    <border><left style="dotted"><color rgb="FF999999"/></left><right style="thin"><color rgb="FF999999"/></right><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF666666"/></left><right/><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
     <border><left style="thin"><color rgb="FF666666"/></left><right style="thin"><color rgb="FF666666"/></right><top style="thin"><color rgb="FF666666"/></top><bottom style="thin"><color rgb="FF666666"/></bottom><diagonal/></border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
@@ -1535,7 +1535,7 @@ function buildXlsxStylesXml() {
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
-    <xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="2" xfId="0" applyBorder="1"/>
