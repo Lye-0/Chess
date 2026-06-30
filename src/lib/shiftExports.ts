@@ -32,6 +32,10 @@ export type DailyShiftExportData = {
   rows: MonthlyShiftExportRow[];
 };
 
+type DailyShiftExportLaneRow = MonthlyShiftExportRow & {
+  lane: number;
+};
+
 type BuildMonthlyShiftExportDataInput = {
   organizationName: string;
   department?: string;
@@ -112,6 +116,89 @@ function getShiftStartEndMinutes(request: ShiftRequest) {
     start,
     end: end > start ? end : end + 24 * 60,
   };
+}
+
+function assignDailyShiftLanes(rows: MonthlyShiftExportRow[]) {
+  const groups = new Map<string, MonthlyShiftExportRow[]>();
+
+  rows
+    .slice()
+    .sort((a, b) => {
+      const aRange = getShiftStartEndMinutes(a.request);
+      const bRange = getShiftStartEndMinutes(b.request);
+
+      if (aRange.start !== bRange.start) return aRange.start - bRange.start;
+      if (aRange.end !== bRange.end) return aRange.end - bRange.end;
+
+      return getShiftRequestPositionLabel(a.request).localeCompare(
+        getShiftRequestPositionLabel(b.request),
+        "ja",
+      );
+    })
+    .forEach((row) => {
+      const positionKey =
+        row.request.positionId ||
+        getShiftRequestPositionLabel(row.request) ||
+        "ポジション未設定";
+      const group = groups.get(positionKey) ?? [];
+      group.push(row);
+      groups.set(positionKey, group);
+    });
+
+  const placedRows: DailyShiftExportLaneRow[] = [];
+  let nextBaseLane = 0;
+
+  Array.from(groups.values())
+    .sort((a, b) => {
+      const aFirst = Math.min(
+        ...a.map((row) => getShiftStartEndMinutes(row.request).start),
+      );
+      const bFirst = Math.min(
+        ...b.map((row) => getShiftStartEndMinutes(row.request).start),
+      );
+
+      if (aFirst !== bFirst) return aFirst - bFirst;
+
+      return getShiftRequestPositionLabel(a[0].request).localeCompare(
+        getShiftRequestPositionLabel(b[0].request),
+        "ja",
+      );
+    })
+    .forEach((items) => {
+      const laneEndMinutes: number[] = [];
+
+      items.forEach((row) => {
+        const range = getShiftStartEndMinutes(row.request);
+        const lane = laneEndMinutes.findIndex(
+          (endMinutes) => endMinutes <= range.start,
+        );
+        const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
+        laneEndMinutes[nextLane] = range.end;
+        placedRows.push({ ...row, lane: nextBaseLane + nextLane });
+      });
+
+      nextBaseLane += Math.max(1, laneEndMinutes.length);
+    });
+
+  return placedRows.sort((a, b) => {
+    const aRange = getShiftStartEndMinutes(a.request);
+    const bRange = getShiftStartEndMinutes(b.request);
+
+    if (aRange.start !== bRange.start) return aRange.start - bRange.start;
+    return aRange.end - bRange.end;
+  });
+}
+
+function getDailyShiftLaneCount(rows: DailyShiftExportLaneRow[]) {
+  return rows.length > 0 ? Math.max(...rows.map((row) => row.lane)) + 1 : 1;
+}
+
+function getDailyRosterRowHeight(laneCount: number) {
+  const blockHeight = 46;
+  const blockGap = 6;
+  const verticalPadding = 22;
+
+  return Math.max(68, verticalPadding + laneCount * blockHeight + (laneCount - 1) * blockGap);
 }
 
 function formatMonthLabel(month: string) {
@@ -256,6 +343,20 @@ function drawCenteredWrappedText(
 
 function getEmployeeDisplayRows(data: MonthlyShiftExportData | DailyShiftExportData) {
   return data.employees.length > 0 ? data.employees : [null];
+}
+
+function getMonthlyRosterRowHeight(maxDailyShiftCount: number) {
+  const blockHeight = 24;
+  const blockGap = 4;
+  const verticalPadding = 6;
+  const visibleShiftCount = Math.max(1, maxDailyShiftCount);
+
+  return Math.max(
+    58,
+    visibleShiftCount * blockHeight +
+      Math.max(0, visibleShiftCount - 1) * blockGap +
+      verticalPadding,
+  );
 }
 
 
@@ -433,7 +534,6 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
 function drawManagerRoster(data: MonthlyShiftExportData) {
   const days = getMonthDays(data.month);
   const headerHeight = 122;
-  const rowHeight = 58;
   const footerHeight = 52;
   const indexWidth = 46;
   const nameWidth = 176;
@@ -441,7 +541,25 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
   const totalWidth = 88;
   const payWidth = 108;
   const width = indexWidth + nameWidth + days.length * dayWidth + totalWidth + payWidth;
-  const height = headerHeight + Math.max(1, data.employees.length) * rowHeight + footerHeight;
+  const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
+    (groups, row) => {
+      groups[row.request.employeeId] = [...(groups[row.request.employeeId] ?? []), row];
+      return groups;
+    },
+    {},
+  );
+  const displayEmployees = getEmployeeDisplayRows(data);
+  const rowHeights = displayEmployees.map((employee) => {
+    const employeeRows = employee ? rowsByEmployee[employee.employeeId] ?? [] : [];
+    const maxDailyShiftCount = days.reduce((maxCount, day) => {
+      const dayShiftCount = employeeRows.filter((row) => row.request.date === day.date).length;
+      return Math.max(maxCount, dayShiftCount);
+    }, 0);
+
+    return getMonthlyRosterRowHeight(maxDailyShiftCount);
+  });
+  const bodyHeight = rowHeights.reduce((total, rowHeight) => total + rowHeight, 0);
+  const height = headerHeight + bodyHeight + footerHeight;
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
 
@@ -461,14 +579,6 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
 
   const tableTop = headerHeight - 42;
   const totalX = indexWidth + nameWidth + days.length * dayWidth;
-  const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
-    (groups, row) => {
-      groups[row.request.employeeId] = [...(groups[row.request.employeeId] ?? []), row];
-      return groups;
-    },
-    {},
-  );
-  const displayEmployees = getEmployeeDisplayRows(data);
 
   context.fillStyle = "#f3f4f6";
   context.fillRect(0, tableTop, width, 42);
@@ -496,8 +606,11 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
   context.fillText("合計", totalX + 22, tableTop + 21);
   context.fillText("給与目安", totalX + totalWidth + 18, tableTop + 21);
 
+  let nextRowY = headerHeight;
+
   displayEmployees.forEach((employee, rowIndex) => {
-    const y = headerHeight + rowIndex * rowHeight;
+    const y = nextRowY;
+    const rowHeight = rowHeights[rowIndex] ?? getMonthlyRosterRowHeight(0);
     const employeeRows = employee ? rowsByEmployee[employee.employeeId] ?? [] : [];
     const totalMinutes = employeeRows.reduce((total, row) => total + row.payroll.totalMinutes, 0);
     const totalPay = employeeRows.reduce((total, row) => total + row.payroll.totalPay, 0);
@@ -516,24 +629,18 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
       const x = indexWidth + nameWidth + dayIndex * dayWidth;
       const dayRows = employeeRows.filter((row) => row.request.date === day.date);
 
-      const visibleRows = dayRows.slice(0, 2);
       const blockHeight = 24;
       const blockGap = 4;
-      const blockGroupHeight = visibleRows.length * blockHeight + Math.max(0, visibleRows.length - 1) * blockGap;
+      const blockGroupHeight = dayRows.length * blockHeight + Math.max(0, dayRows.length - 1) * blockGap;
       const firstBlockY = y + rowHeight / 2 - blockGroupHeight / 2;
 
-      visibleRows.forEach((row, index) => {
+      dayRows.forEach((row, index) => {
         const blockX = x + 4;
         const blockY = firstBlockY + index * (blockHeight + blockGap);
         const blockWidth = dayWidth - 8;
 
         drawCompactShiftExportBlock(context, row, blockX, blockY, blockWidth, blockHeight);
       });
-      if (dayRows.length > 2) {
-        context.fillStyle = "#111827";
-        context.font = "bold 11px Arial, sans-serif";
-        context.fillText(`+${dayRows.length - 2}`, x + 8, y + rowHeight - 7);
-      }
     });
 
     context.fillStyle = "#fef08a";
@@ -544,6 +651,8 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
     context.font = "bold 13px Arial, sans-serif";
     context.fillText(formatHours(totalMinutes), totalX + 16, y + rowHeight / 2);
     context.fillText(formatCurrency(totalPay), totalX + totalWidth + 12, y + rowHeight / 2);
+
+    nextRowY += rowHeight;
   });
 
   const bottom = height - footerHeight;
@@ -561,12 +670,14 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
     context.lineTo(width, lineY);
     context.stroke();
   });
-  for (let y = headerHeight + rowHeight; y <= bottom; y += rowHeight) {
+  let nextLineY = headerHeight;
+  rowHeights.forEach((rowHeight) => {
+    nextLineY += rowHeight;
     context.beginPath();
-    context.moveTo(0, y);
-    context.lineTo(width, y);
+    context.moveTo(0, nextLineY);
+    context.lineTo(width, nextLineY);
     context.stroke();
-  }
+  });
 
   context.fillStyle = "#475569";
   context.font = "13px Arial, sans-serif";
@@ -580,13 +691,12 @@ function getDailyTimeRange(rows: MonthlyShiftExportRow[]) {
   const minShiftStart = Math.min(...shiftRanges.map((range) => range.start), 9 * 60);
   const maxShiftEnd = Math.max(...shiftRanges.map((range) => range.end), 22 * 60);
   const start = Math.floor(minShiftStart / 30) * 30;
-  const end = Math.max(start + 60, Math.ceil(maxShiftEnd / 30) * 30);
+  const end = Math.max(start + 60, Math.ceil(maxShiftEnd / 30) * 30 + 30);
 
   return { start, end };
 }
 
 function drawDailyRoster(data: DailyShiftExportData) {
-  const rowHeight = 68;
   const headerHeight = 138;
   const timeHeaderHeight = 56;
   const footerHeight = 52;
@@ -603,6 +713,20 @@ function drawDailyRoster(data: DailyShiftExportData) {
     },
     {},
   );
+  const laneRowsByEmployee = displayEmployees.reduce<Record<string, DailyShiftExportLaneRow[]>>(
+    (groups, employee) => {
+      if (!employee) return groups;
+      groups[employee.employeeId] = assignDailyShiftLanes(
+        rowsByEmployee[employee.employeeId] ?? [],
+      );
+      return groups;
+    },
+    {},
+  );
+  const rowHeights = displayEmployees.map((employee) => {
+    const laneRows = employee ? laneRowsByEmployee[employee.employeeId] ?? [] : [];
+    return getDailyRosterRowHeight(getDailyShiftLaneCount(laneRows));
+  });
   const { start, end } = getDailyTimeRange(data.rows);
   const slotCount = Math.ceil((end - start) / 30);
   const timeWidth = slotCount * slotWidth;
@@ -610,7 +734,7 @@ function drawDailyRoster(data: DailyShiftExportData) {
   const width = indexWidth + nameWidth + timeWidth + totalWidth + payWidth;
   const tableTop = headerHeight;
   const bodyTop = tableTop + timeHeaderHeight;
-  const bodyHeight = Math.max(1, displayEmployees.length) * rowHeight;
+  const bodyHeight = rowHeights.reduce((total, rowHeight) => total + rowHeight, 0);
   const height = bodyTop + bodyHeight + footerHeight;
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
@@ -625,9 +749,20 @@ function drawDailyRoster(data: DailyShiftExportData) {
   context.fillStyle = "#111827";
   context.font = "bold 28px Arial, sans-serif";
   context.fillText("従業員シフト表", 28, 36);
+
+  const dateLabel = formatFullDateLabel(data.date);
+  context.font = "bold 22px Arial, sans-serif";
+  const dateLabelWidth = Math.ceil(context.measureText(dateLabel).width) + 36;
+  context.fillStyle = "#fef3c7";
+  context.fillRect(260, 17, dateLabelWidth, 38);
+  context.strokeStyle = "#facc15";
+  context.lineWidth = 1;
+  context.strokeRect(260, 17, dateLabelWidth, 38);
+  context.fillStyle = "#111827";
+  context.fillText(dateLabel, 278, 36);
+
   context.font = "16px Arial, sans-serif";
-  context.fillText(`${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 28, 70);
-  context.fillText(formatFullDateLabel(data.date), 28, 96);
+  context.fillText(`${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 28, 78);
 
   const totalMinutes = data.rows.reduce((total, row) => total + row.payroll.totalMinutes, 0);
   const totalPay = data.rows.reduce((total, row) => total + row.payroll.totalPay, 0);
@@ -666,9 +801,14 @@ function drawDailyRoster(data: DailyShiftExportData) {
     }
   }
 
+  let nextRowY = bodyTop;
+
   displayEmployees.forEach((employee, rowIndex) => {
-    const y = bodyTop + rowIndex * rowHeight;
+    const y = nextRowY;
+    const rowHeight = rowHeights[rowIndex] ?? getDailyRosterRowHeight(1);
     const employeeRows = employee ? rowsByEmployee[employee.employeeId] ?? [] : [];
+    const laneRows = employee ? laneRowsByEmployee[employee.employeeId] ?? [] : [];
+    const laneCount = getDailyShiftLaneCount(laneRows);
     const employeeMinutes = employeeRows.reduce((total, row) => total + row.payroll.totalMinutes, 0);
     const employeePay = employeeRows.reduce((total, row) => total + row.payroll.totalPay, 0);
 
@@ -682,14 +822,16 @@ function drawDailyRoster(data: DailyShiftExportData) {
     context.font = "bold 17px Arial, sans-serif";
     drawCenteredWrappedText(context, employee?.name ?? "対象従業員なし", indexWidth + 12, y, nameWidth - 20, rowHeight, 20, 2);
 
-    employeeRows.forEach((row) => {
+    laneRows.forEach((row) => {
       const range = getShiftStartEndMinutes(row.request);
       const blockStart = Math.max(start, range.start);
       const blockEnd = Math.min(end, range.end);
       const x = indexWidth + nameWidth + ((blockStart - start) / 30) * slotWidth + 2;
       const blockWidth = Math.max(10, ((blockEnd - blockStart) / 30) * slotWidth - 4);
       const blockHeight = 46;
-      const blockY = y + rowHeight / 2 - blockHeight / 2;
+      const blockGap = 6;
+      const blockGroupHeight = laneCount * blockHeight + (laneCount - 1) * blockGap;
+      const blockY = y + rowHeight / 2 - blockGroupHeight / 2 + row.lane * (blockHeight + blockGap);
 
       if (blockEnd <= blockStart) return;
       drawShiftExportBlock(context, row, x, blockY, blockWidth, blockHeight);
@@ -703,6 +845,8 @@ function drawDailyRoster(data: DailyShiftExportData) {
     context.font = "bold 13px Arial, sans-serif";
     context.fillText(formatHours(employeeMinutes), totalX + 16, y + rowHeight / 2);
     context.fillText(formatCurrency(employeePay), totalX + totalWidth + 12, y + rowHeight / 2);
+
+    nextRowY += rowHeight;
   });
 
   const verticalLines = [0, indexWidth, indexWidth + nameWidth, totalX, totalX + totalWidth, width];
@@ -722,14 +866,16 @@ function drawDailyRoster(data: DailyShiftExportData) {
     context.lineTo(width, lineY);
     context.stroke();
   });
-  for (let y = bodyTop + rowHeight; y <= bodyTop + bodyHeight; y += rowHeight) {
+  let nextLineY = bodyTop;
+  rowHeights.forEach((rowHeight) => {
+    nextLineY += rowHeight;
     context.strokeStyle = "#2f3338";
     context.lineWidth = 1;
     context.beginPath();
-    context.moveTo(0, y);
-    context.lineTo(width, y);
+    context.moveTo(0, nextLineY);
+    context.lineTo(width, nextLineY);
     context.stroke();
-  }
+  });
 
   context.fillStyle = "#475569";
   context.font = "13px Arial, sans-serif";

@@ -77,6 +77,10 @@ type ShiftDateTime = {
   startTime: string;
 };
 
+type ShiftTimeRange = ShiftDateTime & {
+  endTime: string;
+};
+
 type EmployeeRequestAuthContext = {
   organizationId: string;
   employeeId: string;
@@ -126,6 +130,12 @@ function normalizeShiftSlotCapacity(capacity: unknown) {
   return normalizedCapacity;
 }
 
+function parseTimeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+
+  return hour * 60 + minute;
+}
+
 export function isShiftStartInFuture(
   shift: ShiftDateTime,
   now = new Date(),
@@ -136,6 +146,22 @@ export function isShiftStartInFuture(
     !Number.isNaN(startAt.getTime()) &&
     startAt.getTime() > now.getTime()
   );
+}
+
+function getShiftEndAt(shift: ShiftTimeRange) {
+  const endAt = new Date(`${shift.date}T${shift.endTime}:00`);
+
+  if (parseTimeToMinutes(shift.endTime) <= parseTimeToMinutes(shift.startTime)) {
+    endAt.setDate(endAt.getDate() + 1);
+  }
+
+  return endAt;
+}
+
+function isShiftEnded(shift: ShiftTimeRange, now = new Date()) {
+  const endAt = getShiftEndAt(shift);
+
+  return !Number.isNaN(endAt.getTime()) && endAt <= now;
 }
 
 
@@ -405,11 +431,12 @@ export async function approveShiftRequest(
   const slotId = String(requestData.slotId ?? "");
 
   if (!slotId) {
-    if (!isShiftStartInFuture({
+    if (isShiftEnded({
       date: String(requestData.date ?? ""),
       startTime: String(requestData.startTime ?? ""),
+      endTime: String(requestData.endTime ?? ""),
     })) {
-      throw new Error("Shift request is not in the future.");
+      throw new Error("Shift request has already ended.");
     }
 
     const slotRef = doc(getShiftSlotsCollection(organizationId));
