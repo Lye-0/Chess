@@ -459,6 +459,25 @@ function drawCompactShiftExportBlock(
   });
 }
 function drawEmployeeRoster(data: MonthlyShiftExportData) {
+  const [year, monthNumber] = data.month.split("-").map(Number);
+  const monthIndex = monthNumber - 1;
+  const firstDay = new Date(year, monthIndex, 1).getDay();
+  const firstCalendarDate = new Date(year, monthIndex, 1 - firstDay);
+  const calendarDays = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(firstCalendarDate);
+    date.setDate(firstCalendarDate.getDate() + index);
+    const dateValue = [
+      date.getFullYear(),
+      padDatePart(date.getMonth() + 1),
+      padDatePart(date.getDate()),
+    ].join("-");
+
+    return {
+      date: dateValue,
+      day: date.getDate(),
+      outside: date.getMonth() !== monthIndex,
+    };
+  });
   const rowsByDate = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
     (groups, row) => {
       groups[row.request.date] = [...(groups[row.request.date] ?? []), row];
@@ -466,111 +485,124 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
     },
     {},
   );
-  const dateGroups = Object.entries(rowsByDate)
-    .sort(([aDate], [bDate]) => aDate.localeCompare(bDate))
-    .map(([date, rows]) => ({
-      date,
-      rows: rows.slice().sort((a, b) => {
-        if (a.request.startTime !== b.request.startTime) {
-          return a.request.startTime.localeCompare(b.request.startTime);
-        }
-        return getShiftRequestPositionLabel(a.request).localeCompare(
-          getShiftRequestPositionLabel(b.request),
-          "ja",
-        );
-      }),
-    }));
-  const width = 760;
-  const marginX = 32;
-  const headerHeight = 126;
-  const emptyHeight = 96;
-  const footerHeight = 48;
-  const dateHeaderHeight = 34;
-  const shiftLineHeight = 30;
-  const groupGap = 14;
-  const bodyHeight = dateGroups.length > 0
-    ? dateGroups.reduce(
-        (total, group) =>
-          total + dateHeaderHeight + group.rows.length * shiftLineHeight + groupGap,
-        0,
-      )
-    : emptyHeight;
-  const height = headerHeight + bodyHeight + footerHeight;
+  const width = 1520;
+  const marginX = 24;
+  const headerHeight = 86;
+  const weekdayHeight = 40;
+  const rowHeight = 120;
+  const footerHeight = 42;
+  const calendarWidth = width - marginX * 2;
+  const cellWidth = calendarWidth / 7;
+  const height = headerHeight + weekdayHeight + rowHeight * 6 + footerHeight;
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
+  const todayValue = getCurrentDateValue();
 
   if (!context) throw new Error("Canvas is not available.");
 
-  context.fillStyle = "#f8fafc";
+  context.fillStyle = "#ffffff";
   context.fillRect(0, 0, width, height);
   context.textBaseline = "middle";
-  context.fillStyle = "#111827";
-  context.font = "bold 30px Arial, sans-serif";
-  context.fillText("マイカレンダー", marginX, 38);
+  context.fillStyle = "#030213";
+  context.font = "bold 28px Arial, sans-serif";
+  context.fillText("マイカレンダー", marginX, 24);
   context.font = "16px Arial, sans-serif";
-  context.fillStyle = "#475569";
-  context.fillText(`${data.organizationName}${data.department ? ` ${data.department}` : ""}`, marginX, 72);
-  context.fillText(formatMonthLabel(data.month), marginX, 98);
+  context.fillStyle = "#717182";
+  context.fillText("自分の確定シフトを月ごとに確認できます", marginX, 54);
+  context.fillStyle = "#030213";
+  context.font = "bold 18px Arial, sans-serif";
+  context.textAlign = "center";
+  context.fillText(formatMonthLabel(data.month), width / 2, 32);
+  context.textAlign = "left";
 
-  let y = headerHeight;
+  const calendarTop = headerHeight;
+  context.strokeStyle = "#e5e7eb";
+  context.lineWidth = 1;
+  weekdays.forEach((weekday, index) => {
+    const x = marginX + index * cellWidth;
 
-  if (dateGroups.length === 0) {
     context.fillStyle = "#ffffff";
-    context.fillRect(marginX, y, width - marginX * 2, 72);
-    context.strokeStyle = "#dbe3ea";
-    context.strokeRect(marginX, y, width - marginX * 2, 72);
-    context.fillStyle = "#717182";
-    context.font = "16px Arial, sans-serif";
-    context.fillText("この月の承認済みシフトはありません", marginX + 20, y + 36);
-  } else {
-    dateGroups.forEach((group) => {
-      const groupHeight = dateHeaderHeight + group.rows.length * shiftLineHeight;
+    context.fillRect(x, calendarTop, cellWidth, weekdayHeight);
+    context.strokeRect(x, calendarTop, cellWidth, weekdayHeight);
+    context.fillStyle = "#475569";
+    context.font = "bold 16px Arial, sans-serif";
+    context.textAlign = "center";
+    context.fillText(weekday, x + cellWidth / 2, calendarTop + weekdayHeight / 2);
+  });
+  context.textAlign = "left";
 
-      context.fillStyle = "#ffffff";
-      context.fillRect(marginX, y, width - marginX * 2, groupHeight);
-      context.strokeStyle = "#dbe3ea";
-      context.lineWidth = 1;
-      context.strokeRect(marginX, y, width - marginX * 2, groupHeight);
-      context.fillStyle = "#e0f2fe";
-      context.fillRect(marginX, y, width - marginX * 2, dateHeaderHeight);
-      context.fillStyle = "#111827";
-      context.font = "bold 17px Arial, sans-serif";
-      context.fillText(formatFullDateLabel(group.date), marginX + 16, y + dateHeaderHeight / 2);
-
-      group.rows.forEach((row, index) => {
-        const lineY = y + dateHeaderHeight + index * shiftLineHeight;
-        const positionName = getShiftRequestPositionLabel(row.request);
-
-        context.fillStyle = index % 2 === 0 ? "#ffffff" : "#f8fafc";
-        context.fillRect(marginX + 1, lineY, width - marginX * 2 - 2, shiftLineHeight);
-        context.fillStyle = "#1d4ed8";
-        context.font = "bold 15px Arial, sans-serif";
-        context.fillText(
-          `${row.request.startTime} - ${row.request.endTime}`,
-          marginX + 24,
-          lineY + shiftLineHeight / 2,
-        );
-        context.fillStyle = "#111827";
-        context.font = "15px Arial, sans-serif";
-        context.save();
-        context.beginPath();
-        context.rect(marginX + 146, lineY, width - marginX * 2 - 170, shiftLineHeight);
-        context.clip();
-        context.fillText(
-          `（${positionName}）`,
-          marginX + 146,
-          lineY + shiftLineHeight / 2,
-        );
-        context.restore();
-      });
-
-      y += groupHeight + groupGap;
+  calendarDays.forEach((day, index) => {
+    const column = index % 7;
+    const row = Math.floor(index / 7);
+    const x = marginX + column * cellWidth;
+    const y = calendarTop + weekdayHeight + row * rowHeight;
+    const dayRows = (rowsByDate[day.date] ?? []).slice().sort((a, b) => {
+      if (a.request.startTime !== b.request.startTime) {
+        return a.request.startTime.localeCompare(b.request.startTime);
+      }
+      return getShiftRequestPositionLabel(a.request).localeCompare(
+        getShiftRequestPositionLabel(b.request),
+        "ja",
+      );
     });
-  }
+    const isToday = day.date === todayValue;
+
+    context.fillStyle = day.outside ? "#fafafa" : "#ffffff";
+    context.fillRect(x, y, cellWidth, rowHeight);
+    context.strokeStyle = "#e5e7eb";
+    context.strokeRect(x, y, cellWidth, rowHeight);
+
+    if (isToday) {
+      context.fillStyle = "#030213";
+      context.beginPath();
+      context.arc(x + 24, y + 25, 14, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = "#ffffff";
+    } else {
+      context.fillStyle = day.outside ? "#9ca3af" : "#475569";
+    }
+    context.font = "bold 15px Arial, sans-serif";
+    context.textAlign = "center";
+    context.fillText(String(day.day), x + 24, y + 25);
+    context.textAlign = "left";
+
+    if (dayRows.length > 0) {
+      context.fillStyle = "#eef2f7";
+      context.beginPath();
+      context.roundRect(x + cellWidth - 54, y + 14, 42, 22, 11);
+      context.fill();
+      context.fillStyle = "#475569";
+      context.font = "bold 13px Arial, sans-serif";
+      context.textAlign = "center";
+      context.fillText(`${dayRows.length}件`, x + cellWidth - 33, y + 25);
+      context.textAlign = "left";
+    }
+
+    dayRows.slice(0, 2).forEach((rowItem, rowIndex) => {
+      const textY = y + 60 + rowIndex * 34;
+      const positionName = getShiftRequestPositionLabel(rowItem.request);
+
+      context.save();
+      context.beginPath();
+      context.rect(x + 12, textY - 15, cellWidth - 24, 30);
+      context.clip();
+      context.fillStyle = "#15803d";
+      context.font = "bold 14px Arial, sans-serif";
+      context.fillText(`${rowItem.request.startTime}～`, x + 12, textY - 7);
+      context.fillText(positionName, x + 12, textY + 11);
+      context.restore();
+    });
+
+    if (dayRows.length > 2) {
+      context.fillStyle = "#475569";
+      context.font = "bold 12px Arial, sans-serif";
+      context.fillText(`+${dayRows.length - 2}件`, x + 12, y + rowHeight - 12);
+    }
+  });
 
   context.fillStyle = "#475569";
   context.font = "13px Arial, sans-serif";
-  context.fillText(`出力日時: ${new Date().toLocaleString("ja-JP")}`, marginX, height - 24);
+  context.fillText(`出力日時: ${new Date().toLocaleString("ja-JP")}`, marginX, height - 18);
 
   return canvas;
 }
