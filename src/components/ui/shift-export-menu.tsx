@@ -9,6 +9,7 @@ type ExportOption = {
   label: string;
   actionLabel?: string;
   disabled?: boolean;
+  requiresData?: boolean;
 };
 
 type ScopeOption = {
@@ -22,7 +23,7 @@ type ShiftExportMenuProps = {
   months: string[];
   selectedMonth: string;
   onMonthChange: (month: string) => void;
-  onExport: (format: ShiftExportFormat) => void;
+  onExport: (format: ShiftExportFormat) => void | Promise<void>;
   disabled?: boolean;
   hasData: boolean;
   scopeOptions?: ScopeOption[];
@@ -67,13 +68,19 @@ export function ShiftExportMenu({
   onDateChange,
 }: ShiftExportMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [selectedFormat, setSelectedFormat] = useState<ShiftExportFormat>(
     formats[0]?.format ?? "png",
   );
   const usesDate = selectedScope === "day";
   const selectedOption =
     formats.find((option) => option.format === selectedFormat) ?? formats[0];
-  const canExport = hasData && Boolean(selectedOption) && !selectedOption.disabled;
+  const requiresData = selectedOption?.requiresData ?? true;
+  const canExport =
+    !isExporting &&
+    Boolean(selectedOption) &&
+    !selectedOption.disabled &&
+    (!requiresData || hasData);
 
 
   return (
@@ -167,7 +174,7 @@ export function ShiftExportMenu({
             </>
           )}
 
-          {!hasData && (
+          {!hasData && requiresData && (
             <p className="mt-3 rounded-md bg-[#f7f8fb] px-3 py-2 text-sm text-[#717182]">
               この条件の承認済みシフトはありません
             </p>
@@ -182,15 +189,22 @@ export function ShiftExportMenu({
           <button
             type="button"
             disabled={!canExport}
-            onClick={() => {
+            onClick={async () => {
               if (!selectedOption) return;
-              onExport(selectedOption.format);
-              setIsOpen(false);
+              setIsExporting(true);
+              try {
+                await onExport(selectedOption.format);
+                setIsOpen(false);
+              } finally {
+                setIsExporting(false);
+              }
             }}
             className="mt-3 h-10 w-full rounded-md bg-[#030213] px-3 text-center text-sm font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#cbd5e1]"
           >
-            {selectedOption?.actionLabel ??
-              getDefaultActionLabel(selectedOption?.format ?? "png")}
+            {isExporting
+              ? "処理中"
+              : selectedOption?.actionLabel ??
+                getDefaultActionLabel(selectedOption?.format ?? "png")}
           </button>
         </div>
       )}

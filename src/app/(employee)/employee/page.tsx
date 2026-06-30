@@ -839,9 +839,11 @@ function EmployeePageContent() {
   const [isPayrollLoading, setIsPayrollLoading] = useState(true);
   const [now, setNow] = useState(() => new Date());
   const [displayMonth, setDisplayMonth] = useState(() => getMonthStart(new Date()));
-  const [selectedDate, setSelectedDate] = useState(() => toDateString(new Date()));  const [selectedExportMonth, setSelectedExportMonth] = useState(
+  const [selectedDate, setSelectedDate] = useState(() => toDateString(new Date()));
+  const [selectedExportMonth, setSelectedExportMonth] = useState(
     () => getShiftExportMonths([])[0],
   );
+  const [exportMessage, setExportMessage] = useState("");
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
@@ -1050,7 +1052,43 @@ function EmployeePageContent() {
     );
   }
 
-  function handleExport(format: ShiftExportFormat) {
+  async function copyCalendarSubscriptionUrl() {
+    const response = await fetch("/api/employee/calendar-subscription", {
+      method: "POST",
+    });
+    const result = (await response.json().catch(() => null)) as {
+      calendarUrl?: string;
+      error?: string;
+    } | null;
+
+    if (!response.ok || !result?.calendarUrl) {
+      throw new Error(result?.error ?? "カレンダー購読URLの作成に失敗しました。");
+    }
+
+    try {
+      await navigator.clipboard.writeText(result.calendarUrl);
+      setExportMessage("カレンダー購読URLをコピーしました。カレンダーアプリに追加できます。");
+    } catch {
+      setExportMessage(`コピーできませんでした。URL: ${result.calendarUrl}`);
+    }
+  }
+
+  async function handleExport(format: ShiftExportFormat) {
+    setExportMessage("");
+
+    if (format === "calendarSubscription") {
+      try {
+        await copyCalendarSubscriptionUrl();
+      } catch (error) {
+        setExportMessage(
+          error instanceof Error
+            ? error.message
+            : "カレンダー購読URLの作成に失敗しました。",
+        );
+      }
+      return;
+    }
+
     if (!monthlyExportData) return;
 
     if (format === "ics") {
@@ -1106,7 +1144,8 @@ function EmployeePageContent() {
                 {
                   format: "calendarSubscription",
                   label: "カレンダー購読",
-                  disabled: true,
+                  actionLabel: "URLをコピー",
+                  requiresData: false,
                 },
               ]}
               months={exportMonths}
@@ -1128,6 +1167,14 @@ function EmployeePageContent() {
           </div>
         </div>
       </header>
+
+      {exportMessage && (
+        <div className="mx-auto mt-4 max-w-[1248px] px-4 sm:px-6 lg:px-0">
+          <p className="rounded-md border border-[#86efac] bg-[#dcfce7] px-3 py-2 text-sm font-semibold text-[#166534]">
+            {exportMessage}
+          </p>
+        </div>
+      )}
 
       <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
         <section className="grid grid-cols-1 gap-4 min-[560px]:grid-cols-2 sm:gap-5 lg:gap-6">

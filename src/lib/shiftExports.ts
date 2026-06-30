@@ -1067,37 +1067,53 @@ export function buildDailyShiftExportData({
   };
 }
 
-export function downloadIcs(data: MonthlyShiftExportData) {
-  const events = data.rows
-    .map((row) => {
-      const { startAt, endAt } = getShiftStartEnd(row.request);
-      const positionName = getShiftRequestPositionLabel(row.request);
-      const description = `${formatDateLabel(row.request.date)} ${row.request.startTime}-${row.request.endTime} ${positionName}`;
+export function buildShiftRequestsIcsContent(
+  requests: ShiftRequest[],
+  calendarName?: string,
+) {
+  const now = new Date();
+  const events = requests
+    .map((request) => {
+      const { startAt, endAt } = getShiftStartEnd(request);
+      const positionName = getShiftRequestPositionLabel(request);
+      const description = `${formatDateLabel(request.date)} ${request.startTime}-${request.endTime} ${positionName}`;
 
       return [
         "BEGIN:VEVENT",
-        `UID:${row.request.id}@chess-shift`,
-        `DTSTAMP:${formatIcsDateTime(new Date())}`,
+        `UID:${request.id}@chess-shift`,
+        `DTSTAMP:${formatIcsDateTime(now)}`,
         `DTSTART:${formatIcsDateTime(startAt)}`,
         `DTEND:${formatIcsDateTime(endAt)}`,
-        `SUMMARY:${escapeIcsText(`${row.request.employeeName} ${positionName} シフト`)}`,
+        `SUMMARY:${escapeIcsText(`${request.employeeName} ${positionName} シフト`)}`,
         `DESCRIPTION:${escapeIcsText(description)}`,
         "END:VEVENT",
       ].join("\r\n");
     })
     .join("\r\n");
-  const content = [
+
+  return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//Chess Shift//Shift Export//JA",
     "CALSCALE:GREGORIAN",
+    calendarName ? `X-WR-CALNAME:${escapeIcsText(calendarName)}` : "",
     events,
     "END:VCALENDAR",
   ]
     .filter(Boolean)
     .join("\r\n");
+}
 
-  downloadTextFile(`${getFilenameBase(data)}.ics`, content, "text/calendar;charset=utf-8");
+export function buildIcsContent(data: MonthlyShiftExportData) {
+  return buildShiftRequestsIcsContent(data.rows.map((row) => row.request));
+}
+
+export function downloadIcs(data: MonthlyShiftExportData) {
+  downloadTextFile(
+    `${getFilenameBase(data)}.ics`,
+    buildIcsContent(data),
+    "text/calendar;charset=utf-8",
+  );
 }
 
 export function downloadCsv(data: MonthlyShiftExportData) {
