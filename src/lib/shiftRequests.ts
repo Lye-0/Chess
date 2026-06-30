@@ -512,9 +512,14 @@ export async function updateShiftRequestActuals(
     throw new Error("Actual shift time is invalid.");
   }
 
+  const requestData = requestSnapshot.data();
+  const isSameAsScheduledTime =
+    actualStartTime === String(requestData.startTime ?? "") &&
+    actualEndTime === String(requestData.endTime ?? "");
+
   await updateDoc(requestRef, {
-    actualStartTime,
-    actualEndTime,
+    actualStartTime: isSameAsScheduledTime ? "" : actualStartTime,
+    actualEndTime: isSameAsScheduledTime ? "" : actualEndTime,
     actualPay: normalizeActualPay(actuals.actualPay),
     actualMemo: actuals.actualMemo.trim(),
     actualUpdatedAt: new Date().toISOString(),

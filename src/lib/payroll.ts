@@ -134,7 +134,14 @@ function getNightMinutes(request: ShiftTimeRange, settings: PayrollSettings) {
 }
 
 function hasActualTimeRange(request: ShiftPayrollRequest) {
-  return Boolean(request.actualStartTime?.trim() && request.actualEndTime?.trim());
+  const actualStartTime = request.actualStartTime?.trim();
+  const actualEndTime = request.actualEndTime?.trim();
+
+  return Boolean(
+    actualStartTime &&
+      actualEndTime &&
+      (actualStartTime !== request.startTime || actualEndTime !== request.endTime),
+  );
 }
 
 export function hasActualShiftAdjustment(request: ShiftPayrollRequest) {

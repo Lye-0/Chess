@@ -295,7 +295,7 @@ function AdminEmployeeListContent() {
       actualPay: String(request.actualPay ?? payroll.calculatedPay),
       actualMemo: request.actualMemo,
     });
-    setIsActualPayTouched(request.actualPay !== null);
+    setIsActualPayTouched(false);
     setActualErrorMessage(null);
   }
 
