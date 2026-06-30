@@ -1084,7 +1084,7 @@ export function buildShiftRequestsIcsContent(
         `DTSTAMP:${formatIcsDateTime(now)}`,
         `DTSTART:${formatIcsDateTime(startAt)}`,
         `DTEND:${formatIcsDateTime(endAt)}`,
-        `SUMMARY:${escapeIcsText(`${request.employeeName} ${positionName} シフト`)}`,
+        `SUMMARY:${escapeIcsText(`シフト ${positionName}`)}`,
         `DESCRIPTION:${escapeIcsText(description)}`,
         "END:VEVENT",
       ].join("\r\n");
