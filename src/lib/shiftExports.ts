@@ -1391,7 +1391,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   addCell(2, 1, `${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 0);
   addCell(3, 1, "No.", 4);
   addCell(3, 2, "名前", 4);
-  addCell(3, timelineStartColumn, "タイムテーブル", 4);
+  addCell(3, timelineStartColumn, `${formatExcelHourLabel(start)}〜${formatExcelHourLabel(end)} タイムテーブル`, 4);
   addCell(3, workColumn, "勤務時間", 4);
   addCell(3, noteColumn, "備考", 4);
   addMerge(3, 1, 4, 1);
@@ -1402,7 +1402,18 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
 
   for (let slot = 0; slot < slotCount; slot += 1) {
     const minute = start + slot * 30;
-    addCell(4, timelineStartColumn + slot, minute % 60 === 0 || slot === slotCount - 1 ? formatExcelHourLabel(minute) : "", 5);
+    const column = timelineStartColumn + slot;
+
+    if (minute % 60 === 0) {
+      const nextColumn = slot + 1 < slotCount ? column + 1 : column;
+      addCell(4, column, formatExcelHourLabel(minute), 5);
+      addMerge(4, column, 4, nextColumn);
+      continue;
+    }
+
+    if (slot === 0) {
+      addCell(4, column, formatExcelHourLabel(minute), 5);
+    }
   }
 
   let currentRow = 5;
@@ -1425,7 +1436,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
 
     for (let lane = 0; lane < laneCount; lane += 1) {
       const rowNumber = startRow + lane;
-      rowHeights.set(rowNumber, 24);
+      rowHeights.set(rowNumber, 28);
       for (let slot = 0; slot < slotCount; slot += 1) {
         const minute = start + slot * 30;
         addCell(rowNumber, timelineStartColumn + slot, "", minute % 60 === 0 ? 8 : 9);
@@ -1465,9 +1476,9 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   const columnXml = [
     '<col min="1" max="1" width="6" customWidth="1"/>',
     '<col min="2" max="2" width="18" customWidth="1"/>',
-    `<col min="${timelineStartColumn}" max="${workColumn - 1}" width="4.2" customWidth="1"/>`,
-    `<col min="${workColumn}" max="${workColumn}" width="10" customWidth="1"/>`,
-    `<col min="${noteColumn}" max="${noteColumn}" width="22" customWidth="1"/>`,
+    `<col min="${timelineStartColumn}" max="${workColumn - 1}" width="5.6" customWidth="1"/>`,
+    `<col min="${workColumn}" max="${workColumn}" width="11" customWidth="1"/>`,
+    `<col min="${noteColumn}" max="${noteColumn}" width="20" customWidth="1"/>`,
   ].join("");
   const mergeXml = merges.length > 0
     ? `<mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>`
@@ -1475,12 +1486,16 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
   <dimension ref="A1:${getColumnName(maxColumn)}${Math.max(4, currentRow - 1)}"/>
-  <sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
   <sheetFormatPr defaultRowHeight="18"/>
   <cols>${columnXml}</cols>
   <sheetData>${sheetRows}</sheetData>
   ${mergeXml}
+  <printOptions horizontalCentered="1"/>
+  <pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.2" footer="0.2"/>
+  <pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>
 </worksheet>`;
 }
 
@@ -1495,7 +1510,7 @@ function buildXlsxStylesXml() {
     <font><sz val="11"/><name val="Yu Gothic"/></font>
     <font><b/><sz val="20"/><name val="Yu Gothic"/></font>
     <font><b/><sz val="11"/><name val="Yu Gothic"/></font>
-    <font><b/><sz val="9"/><name val="Yu Gothic"/></font>
+    <font><b/><sz val="10"/><name val="Yu Gothic"/></font>
   </fonts>
   <fills count="${6 + shiftExportColors.length}">
     <fill><patternFill patternType="none"/></fill>
