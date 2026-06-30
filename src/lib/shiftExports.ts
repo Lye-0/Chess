@@ -490,18 +490,23 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
   const headerHeight = 86;
   const weekdayHeight = 40;
   const shiftLineHeight = 20;
-  const maxShiftCount = Math.max(
-    1,
-    ...calendarDays.map((day) => rowsByDate[day.date]?.length ?? 0),
-  );
-  const rowHeight = Math.max(120, 50 + maxShiftCount * shiftLineHeight);
+  const weekRowHeights = Array.from({ length: 6 }, (_, weekIndex) => {
+    const maxShiftCountInWeek = Math.max(
+      1,
+      ...calendarDays
+        .slice(weekIndex * 7, weekIndex * 7 + 7)
+        .map((day) => rowsByDate[day.date]?.length ?? 0),
+    );
+
+    return Math.max(120, 50 + maxShiftCountInWeek * shiftLineHeight);
+  });
   const footerHeight = 42;
   const calendarWidth = width - marginX * 2;
   const cellWidth = calendarWidth / 7;
-  const height = headerHeight + weekdayHeight + rowHeight * 6 + footerHeight;
+  const calendarBodyHeight = weekRowHeights.reduce((total, rowHeight) => total + rowHeight, 0);
+  const height = headerHeight + weekdayHeight + calendarBodyHeight + footerHeight;
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
-  const todayValue = getCurrentDateValue();
 
   if (!context) throw new Error("Canvas is not available.");
 
@@ -521,8 +526,8 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
   context.textAlign = "left";
 
   const calendarTop = headerHeight;
-  context.strokeStyle = "#e5e7eb";
-  context.lineWidth = 1;
+  context.strokeStyle = "#94a3b8";
+  context.lineWidth = 1.25;
   weekdays.forEach((weekday, index) => {
     const x = marginX + index * cellWidth;
 
@@ -540,7 +545,10 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
     const column = index % 7;
     const row = Math.floor(index / 7);
     const x = marginX + column * cellWidth;
-    const y = calendarTop + weekdayHeight + row * rowHeight;
+    const rowHeight = weekRowHeights[row] ?? 120;
+    const y = calendarTop + weekdayHeight + weekRowHeights
+      .slice(0, row)
+      .reduce((total, height) => total + height, 0);
     const dayRows = (rowsByDate[day.date] ?? []).slice().sort((a, b) => {
       if (a.request.startTime !== b.request.startTime) {
         return a.request.startTime.localeCompare(b.request.startTime);
@@ -550,22 +558,12 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
         "ja",
       );
     });
-    const isToday = day.date === todayValue;
-
     context.fillStyle = day.outside ? "#fafafa" : "#ffffff";
     context.fillRect(x, y, cellWidth, rowHeight);
-    context.strokeStyle = "#e5e7eb";
+    context.strokeStyle = "#94a3b8";
     context.strokeRect(x, y, cellWidth, rowHeight);
 
-    if (isToday) {
-      context.fillStyle = "#030213";
-      context.beginPath();
-      context.arc(x + 24, y + 25, 14, 0, Math.PI * 2);
-      context.fill();
-      context.fillStyle = "#ffffff";
-    } else {
-      context.fillStyle = day.outside ? "#9ca3af" : "#475569";
-    }
+    context.fillStyle = day.outside ? "#9ca3af" : "#475569";
     context.font = "bold 15px Arial, sans-serif";
     context.textAlign = "center";
     context.fillText(String(day.day), x + 24, y + 25);
