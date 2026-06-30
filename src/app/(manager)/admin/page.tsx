@@ -38,8 +38,8 @@ const features = [
   },
   {
     path: "/admin/timesheet",
-    title: "勤務時間",
-    description: "従業員の勤務時間を確認します",
+    title: "勤務時間・給与",
+    description: "従業員の勤務時間と給与を確認します",
     icon: <ClockIcon />,
     color: "bg-[#b347ff] text-white",
   },

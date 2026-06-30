@@ -47,11 +47,24 @@ export type ShiftRequest = {
   employeeGenerated: boolean;
   status: ShiftRequestStatus;
   submittedDate: string;
+  actualStartTime: string;
+  actualEndTime: string;
+  actualPay: number | null;
+  actualMemo: string;
+  actualUpdatedAt: string;
 };
 
 export type ShiftRequestInput = Omit<
   ShiftRequest,
-  "id" | "status" | "submittedDate" | "employeeGenerated"
+  | "id"
+  | "status"
+  | "submittedDate"
+  | "employeeGenerated"
+  | "actualStartTime"
+  | "actualEndTime"
+  | "actualPay"
+  | "actualMemo"
+  | "actualUpdatedAt"
 >;
 
 export type EmployeeGeneratedShiftRequestInput = Omit<
@@ -70,8 +83,37 @@ type EmployeeRequestAuthContext = {
   employeeEmail: string;
 };
 
+function getMonthDateRange(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+
+  const year = Number(month.slice(0, 4));
+  const monthIndex = Number(month.slice(5, 7)) - 1;
+  const start = new Date(year, monthIndex, 1);
+  const end = new Date(year, monthIndex + 1, 1);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+
+  const format = (date: Date) =>
+    [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+
+  return {
+    startDate: format(start),
+    endDate: format(end),
+  };
+}
 function normalizeShiftRequestStatus(status: unknown): ShiftRequestStatus {
   return status === "承認済" ? "承認済" : "希望済";
+}
+
+function normalizeActualPay(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
 }
 
 function normalizeShiftSlotCapacity(capacity: unknown) {
@@ -117,6 +159,11 @@ function toShiftRequest(
     employeeGenerated: data.employeeGenerated === true,
     status: normalizeShiftRequestStatus(data.status),
     submittedDate: String(data.submittedDate ?? ""),
+    actualStartTime: String(data.actualStartTime ?? ""),
+    actualEndTime: String(data.actualEndTime ?? ""),
+    actualPay: normalizeActualPay(data.actualPay),
+    actualMemo: String(data.actualMemo ?? ""),
+    actualUpdatedAt: String(data.actualUpdatedAt ?? ""),
   };
 }
 
@@ -178,6 +225,57 @@ export function subscribeEmployeeShiftRequests(
   );
 }
 
+export function subscribeShiftRequestsByMonth(
+  month: string,
+  onNext: (requests: ShiftRequest[]) => void,
+  onError?: (error: FirestoreError) => void,
+  organizationId = defaultOrganizationId,
+): Unsubscribe {
+  const range = getMonthDateRange(month);
+  if (!range) {
+    onNext([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    query(
+      getShiftRequestsCollection(organizationId),
+      where("date", ">=", range.startDate),
+      where("date", "<", range.endDate),
+    ),
+    (snapshot) => {
+      onNext(snapshot.docs.map(toShiftRequest));
+    },
+    onError,
+  );
+}
+
+export function subscribeShiftRequestsByEmployeeAndMonth(
+  employeeId: string,
+  month: string,
+  onNext: (requests: ShiftRequest[]) => void,
+  onError?: (error: FirestoreError) => void,
+  organizationId = defaultOrganizationId,
+): Unsubscribe {
+  const range = getMonthDateRange(month);
+  if (!employeeId || !range) {
+    onNext([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    query(
+      getShiftRequestsCollection(organizationId),
+      where("employeeId", "==", employeeId),
+      where("date", ">=", range.startDate),
+      where("date", "<", range.endDate),
+    ),
+    (snapshot) => {
+      onNext(snapshot.docs.map(toShiftRequest));
+    },
+    onError,
+  );
+}
 export async function createShiftRequests(
   inputs: ShiftRequestInput[],
   organizationId = defaultOrganizationId,
@@ -453,6 +551,79 @@ export async function resetShiftRequestApproval(
   });
 }
 
+export type ShiftRequestActualInput = {
+  actualStartTime: string;
+  actualEndTime: string;
+  actualPay: number | null;
+  actualMemo: string;
+};
+
+function normalizeActualTime(value: string) {
+  return /^\d{2}:\d{2}$/.test(value.trim()) ? value.trim() : "";
+}
+
+export async function updateShiftRequestActuals(
+  requestId: string,
+  actuals: ShiftRequestActualInput,
+  organizationId = defaultOrganizationId,
+) {
+  const requestRef = doc(getShiftRequestsCollection(organizationId), requestId);
+  const requestSnapshot = await getDoc(requestRef);
+
+  if (!requestSnapshot.exists()) {
+    throw new Error("Shift request not found.");
+  }
+
+  if (normalizeShiftRequestStatus(requestSnapshot.data().status) !== "承認済") {
+    throw new Error("Only approved shift requests can be adjusted.");
+  }
+
+  const actualStartTime = normalizeActualTime(actuals.actualStartTime);
+  const actualEndTime = normalizeActualTime(actuals.actualEndTime);
+
+  if (!actualStartTime || !actualEndTime) {
+    throw new Error("Actual shift time is invalid.");
+  }
+
+  const requestData = requestSnapshot.data();
+  const isSameAsScheduledTime =
+    actualStartTime === String(requestData.startTime ?? "") &&
+    actualEndTime === String(requestData.endTime ?? "");
+
+  await updateDoc(requestRef, {
+    actualStartTime: isSameAsScheduledTime ? "" : actualStartTime,
+    actualEndTime: isSameAsScheduledTime ? "" : actualEndTime,
+    actualPay: normalizeActualPay(actuals.actualPay),
+    actualMemo: actuals.actualMemo.trim(),
+    actualUpdatedAt: new Date().toISOString(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function clearShiftRequestActuals(
+  requestId: string,
+  organizationId = defaultOrganizationId,
+) {
+  const requestRef = doc(getShiftRequestsCollection(organizationId), requestId);
+  const requestSnapshot = await getDoc(requestRef);
+
+  if (!requestSnapshot.exists()) {
+    throw new Error("Shift request not found.");
+  }
+
+  if (normalizeShiftRequestStatus(requestSnapshot.data().status) !== "承認済") {
+    throw new Error("Only approved shift requests can be adjusted.");
+  }
+
+  await updateDoc(requestRef, {
+    actualStartTime: "",
+    actualEndTime: "",
+    actualPay: null,
+    actualMemo: "",
+    actualUpdatedAt: "",
+    updatedAt: serverTimestamp(),
+  });
+}
 export async function countApprovedShiftRequestsBySlot(
   slotId: string,
   organizationId = defaultOrganizationId,

@@ -12,10 +12,12 @@ import { defaultOrganizationId } from "./people";
 
 export type ShiftRequestSettings = {
   employeeGeneratedRequestsEnabled: boolean;
+  employeeActualShiftAdjustmentsVisible: boolean;
 };
 
 export const defaultShiftRequestSettings: ShiftRequestSettings = {
   employeeGeneratedRequestsEnabled: true,
+  employeeActualShiftAdjustmentsVisible: false,
 };
 
 function getShiftRequestSettingsDocument(organizationId = defaultOrganizationId) {
@@ -30,6 +32,10 @@ export function normalizeShiftRequestSettings(
       typeof data?.employeeGeneratedRequestsEnabled === "boolean"
         ? data.employeeGeneratedRequestsEnabled
         : defaultShiftRequestSettings.employeeGeneratedRequestsEnabled,
+    employeeActualShiftAdjustmentsVisible:
+      typeof data?.employeeActualShiftAdjustmentsVisible === "boolean"
+        ? data.employeeActualShiftAdjustmentsVisible
+        : defaultShiftRequestSettings.employeeActualShiftAdjustmentsVisible,
   };
 }
 

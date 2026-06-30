@@ -7,17 +7,20 @@ import {
 } from "@/lib/people";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
+  clearShiftRequestActuals,
   getShiftRequestPositionLabel,
-  subscribeShiftRequests,
+  subscribeShiftRequestsByMonth,
+  updateShiftRequestActuals,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import {
   formatShiftTimeRange,
-  subscribeShiftSlots,
+  subscribeShiftSlotsByMonth,
   type ShiftSlot,
 } from "@/lib/shiftSlots";
 import {
   calculateShiftPayroll,
+  calculateShiftWorkMinutes,
   defaultPayrollSettings,
   formatCurrency,
   sumShiftPay,
@@ -31,6 +34,33 @@ import {
 } from "../../_components/shift-ui";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+
+function getMonthValue(date = new Date()) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0")].join("-");
+}
+
+function getMonthOptions(baseDate = new Date()) {
+  const months: string[] = [];
+  const base = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+
+  for (let offset = -12; offset <= 6; offset += 1) {
+    const date = new Date(base.getFullYear(), base.getMonth() + offset, 1);
+    months.push(getMonthValue(date));
+  }
+
+  return months;
+}
+
+function formatMonthLabel(month: string) {
+  const [year, monthNumber] = month.split("-");
+  return `${year}年${Number(monthNumber)}月`;
+}
+type ActualShiftForm = {
+  actualStartTime: string;
+  actualEndTime: string;
+  actualPay: string;
+  actualMemo: string;
+};
 
 function formatDateLabel(date: string) {
   const parsedDate = new Date(`${date}T00:00:00`);
@@ -63,13 +93,6 @@ function parseTimeToMinutes(time: string) {
   return hour * 60 + minute;
 }
 
-function calculateWorkMinutes(request: ShiftRequest) {
-  const start = parseTimeToMinutes(request.startTime);
-  const end = parseTimeToMinutes(request.endTime);
-  const diff = end - start;
-
-  return diff >= 0 ? diff : diff + 24 * 60;
-}
 
 function getRequestEndAt(request: ShiftRequest) {
   const endAt = new Date(`${request.date}T${request.endTime}:00`);
@@ -114,6 +137,7 @@ function AdminEmployeeListContent() {
     defaultPayrollSettings,
   );
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(() => getMonthValue());
   const [requestView, setRequestView] = useState<"upcoming" | "completed">("upcoming");
   const [searchQuery, setSearchQuery] = useState("");
   const [isEmployeesLoading, setIsEmployeesLoading] = useState(true);
@@ -121,8 +145,19 @@ function AdminEmployeeListContent() {
   const [isShiftSlotsLoading, setIsShiftSlotsLoading] = useState(true);
   const [isPayrollLoading, setIsPayrollLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [editingActualRequest, setEditingActualRequest] = useState<ShiftRequest | null>(null);
+  const [actualForm, setActualForm] = useState<ActualShiftForm>({
+    actualStartTime: "",
+    actualEndTime: "",
+    actualPay: "",
+    actualMemo: "",
+  });
+  const [isActualPayTouched, setIsActualPayTouched] = useState(false);
+  const [isSavingActual, setIsSavingActual] = useState(false);
+  const [actualErrorMessage, setActualErrorMessage] = useState<string | null>(null);
   const isLoading =
     isEmployeesLoading || isRequestsLoading || isShiftSlotsLoading || isPayrollLoading;
+  const monthOptions = useMemo(() => getMonthOptions(), []);
 
   useEffect(() => {
     if (!currentOrganization) return;
@@ -147,18 +182,6 @@ function AdminEmployeeListContent() {
       },
       organizationId,
     );
-    const unsubscribeRequests = subscribeShiftRequests(
-      (nextRequests) => {
-        setRequests(nextRequests);
-        setIsRequestsLoading(false);
-      },
-      (error) => {
-        console.error(error);
-        setIsRequestsLoading(false);
-        setErrorMessage("シフト希望の読み込みに失敗しました。");
-      },
-      organizationId,
-    );
     const unsubscribePayroll = subscribePayrollSettings(
       (settings) => {
         setPayrollSettings(settings);
@@ -171,7 +194,18 @@ function AdminEmployeeListContent() {
       },
       organizationId,
     );
-    const unsubscribeShiftSlots = subscribeShiftSlots(
+
+    return () => {
+      unsubscribeEmployees();
+      unsubscribePayroll();
+    };
+  }, [currentOrganization, organizationId]);
+
+  useEffect(() => {
+    if (!currentOrganization) return;
+
+    const unsubscribeShiftSlots = subscribeShiftSlotsByMonth(
+      selectedMonth,
       (nextShiftSlots) => {
         setShiftSlots(nextShiftSlots);
         setIsShiftSlotsLoading(false);
@@ -185,13 +219,31 @@ function AdminEmployeeListContent() {
     );
 
     return () => {
-      unsubscribeEmployees();
-      unsubscribeRequests();
-      unsubscribePayroll();
       unsubscribeShiftSlots();
     };
-  }, [currentOrganization, organizationId]);
+  }, [currentOrganization, organizationId, selectedMonth]);
 
+  useEffect(() => {
+    if (!currentOrganization) return;
+
+    const unsubscribeRequests = subscribeShiftRequestsByMonth(
+      selectedMonth,
+      (nextRequests) => {
+        setRequests(nextRequests.filter((request) => request.employeeId === selectedEmployeeId));
+        setIsRequestsLoading(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsRequestsLoading(false);
+        setErrorMessage("シフト希望の読み込みに失敗しました。");
+      },
+      organizationId,
+    );
+
+    return () => {
+      unsubscribeRequests();
+    };
+  }, [currentOrganization, organizationId, selectedEmployeeId, selectedMonth]);
   const slotPositionNameById = useMemo(() => {
     return shiftSlots.reduce<Record<string, string>>((namesById, slot) => {
       namesById[slot.id] = slot.positionName;
@@ -199,12 +251,6 @@ function AdminEmployeeListContent() {
     }, {});
   }, [shiftSlots]);
 
-  const requestsByEmployee = useMemo(() => {
-    return requests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
-      groups[request.employeeId] = [...(groups[request.employeeId] ?? []), request];
-      return groups;
-    }, {});
-  }, [requests]);
   const filteredEmployees = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     if (!normalizedQuery) return registeredEmployees;
@@ -220,13 +266,7 @@ function AdminEmployeeListContent() {
   const selectedEmployee =
     registeredEmployees.find((employee) => employee.employeeId === selectedEmployeeId) ??
     null;
-  const allSelectedRequests = useMemo(
-    () =>
-      selectedEmployee
-        ? sortRequestsDescending(requestsByEmployee[selectedEmployee.employeeId] ?? [])
-        : [],
-    [requestsByEmployee, selectedEmployee],
-  );
+  const allSelectedRequests = useMemo(() => sortRequestsDescending(requests), [requests]);
   const selectedRequests = useMemo(
     () =>
       allSelectedRequests.filter((request) =>
@@ -241,14 +281,129 @@ function AdminEmployeeListContent() {
     [selectedRequests],
   );
   const totalWorkMinutes = approvedSelectedRequests.reduce(
-    (total, request) => total + calculateWorkMinutes(request),
+    (total, request) => total + calculateShiftWorkMinutes(request),
     0,
   );
   const totalPay = useMemo(
     () => sumShiftPay(approvedSelectedRequests, payrollSettings),
     [approvedSelectedRequests, payrollSettings],
   );
+  const editingActualPayroll = editingActualRequest
+    ? calculateShiftPayroll(
+        {
+          ...editingActualRequest,
+          actualStartTime: actualForm.actualStartTime,
+          actualEndTime: actualForm.actualEndTime,
+          actualPay: actualForm.actualPay.trim()
+            ? Number(actualForm.actualPay)
+            : null,
+        },
+        payrollSettings,
+      )
+    : null;
+  const isEditingActualPayChanged = editingActualPayroll
+    ? editingActualPayroll.totalPay !== editingActualPayroll.scheduledPay
+    : false;
+  const isEditingActualTimeChanged = editingActualRequest
+    ? actualForm.actualStartTime !== editingActualRequest.startTime ||
+      actualForm.actualEndTime !== editingActualRequest.endTime
+    : false;
 
+  function closeActualModal() {
+    if (isSavingActual) return;
+
+    setEditingActualRequest(null);
+    setActualErrorMessage(null);
+  }
+
+  function openActualModal(request: ShiftRequest) {
+    const payroll = calculateShiftPayroll(request, payrollSettings);
+
+    setEditingActualRequest(request);
+    setActualForm({
+      actualStartTime: request.actualStartTime || request.startTime,
+      actualEndTime: request.actualEndTime || request.endTime,
+      actualPay: String(request.actualPay ?? payroll.calculatedPay),
+      actualMemo: request.actualMemo,
+    });
+    setIsActualPayTouched(false);
+    setActualErrorMessage(null);
+  }
+
+  function updateActualTime(field: "actualStartTime" | "actualEndTime", value: string) {
+    setActualForm((currentForm) => {
+      const nextForm = { ...currentForm, [field]: value };
+
+      if (!editingActualRequest || isActualPayTouched) return nextForm;
+
+      const payroll = calculateShiftPayroll(
+        {
+          ...editingActualRequest,
+          actualStartTime: nextForm.actualStartTime,
+          actualEndTime: nextForm.actualEndTime,
+          actualPay: null,
+        },
+        payrollSettings,
+      );
+
+      return {
+        ...nextForm,
+        actualPay: String(payroll.calculatedPay),
+      };
+    });
+  }
+
+  async function saveActuals() {
+    if (!editingActualRequest) return;
+
+    const actualPay = actualForm.actualPay.trim()
+      ? Number(actualForm.actualPay)
+      : null;
+
+    if (actualPay !== null && (!Number.isFinite(actualPay) || actualPay < 0)) {
+      setActualErrorMessage("実給与は0以上の数値で入力してください。");
+      return;
+    }
+
+    setIsSavingActual(true);
+    setActualErrorMessage(null);
+
+    try {
+      await updateShiftRequestActuals(
+        editingActualRequest.id,
+        {
+          actualStartTime: actualForm.actualStartTime,
+          actualEndTime: actualForm.actualEndTime,
+          actualPay,
+          actualMemo: actualForm.actualMemo,
+        },
+        organizationId,
+      );
+      setEditingActualRequest(null);
+    } catch (error) {
+      console.error(error);
+      setActualErrorMessage("実績の保存に失敗しました。");
+    } finally {
+      setIsSavingActual(false);
+    }
+  }
+
+  async function clearActuals() {
+    if (!editingActualRequest) return;
+
+    setIsSavingActual(true);
+    setActualErrorMessage(null);
+
+    try {
+      await clearShiftRequestActuals(editingActualRequest.id, organizationId);
+      setEditingActualRequest(null);
+    } catch (error) {
+      console.error(error);
+      setActualErrorMessage("実績補正の解除に失敗しました。");
+    } finally {
+      setIsSavingActual(false);
+    }
+  }
   if (isCheckingOrganization || !currentOrganization) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] text-[#717182]">
@@ -281,14 +436,52 @@ function AdminEmployeeListContent() {
               className="h-10 w-full rounded-md border border-black/10 bg-white pl-10 pr-3 text-sm shadow-sm outline-none placeholder:text-[#717182]"
             />
           </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="block text-sm font-semibold text-[#475569]">
+              表示月
+              <select
+                value={selectedMonth}
+                onChange={(event) => {
+                  setIsShiftSlotsLoading(true);
+                  setIsRequestsLoading(true);
+                  setSelectedMonth(event.target.value);
+                }}
+                className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm font-normal text-[#030213] shadow-sm outline-none"
+              >
+                {monthOptions.map((month) => (
+                  <option key={month} value={month}>
+                    {formatMonthLabel(month)}
+                  </option>
+                ))}
+              </select>
+            </label>
 
+            <label className="block text-sm font-semibold text-[#475569] md:hidden">
+              従業員
+              <select
+                value={selectedEmployeeId}
+                onChange={(event) => {
+                  setIsRequestsLoading(true);
+                  setSelectedEmployeeId(event.target.value);
+                }}
+                disabled={isEmployeesLoading || filteredEmployees.length === 0}
+                className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm font-normal text-[#030213] shadow-sm outline-none disabled:bg-[#f1f5f9]"
+              >
+                {filteredEmployees.map((employee) => (
+                  <option key={employee.employeeId} value={employee.employeeId}>
+                    {employee.name}（{employee.employeeId}）
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           {errorMessage && (
             <div className="mt-5 rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
               {errorMessage}
             </div>
           )}
 
-          <div className="mt-6 space-y-3">
+          <div className="mt-6 hidden space-y-3 md:block">
             {isEmployeesLoading ? (
               <div className="flex min-h-32 items-center justify-center text-center text-[#717182]">
                 <p>従業員を読み込んでいます</p>
@@ -299,14 +492,16 @@ function AdminEmployeeListContent() {
               </div>
             ) : (
               filteredEmployees.map((employee) => {
-                const employeeRequests = requestsByEmployee[employee.employeeId] ?? [];
                 const selected = employee.employeeId === selectedEmployee?.employeeId;
 
                 return (
                   <button
                     key={employee.employeeId}
                     type="button"
-                    onClick={() => setSelectedEmployeeId(employee.employeeId)}
+                    onClick={() => {
+                      setIsRequestsLoading(true);
+                      setSelectedEmployeeId(employee.employeeId);
+                    }}
                     className={[
                       "w-full rounded-lg border p-4 text-left transition",
                       selected
@@ -325,14 +520,6 @@ function AdminEmployeeListContent() {
                         >
                           {employee.email}
                           <span className="ml-5">{employee.employmentType}</span>
-                        </p>
-                        <p
-                          className={[
-                            "mt-2 text-sm",
-                            selected ? "text-white" : "text-[#475569]",
-                          ].join(" ")}
-                        >
-                          シフト希望: {employeeRequests.length}件
                         </p>
                       </div>
                       <span
@@ -443,6 +630,11 @@ function AdminEmployeeListContent() {
                       positionName:
                         request.positionName || slotPositionNameById[request.slotId] || "",
                     });
+                    const canEditActuals = requestView === "completed" && request.status === "承認済";
+                    const hasActualTime = payroll?.usesActualTime ?? false;
+                    const hasActualPay = payroll
+                      ? payroll.totalPay !== payroll.scheduledPay
+                      : false;
 
                     return (
                       <div key={request.id} className="rounded-lg bg-[#f7f8fb] p-4">
@@ -455,12 +647,29 @@ function AdminEmployeeListContent() {
                               {positionLabel}
                             </p>
                             <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#475569]">
-                              <span>
-                                {formatShiftTimeRange(
-                                  request.startTime,
-                                  request.endTime,
-                                )}
-                              </span>
+                              {hasActualTime ? (
+                                <>
+                                  <span className="text-[#94a3b8] line-through">
+                                    {formatShiftTimeRange(
+                                      request.startTime,
+                                      request.endTime,
+                                    )}
+                                  </span>
+                                  <span className="font-semibold text-[#030213]">
+                                    {formatShiftTimeRange(
+                                      request.actualStartTime,
+                                      request.actualEndTime,
+                                    )}
+                                  </span>
+                                </>
+                              ) : (
+                                <span>
+                                  {formatShiftTimeRange(
+                                    request.startTime,
+                                    request.endTime,
+                                  )}
+                                </span>
+                              )}
                               {(request.employeeGenerated || !request.slotId) && (
                                 <span className="rounded-md bg-[#fff7ed] px-2 py-0.5 text-xs font-semibold text-[#c2410c]">
                                   従業員追加枠
@@ -473,9 +682,16 @@ function AdminEmployeeListContent() {
                           </div>
                           <div className="shrink-0 text-left sm:text-right">
                             {payroll ? (
-                              <p className="text-sm font-semibold text-[#00a63e]">
-                                {formatCurrency(payroll.totalPay)}
-                              </p>
+                              <div>
+                                {hasActualPay && (
+                                  <p className="text-xs font-semibold text-[#94a3b8] line-through">
+                                    {formatCurrency(payroll.scheduledPay)}
+                                  </p>
+                                )}
+                                <p className="text-sm font-semibold text-[#00a63e]">
+                                  {formatCurrency(payroll.totalPay)}
+                                </p>
+                              </div>
                             ) : (
                               <p className="text-xs font-semibold text-[#717182]">
                                 承認後に給与計算
@@ -489,6 +705,15 @@ function AdminEmployeeListContent() {
                             >
                               {request.status}
                             </span>
+                            {canEditActuals && (
+                              <button
+                                type="button"
+                                onClick={() => openActualModal(request)}
+                                className="mt-2 block rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-[#030213] shadow-sm transition hover:bg-[#f7f8fb] sm:ml-auto"
+                              >
+                                編集
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -504,6 +729,170 @@ function AdminEmployeeListContent() {
           )}
         </Card>
       </div>
+      {editingActualRequest && editingActualPayroll && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 py-6 sm:items-center">
+          <div className="max-h-[calc(100vh-48px)] w-full max-w-[560px] overflow-y-auto rounded-lg bg-white p-5 shadow-xl sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold">実績給与の編集</h3>
+                <p className="mt-1 text-sm text-[#717182]">
+                  {formatDateLabel(editingActualRequest.date)} / {getShiftRequestPositionLabel({
+                    positionName:
+                      editingActualRequest.positionName ||
+                      slotPositionNameById[editingActualRequest.slotId] ||
+                      "",
+                  })}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeActualModal}
+                className="rounded-md px-2 py-1 text-sm font-semibold text-[#717182] transition hover:bg-[#f7f8fb]"
+              >
+                閉じる
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-md bg-[#f7f8fb] px-4 py-3 text-sm text-[#475569]">
+              <p>
+                元の時間: {formatShiftTimeRange(editingActualRequest.startTime, editingActualRequest.endTime)}
+              </p>
+              <p className="mt-1">
+                元の給与: {formatCurrency(editingActualPayroll.scheduledPay)}
+              </p>
+            </div>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="text-sm font-semibold">
+                実開始時刻
+                <input
+                  type="time"
+                  value={actualForm.actualStartTime}
+                  onChange={(event) => updateActualTime("actualStartTime", event.target.value)}
+                  className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none"
+                />
+              </label>
+              <label className="text-sm font-semibold">
+                実終了時刻
+                <input
+                  type="time"
+                  value={actualForm.actualEndTime}
+                  onChange={(event) => updateActualTime("actualEndTime", event.target.value)}
+                  className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none"
+                />
+              </label>
+            </div>
+
+            <label className="mt-4 block text-sm font-semibold">
+              実給与
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={actualForm.actualPay}
+                onChange={(event) => {
+                  setIsActualPayTouched(true);
+                  setActualForm((currentForm) => ({
+                    ...currentForm,
+                    actualPay: event.target.value,
+                  }));
+                }}
+                className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm shadow-sm outline-none"
+              />
+            </label>
+
+            <label className="mt-4 block text-sm font-semibold">
+              メモ
+              <textarea
+                value={actualForm.actualMemo}
+                onChange={(event) =>
+                  setActualForm((currentForm) => ({
+                    ...currentForm,
+                    actualMemo: event.target.value,
+                  }))
+                }
+                rows={3}
+                className="mt-2 w-full resize-none rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-sm outline-none"
+              />
+            </label>
+
+            <div className="mt-5 rounded-md border border-black/10 px-4 py-3 text-sm">
+              <p className="text-[#717182]">保存後の表示</p>
+              <div className="mt-2 space-y-2">
+                <p>
+                  <span className="mr-3 text-[#717182]">時間</span>
+                  {isEditingActualTimeChanged && (
+                    <span className="text-[#94a3b8] line-through">
+                      {formatShiftTimeRange(
+                        editingActualRequest.startTime,
+                        editingActualRequest.endTime,
+                      )}
+                    </span>
+                  )}
+                  <span className={[
+                    "font-semibold text-[#030213]",
+                    isEditingActualTimeChanged ? "ml-3" : "",
+                  ].join(" ")}>
+                    {formatShiftTimeRange(
+                      actualForm.actualStartTime,
+                      actualForm.actualEndTime,
+                    )}
+                  </span>
+                </p>
+                <p>
+                  <span className="mr-3 text-[#717182]">給与</span>
+                  {isEditingActualPayChanged && (
+                    <span className="text-[#94a3b8] line-through">
+                      {formatCurrency(editingActualPayroll.scheduledPay)}
+                    </span>
+                  )}
+                  <span className={[
+                    "font-semibold text-[#00a63e]",
+                    isEditingActualPayChanged ? "ml-3" : "",
+                  ].join(" ")}>
+                    {formatCurrency(editingActualPayroll.totalPay)}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            {actualErrorMessage && (
+              <p className="mt-4 rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
+                {actualErrorMessage}
+              </p>
+            )}
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+              <button
+                type="button"
+                onClick={clearActuals}
+                disabled={isSavingActual}
+                className="h-10 rounded-md border border-black/10 bg-white px-4 text-sm font-semibold text-[#b00020] shadow-sm transition hover:bg-[#fff1f1] disabled:opacity-60"
+              >
+                補正を解除
+              </button>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={closeActualModal}
+                  disabled={isSavingActual}
+                  className="h-10 rounded-md border border-black/10 bg-white px-4 text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] disabled:opacity-60"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  onClick={saveActuals}
+                  disabled={isSavingActual}
+                  className="h-10 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1f2937] disabled:opacity-60"
+                >
+                  {isSavingActual ? "保存中" : "保存"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
