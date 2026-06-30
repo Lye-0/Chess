@@ -243,9 +243,35 @@ type MyCalendarTimelineItem = {
   lane: number;
 };
 
-function toTimelineItem(request: ShiftRequest) {
-  const startMinutes = parseTimeToMinutes(request.startTime);
-  const rawEndMinutes = parseTimeToMinutes(request.endTime);
+function hasActualTimeAdjustment(request: ShiftRequest) {
+  const actualStartTime = request.actualStartTime.trim();
+  const actualEndTime = request.actualEndTime.trim();
+
+  return Boolean(
+    actualStartTime &&
+      actualEndTime &&
+      (actualStartTime !== request.startTime || actualEndTime !== request.endTime),
+  );
+}
+
+function getDisplayTimeRange(request: ShiftRequest, showActualAdjustments: boolean) {
+  if (showActualAdjustments && hasActualTimeAdjustment(request)) {
+    return {
+      startTime: request.actualStartTime,
+      endTime: request.actualEndTime,
+    };
+  }
+
+  return {
+    startTime: request.startTime,
+    endTime: request.endTime,
+  };
+}
+
+function toTimelineItem(request: ShiftRequest, showActualAdjustments: boolean) {
+  const timeRange = getDisplayTimeRange(request, showActualAdjustments);
+  const startMinutes = parseTimeToMinutes(timeRange.startTime);
+  const rawEndMinutes = parseTimeToMinutes(timeRange.endTime);
   const endMinutes = rawEndMinutes > startMinutes
     ? rawEndMinutes
     : rawEndMinutes + 24 * 60;
@@ -253,11 +279,14 @@ function toTimelineItem(request: ShiftRequest) {
   return { request, startMinutes, endMinutes };
 }
 
-function assignMyCalendarLanes(requests: ShiftRequest[]): MyCalendarTimelineItem[] {
+function assignMyCalendarLanes(
+  requests: ShiftRequest[],
+  showActualAdjustments: boolean,
+): MyCalendarTimelineItem[] {
   const groups = new Map<string, ReturnType<typeof toTimelineItem>[]>();
 
   requests
-    .map(toTimelineItem)
+    .map((request) => toTimelineItem(request, showActualAdjustments))
     .sort((a, b) => {
       if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
       return a.endMinutes - b.endMinutes;
@@ -636,7 +665,10 @@ function SelectedDayTimeline({
   payrollSettings: PayrollSettings;
   showActualAdjustments: boolean;
 }) {
-  const timelineItems = useMemo(() => assignMyCalendarLanes(requests), [requests]);
+  const timelineItems = useMemo(
+    () => assignMyCalendarLanes(requests, showActualAdjustments),
+    [requests, showActualAdjustments],
+  );
   const minimumTimelineMinutes = 9 * 60;
   const rawTimelineStart = timelineItems.length > 0
     ? Math.max(0, Math.floor(Math.min(...timelineItems.map((item) => item.startMinutes)) / 60) * 60)
@@ -744,7 +776,10 @@ function SelectedDayTimeline({
                       }}
                     >
                       <p className="truncate text-xs font-semibold">
-                        {formatShiftTimeRange(request.startTime, request.endTime)}
+                        {formatShiftTimeRange(
+                          getDisplayTimeRange(request, showActualAdjustments).startTime,
+                          getDisplayTimeRange(request, showActualAdjustments).endTime,
+                        )}
                       </p>
                       {request.employeeGenerated && (
                         <p className="truncate text-[10px] font-semibold text-[#c2410c]">
