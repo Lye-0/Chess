@@ -1101,8 +1101,13 @@ function EmployeePageContent() {
           <div className="flex shrink-0 items-center gap-2">
             <ShiftExportMenu
               formats={[
-                { format: "ics", label: "ICSをダウンロード" },
-                { format: "png", label: "PNGをダウンロード" },
+                { format: "png", label: "PNG" },
+                { format: "ics", label: "ICS" },
+                {
+                  format: "calendarSubscription",
+                  label: "カレンダー購読",
+                  disabled: true,
+                },
               ]}
               months={exportMonths}
               selectedMonth={activeExportMonth}

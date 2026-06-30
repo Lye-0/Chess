@@ -7,7 +7,7 @@ import {
 } from "./payroll";
 import { getShiftRequestPositionLabel, type ShiftRequest } from "./shiftRequests";
 
-export type ShiftExportFormat = "ics" | "png" | "pdf" | "csv";
+export type ShiftExportFormat = "ics" | "png" | "pdf" | "csv" | "calendarSubscription";
 export type ShiftExportScope = "month" | "monthDaily" | "day";
 
 export type MonthlyShiftExportRow = {

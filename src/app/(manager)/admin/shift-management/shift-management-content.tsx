@@ -244,8 +244,8 @@ function AdminShiftManagementContent() {
           <div className="flex items-center gap-2">
             <ShiftExportMenu
               formats={[
-                { format: "pdf", label: "PDFをダウンロード" },
-                { format: "csv", label: "CSVをダウンロード" },
+                { format: "pdf", label: "PDF" },
+                { format: "csv", label: "CSV" },
               ]}
               months={exportMonths}
               selectedMonth={activeExportMonth}

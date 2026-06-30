@@ -7,6 +7,8 @@ import type { ShiftExportFormat, ShiftExportScope } from "@/lib/shiftExports";
 type ExportOption = {
   format: ShiftExportFormat;
   label: string;
+  actionLabel?: string;
+  disabled?: boolean;
 };
 
 type ScopeOption = {
@@ -44,6 +46,10 @@ function formatDateLabel(date: string) {
   return `${parsedDate.getFullYear()}年${parsedDate.getMonth() + 1}月${parsedDate.getDate()}日（${weekdays[parsedDate.getDay()]}）`;
 }
 
+function getDefaultActionLabel(format: ShiftExportFormat) {
+  return format === "calendarSubscription" ? "準備中" : "ダウンロード";
+}
+
 export function ShiftExportMenu({
   label = "エクスポート",
   formats,
@@ -61,7 +67,14 @@ export function ShiftExportMenu({
   onDateChange,
 }: ShiftExportMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [selectedFormat, setSelectedFormat] = useState<ShiftExportFormat>(
+    formats[0]?.format ?? "png",
+  );
   const usesDate = selectedScope === "day";
+  const selectedOption =
+    formats.find((option) => option.format === selectedFormat) ?? formats[0];
+  const canExport = hasData && Boolean(selectedOption) && !selectedOption.disabled;
+
 
   return (
     <div className="relative">
@@ -80,9 +93,25 @@ export function ShiftExportMenu({
 
       {isOpen && !disabled && (
         <div className="fixed left-4 right-4 top-20 z-40 rounded-lg border border-black/10 bg-white p-3 text-[#030213] shadow-xl sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-72">
+          <label className="block text-xs font-semibold text-[#717182]" htmlFor="shift-export-format">
+            形式
+          </label>
+          <select
+            id="shift-export-format"
+            value={selectedOption?.format ?? ""}
+            onChange={(event) => setSelectedFormat(event.target.value as ShiftExportFormat)}
+            className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm font-semibold outline-none"
+          >
+            {formats.map((option) => (
+              <option key={option.format} value={option.format}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
           {scopeOptions && onScopeChange && (
             <>
-              <label className="block text-xs font-semibold text-[#717182]" htmlFor="shift-export-scope">
+              <label className="mt-3 block text-xs font-semibold text-[#717182]" htmlFor="shift-export-scope">
                 出力単位
               </label>
               <select
@@ -144,22 +173,25 @@ export function ShiftExportMenu({
             </p>
           )}
 
-          <div className="mt-3 grid gap-2">
-            {formats.map((option) => (
-              <button
-                key={option.format}
-                type="button"
-                disabled={!hasData}
-                onClick={() => {
-                  onExport(option.format);
-                  setIsOpen(false);
-                }}
-                className="h-10 rounded-md bg-[#030213] px-3 text-left text-sm font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#cbd5e1]"
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          {selectedOption?.disabled && (
+            <p className="mt-3 rounded-md bg-[#fef3c7] px-3 py-2 text-sm text-[#92400e]">
+              この形式は次のステップで利用できるようにします
+            </p>
+          )}
+
+          <button
+            type="button"
+            disabled={!canExport}
+            onClick={() => {
+              if (!selectedOption) return;
+              onExport(selectedOption.format);
+              setIsOpen(false);
+            }}
+            className="mt-3 h-10 w-full rounded-md bg-[#030213] px-3 text-center text-sm font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#cbd5e1]"
+          >
+            {selectedOption?.actionLabel ??
+              getDefaultActionLabel(selectedOption?.format ?? "png")}
+          </button>
         </div>
       )}
     </div>
