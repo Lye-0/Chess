@@ -277,6 +277,10 @@ function AdminEmployeeListContent() {
   const isEditingActualPayChanged = editingActualPayroll
     ? editingActualPayroll.totalPay !== editingActualPayroll.scheduledPay
     : false;
+  const isEditingActualTimeChanged = editingActualRequest
+    ? actualForm.actualStartTime !== editingActualRequest.startTime ||
+      actualForm.actualEndTime !== editingActualRequest.endTime
+    : false;
 
   function closeActualModal() {
     if (isSavingActual) return;
@@ -755,19 +759,42 @@ function AdminEmployeeListContent() {
 
             <div className="mt-5 rounded-md border border-black/10 px-4 py-3 text-sm">
               <p className="text-[#717182]">保存後の表示</p>
-              <p className="mt-2">
-                {isEditingActualPayChanged && (
-                  <span className="text-[#94a3b8] line-through">
-                    {formatCurrency(editingActualPayroll.scheduledPay)}
+              <div className="mt-2 space-y-2">
+                <p>
+                  <span className="mr-3 text-[#717182]">時間</span>
+                  {isEditingActualTimeChanged && (
+                    <span className="text-[#94a3b8] line-through">
+                      {formatShiftTimeRange(
+                        editingActualRequest.startTime,
+                        editingActualRequest.endTime,
+                      )}
+                    </span>
+                  )}
+                  <span className={[
+                    "font-semibold text-[#030213]",
+                    isEditingActualTimeChanged ? "ml-3" : "",
+                  ].join(" ")}>
+                    {formatShiftTimeRange(
+                      actualForm.actualStartTime,
+                      actualForm.actualEndTime,
+                    )}
                   </span>
-                )}
-                <span className={[
-                  "font-semibold text-[#00a63e]",
-                  isEditingActualPayChanged ? "ml-3" : "",
-                ].join(" ")}>
-                  {formatCurrency(editingActualPayroll.totalPay)}
-                </span>
-              </p>
+                </p>
+                <p>
+                  <span className="mr-3 text-[#717182]">給与</span>
+                  {isEditingActualPayChanged && (
+                    <span className="text-[#94a3b8] line-through">
+                      {formatCurrency(editingActualPayroll.scheduledPay)}
+                    </span>
+                  )}
+                  <span className={[
+                    "font-semibold text-[#00a63e]",
+                    isEditingActualPayChanged ? "ml-3" : "",
+                  ].join(" ")}>
+                    {formatCurrency(editingActualPayroll.totalPay)}
+                  </span>
+                </p>
+              </div>
             </div>
 
             {actualErrorMessage && (
