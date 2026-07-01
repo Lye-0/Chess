@@ -550,7 +550,7 @@ function EmployeeShiftRequestsContent() {
         <section className="rounded-xl border border-black/10 bg-white shadow-sm">
           <div className="grid gap-5 p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
             <div>
-              <h1 className="text-xl font-semibold">シフト希望一覧</h1>
+              <h1 className="text-xl font-semibold">勤務履歴・予定</h1>
               <p className="mt-1 text-sm text-[#717182]">
                 月ごとに勤務予定、勤務済み、承認待ちのシフトを確認できます
               </p>
