@@ -19,6 +19,7 @@ import {
   calculateShiftPayroll,
   defaultPayrollSettings,
   formatCurrency,
+  sumShiftPay,
   type PayrollSettings,
 } from "@/lib/payroll";
 import {
@@ -32,6 +33,14 @@ import {
 } from "@/lib/shiftSlots";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+
+type RequestFilter = "completed" | "upcoming" | "pending";
+
+const requestFilterLabels: Record<RequestFilter, string> = {
+  completed: "勤務済み",
+  upcoming: "勤務予定",
+  pending: "承認待ち",
+};
 
 function BackIcon() {
   return (
@@ -47,7 +56,6 @@ function BackIcon() {
     </svg>
   );
 }
-
 
 function WarningIcon() {
   return (
@@ -78,6 +86,7 @@ function XIcon() {
     </svg>
   );
 }
+
 function formatDateLabel(date: string) {
   const parsedDate = new Date(`${date}T00:00:00`);
   const year = parsedDate.getFullYear();
@@ -92,6 +101,38 @@ function formatDateOnly(date: string) {
   const parsedDate = new Date(`${date}T00:00:00`);
 
   return `${parsedDate.getFullYear()}年${parsedDate.getMonth() + 1}月${parsedDate.getDate()}日`;
+}
+
+
+function getMonthValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+
+  return `${year}-${month}`;
+}
+
+function getYearValue(date: Date) {
+  return String(date.getFullYear());
+}
+
+function getSelectableYearValues(referenceDate: Date) {
+  const currentYear = referenceDate.getFullYear();
+
+  return Array.from({ length: 6 }, (_, index) => String(currentYear - 3 + index));
+}
+
+function getMonthNumberValue(date: Date) {
+  return String(date.getMonth() + 1).padStart(2, "0");
+}
+
+function parseMonthValue(value: string) {
+  return new Date(`${value}-01T00:00:00`);
+}
+
+function formatMonthLabel(value: string) {
+  const date = parseMonthValue(value);
+
+  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
 }
 
 function sortRequests(requests: ShiftRequest[]) {
@@ -109,21 +150,74 @@ function parseTimeToMinutes(time: string) {
   return hour * 60 + minute;
 }
 
+function getRequestStartAt(request: ShiftRequest) {
+  return new Date(`${request.date}T${request.startTime}:00`);
+}
+
 function getRequestEndAt(request: ShiftRequest) {
+  const startAt = getRequestStartAt(request);
   const endAt = new Date(`${request.date}T${request.endTime}:00`);
 
   if (parseTimeToMinutes(request.endTime) <= parseTimeToMinutes(request.startTime)) {
     endAt.setDate(endAt.getDate() + 1);
   }
 
+  if (endAt <= startAt) {
+    endAt.setDate(endAt.getDate() + 1);
+  }
+
   return endAt;
 }
 
-function isRequestUpcoming(request: ShiftRequest) {
+function isCompletedRequest(request: ShiftRequest, now: Date) {
   const endAt = getRequestEndAt(request);
 
-  return !Number.isNaN(endAt.getTime()) && endAt > new Date();
+  return !Number.isNaN(endAt.getTime()) && endAt <= now;
 }
+
+function isRequestInMonth(request: ShiftRequest, monthValue: string) {
+  return request.date.startsWith(`${monthValue}-`);
+}
+
+function isRequestInYear(request: ShiftRequest, yearValue: string) {
+  return request.date.startsWith(`${yearValue}-`);
+}
+
+function sumWorkMinutes(requests: ShiftRequest[], payrollSettings: PayrollSettings) {
+  return requests.reduce(
+    (total, request) => total + calculateShiftPayroll(request, payrollSettings).totalMinutes,
+    0,
+  );
+}
+
+function formatWorkHours(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (remainingMinutes === 0) return `${hours}時間`;
+
+  return `${hours}時間${remainingMinutes}分`;
+}
+
+function applySlotPositionNames(requests: ShiftRequest[], slots: ShiftSlot[]) {
+  const slotPositionNameById = slots.reduce<Record<string, string>>((positions, slot) => {
+    positions[slot.id] = slot.positionName;
+    return positions;
+  }, {});
+
+  return requests.map((request) => ({
+    ...request,
+    positionName: request.positionName || slotPositionNameById[request.slotId] || "",
+  }));
+}
+
+function getAvailableFilters(monthValue: string, currentMonthValue: string): RequestFilter[] {
+  if (monthValue < currentMonthValue) return ["completed"];
+  if (monthValue > currentMonthValue) return ["upcoming", "pending"];
+
+  return ["upcoming", "pending", "completed"];
+}
+
 function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
   const approved = status === "承認済";
 
@@ -226,56 +320,13 @@ function ShiftRequestRow({
   );
 }
 
-function ShiftRequestGroup({
-  title,
-  description,
-  requests,
-  emptyText,
-  payrollSettings,
-  onWithdraw,
-  withdrawingRequestId,
-  showActualAdjustments,
-}: {
-  title: string;
-  description: string;
-  requests: ShiftRequest[];
-  emptyText: string;
-  payrollSettings: PayrollSettings;
-  onWithdraw?: (request: ShiftRequest) => void;
-  withdrawingRequestId?: string | null;
-  showActualAdjustments: boolean;
-}) {
+function SummaryPanel({ label, value, description }: { label: string; value: string; description: string }) {
   return (
-    <section className="rounded-md border border-black/10 bg-white px-4 py-4">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
-        <div className="min-w-0">
-          <h3 className="text-base font-semibold">{title}</h3>
-          <p className="mt-1 text-xs leading-relaxed text-[#717182] sm:text-sm">{description}</p>
-        </div>
-        <span className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-[#eef2f7] px-2 text-center text-sm font-semibold leading-tight text-[#475569]">
-          {requests.length}件
-        </span>
-      </div>
-
-      {requests.length === 0 ? (
-        <div className="mt-3 flex min-h-24 items-center justify-center rounded-lg border border-dashed border-black/10 text-sm text-[#717182]">
-          {emptyText}
-        </div>
-      ) : (
-        <div className="mt-3 space-y-3">
-          {requests.map((request) => (
-            <ShiftRequestRow
-              key={request.id}
-              request={request}
-              payrollSettings={payrollSettings}
-              showActualAdjustments={showActualAdjustments}
-              onWithdraw={onWithdraw}
-              isWithdrawing={withdrawingRequestId === request.id}
-            />
-          ))}
-        </div>
-      )}
-    </section>
+    <div className="rounded-lg border border-black/10 bg-white px-5 py-4 shadow-sm">
+      <p className="text-sm font-semibold text-[#596074]">{label}</p>
+      <p className="mt-3 text-2xl font-semibold text-[#030213]">{value}</p>
+      <p className="mt-2 text-xs text-[#717182]">{description}</p>
+    </div>
   );
 }
 
@@ -291,6 +342,12 @@ function EmployeeShiftRequestsContent() {
     [sessionSnapshot],
   );
   const employee = sessionEmployee;
+  const now = useMemo(() => new Date(), []);
+  const currentMonthValue = useMemo(() => getMonthValue(now), [now]);
+  const [selectedYearValue, setSelectedYearValue] = useState(() => getYearValue(now));
+  const [selectedMonthNumber, setSelectedMonthNumber] = useState(() => getMonthNumberValue(now));
+  const selectedMonthValue = `${selectedYearValue}-${selectedMonthNumber}`;
+  const [selectedFilter, setSelectedFilter] = useState<RequestFilter>("upcoming");
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
@@ -300,7 +357,7 @@ function EmployeeShiftRequestsContent() {
     defaultShiftRequestSettings,
   );
   const [isLoading, setIsLoading] = useState(true);
-  const [isPayrollLoading, setIsPayrollLoading] = useState(true);
+  const [loadedYearValue, setLoadedYearValue] = useState<string | null>(null);
   const [withdrawingRequestId, setWithdrawingRequestId] = useState<string | null>(null);
   const [withdrawConfirmRequest, setWithdrawConfirmRequest] = useState<ShiftRequest | null>(null);
   const [withdrawErrorMessage, setWithdrawErrorMessage] = useState<string | null>(null);
@@ -314,26 +371,29 @@ function EmployeeShiftRequestsContent() {
   const loadShiftData = useCallback(async () => {
     if (!employee) return;
 
+    setIsLoading(true);
+
     try {
-      const data = await fetchEmployeeShiftData();
+      const data = await fetchEmployeeShiftData({ year: selectedYearValue });
 
       setRequests(data.requests);
       setSlots(data.slots);
       setPayrollSettings(data.payrollSettings);
+      setShiftRequestSettings(data.shiftRequestSettings);
+      setLoadedYearValue(selectedYearValue);
     } catch (error) {
       console.error(error);
     } finally {
       setIsLoading(false);
-      setIsPayrollLoading(false);
     }
-  }, [employee]);
+  }, [employee, selectedYearValue]);
 
   useEffect(() => {
     if (!employee) return;
 
     let isActive = true;
 
-    void fetchEmployeeShiftData()
+    void fetchEmployeeShiftData({ year: selectedYearValue })
       .then((data) => {
         if (!isActive) return;
 
@@ -341,6 +401,7 @@ function EmployeeShiftRequestsContent() {
         setSlots(data.slots);
         setPayrollSettings(data.payrollSettings);
         setShiftRequestSettings(data.shiftRequestSettings);
+      setLoadedYearValue(selectedYearValue);
       })
       .catch((error) => {
         console.error(error);
@@ -348,40 +409,84 @@ function EmployeeShiftRequestsContent() {
       .finally(() => {
         if (isActive) {
           setIsLoading(false);
-          setIsPayrollLoading(false);
         }
       });
 
     return () => {
       isActive = false;
     };
-  }, [employee]);
+  }, [employee, selectedYearValue]);
 
-  const slotPositionNameById = useMemo(() => {
-    return slots.reduce<Record<string, string>>((positions, slot) => {
-      positions[slot.id] = slot.positionName;
-      return positions;
-    }, {});
-  }, [slots]);
-  const displayRequests = useMemo(() => {
-    return requests.map((request) => ({
-      ...request,
-      positionName:
-        request.positionName || slotPositionNameById[request.slotId] || "",
-    }));
-  }, [requests, slotPositionNameById]);
-  const sortedRequests = useMemo(
-    () => sortRequests(displayRequests.filter(isRequestUpcoming)),
-    [displayRequests],
+  const displayRequests = useMemo(
+    () => applySlotPositionNames(requests, slots),
+    [requests, slots],
   );
-  const pendingRequests = useMemo(
-    () => sortedRequests.filter((request) => request.status !== "承認済"),
-    [sortedRequests],
+  const selectableYearValues = useMemo(() => getSelectableYearValues(now), [now]);
+  const monthNumberValues = useMemo(
+    () => Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")),
+    [],
   );
-  const approvedRequests = useMemo(
-    () => sortedRequests.filter((request) => request.status === "承認済"),
-    [sortedRequests],
+  const activeMonthValue = selectedMonthValue;
+  const availableFilters = useMemo(
+    () => getAvailableFilters(activeMonthValue, currentMonthValue),
+    [activeMonthValue, currentMonthValue],
   );
+  const activeFilter = availableFilters.includes(selectedFilter)
+    ? selectedFilter
+    : availableFilters[0];
+
+  const monthRequests = useMemo(
+    () => sortRequests(displayRequests.filter((request) => isRequestInMonth(request, activeMonthValue))),
+    [activeMonthValue, displayRequests],
+  );
+  const completedMonthRequests = useMemo(
+    () => monthRequests.filter((request) => request.status === "承認済" && isCompletedRequest(request, now)),
+    [monthRequests, now],
+  );
+  const upcomingMonthRequests = useMemo(
+    () => monthRequests.filter((request) => request.status === "承認済" && !isCompletedRequest(request, now)),
+    [monthRequests, now],
+  );
+  const pendingMonthRequests = useMemo(
+    () => monthRequests.filter((request) => request.status !== "承認済" && !isCompletedRequest(request, now)),
+    [monthRequests, now],
+  );
+  const selectedRequests = useMemo(() => {
+    if (activeFilter === "completed") return completedMonthRequests;
+    if (activeFilter === "pending") return pendingMonthRequests;
+
+    return upcomingMonthRequests;
+  }, [activeFilter, completedMonthRequests, pendingMonthRequests, upcomingMonthRequests]);
+  const completedYearRequests = useMemo(
+    () =>
+      sortRequests(
+        displayRequests.filter(
+          (request) =>
+            isRequestInYear(request, selectedYearValue) &&
+            request.status === "承認済" &&
+            isCompletedRequest(request, now),
+        ),
+      ),
+    [displayRequests, now, selectedYearValue],
+  );
+  const monthlyWorkMinutes = useMemo(
+    () => sumWorkMinutes(completedMonthRequests, payrollSettings),
+    [completedMonthRequests, payrollSettings],
+  );
+  const monthlyPay = useMemo(
+    () => sumShiftPay(completedMonthRequests, payrollSettings),
+    [completedMonthRequests, payrollSettings],
+  );
+  const yearlyWorkMinutes = useMemo(
+    () => sumWorkMinutes(completedYearRequests, payrollSettings),
+    [completedYearRequests, payrollSettings],
+  );
+  const yearlyPay = useMemo(
+    () => sumShiftPay(completedYearRequests, payrollSettings),
+    [completedYearRequests, payrollSettings],
+  );
+  const selectedFilterLabel = requestFilterLabels[activeFilter];
+  const isDataLoading = isLoading || loadedYearValue !== selectedYearValue;
 
   function handleWithdrawRequest(request: ShiftRequest) {
     if (!employee || request.status === "承認済") return;
@@ -413,6 +518,7 @@ function EmployeeShiftRequestsContent() {
       setWithdrawingRequestId(null);
     }
   }
+
   if (!employee) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f4f7fa] text-[#717182]">
@@ -440,46 +546,125 @@ function EmployeeShiftRequestsContent() {
 
       <div className="mx-auto max-w-[1248px] px-4 py-8 sm:px-6 lg:px-0">
         <section className="rounded-xl border border-black/10 bg-white shadow-sm">
-          <div className="p-6">
-            <h1 className="text-xl font-semibold">シフト希望一覧</h1>
-            <p className="mt-1 text-sm text-[#717182]">提出済みの希望シフト</p>
-            {withdrawErrorMessage && (
-              <div className="mt-4 rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
-                {withdrawErrorMessage}
+          <div className="grid gap-5 p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+            <div>
+              <h1 className="text-xl font-semibold">勤務履歴・予定</h1>
+              <p className="mt-1 text-sm text-[#717182]">
+                月ごとに勤務予定、勤務済み、承認待ちのシフトを確認できます
+              </p>
+              {withdrawErrorMessage && (
+                <div className="mt-4 rounded-md border border-[#ffb3b3] bg-[#fff1f1] px-4 py-3 text-sm text-[#b00020]">
+                  {withdrawErrorMessage}
+                </div>
+              )}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[120px_120px_auto] sm:items-end">
+              <label className="grid gap-1 text-sm font-semibold text-[#475569]">
+                年を選択
+                <select
+                  value={selectedYearValue}
+                  onChange={(event) => setSelectedYearValue(event.target.value)}
+                  className="h-12 rounded-md border border-black/10 bg-white px-4 text-sm font-semibold text-[#030213] shadow-sm outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-[#bfdbfe]"
+                >
+                  {selectableYearValues.map((yearValue) => (
+                    <option key={yearValue} value={yearValue}>
+                      {yearValue}年
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-semibold text-[#475569]">
+                月を選択
+                <select
+                  value={selectedMonthNumber}
+                  onChange={(event) => setSelectedMonthNumber(event.target.value)}
+                  className="h-12 rounded-md border border-black/10 bg-white px-4 text-sm font-semibold text-[#030213] shadow-sm outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-[#bfdbfe]"
+                >
+                  {monthNumberValues.map((monthNumber) => (
+                    <option key={monthNumber} value={monthNumber}>
+                      {Number(monthNumber)}月
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="inline-flex h-12 items-center justify-self-center rounded-lg border border-black/10 bg-white p-1 shadow-sm sm:justify-self-auto">
+                {availableFilters.map((filter) => (
+                  <button
+                    key={filter}
+                    type="button"
+                    onClick={() => setSelectedFilter(filter)}
+                    className={[
+                      "h-10 rounded-md px-4 text-sm font-semibold transition",
+                      activeFilter === filter
+                        ? "bg-[#030213] text-white shadow-sm"
+                        : "text-[#475569] hover:bg-[#f7f8fb]",
+                    ].join(" ")}
+                  >
+                    {requestFilterLabels[filter]}
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
           </div>
-          {isLoading || isPayrollLoading ? (
+        </section>
+
+        <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <SummaryPanel
+            label="選択月の勤務時間"
+            value={formatWorkHours(monthlyWorkMinutes)}
+            description={`${formatMonthLabel(activeMonthValue)}の勤務済みシフト`}
+          />
+          <SummaryPanel
+            label="選択月のお給料"
+            value={formatCurrency(monthlyPay)}
+            description={`${formatMonthLabel(activeMonthValue)}の勤務済みシフト`}
+          />
+          <SummaryPanel
+            label="年間の勤務時間"
+            value={formatWorkHours(yearlyWorkMinutes)}
+            description={`${selectedYearValue}年1月1日〜12月31日の勤務済みシフト`}
+          />
+          <SummaryPanel
+            label="年間のお給料"
+            value={formatCurrency(yearlyPay)}
+            description={`${selectedYearValue}年1月1日〜12月31日の勤務済みシフト`}
+          />
+        </section>
+
+        <section className="mt-6 rounded-xl border border-black/10 bg-white shadow-sm">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 p-6">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold">{selectedFilterLabel}</h2>
+              <p className="mt-1 text-sm text-[#717182]">
+                {formatMonthLabel(activeMonthValue)}の{selectedFilterLabel}シフト
+              </p>
+            </div>
+            <span className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-[#eef2f7] px-2 text-center text-sm font-semibold leading-tight text-[#475569]">
+              {selectedRequests.length}件
+            </span>
+          </div>
+
+          {isDataLoading ? (
             <div className="flex min-h-40 items-center justify-center px-6 pb-6 text-center text-[#717182]">
               <p>読み込んでいます</p>
             </div>
-          ) : sortedRequests.length === 0 ? (
+          ) : selectedRequests.length === 0 ? (
             <div className="flex min-h-40 flex-col items-center justify-center px-6 pb-6 text-center text-[#717182]">
-              <p>まだシフト希望を提出していません</p>
-              <p className="mt-1 text-sm">
-                「希望シフト入力」からシフトを提出してください
-              </p>
+              <p>{selectedFilterLabel}のシフトはありません</p>
+              <p className="mt-1 text-sm">月や表示内容を切り替えて確認できます</p>
             </div>
           ) : (
-            <div className="grid gap-6 px-6 pb-6 lg:grid-cols-2">
-              <ShiftRequestGroup
-                title="承認待ち"
-                description="管理者の承認を待っている希望シフト"
-                requests={pendingRequests}
-                emptyText="承認待ちのシフト希望はありません"
-                payrollSettings={payrollSettings}
-                onWithdraw={handleWithdrawRequest}
-                withdrawingRequestId={withdrawingRequestId}
-                showActualAdjustments={shiftRequestSettings.employeeActualShiftAdjustmentsVisible}
-              />
-              <ShiftRequestGroup
-                title="承認済み"
-                description="管理者が承認した確定シフト"
-                requests={approvedRequests}
-                emptyText="承認済みのシフトはありません"
-                payrollSettings={payrollSettings}
-                showActualAdjustments={shiftRequestSettings.employeeActualShiftAdjustmentsVisible}
-              />
+            <div className="space-y-3 px-6 pb-6">
+              {selectedRequests.map((request) => (
+                <ShiftRequestRow
+                  key={request.id}
+                  request={request}
+                  payrollSettings={payrollSettings}
+                  showActualAdjustments={shiftRequestSettings.employeeActualShiftAdjustmentsVisible}
+                  onWithdraw={activeFilter === "pending" ? handleWithdrawRequest : undefined}
+                  isWithdrawing={withdrawingRequestId === request.id}
+                />
+              ))}
             </div>
           )}
         </section>

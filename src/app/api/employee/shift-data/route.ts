@@ -12,6 +12,10 @@ function normalizeMonth(value: string | null) {
   return value && /^\d{4}-\d{2}$/.test(value) ? value : null;
 }
 
+function normalizeYear(value: string | null) {
+  return value && /^\d{4}$/.test(value) ? value : null;
+}
+
 function normalizeActualPay(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
 
@@ -76,26 +80,31 @@ function toPosition(snapshot: QueryDocumentSnapshot, organizationId: string) {
 export async function GET(request: Request) {
   try {
     const employeeAuth = await verifyEmployeeRequest(request);
-    const requestedMonth = normalizeMonth(
-      new URL(request.url).searchParams.get("month"),
-    );
+    const searchParams = new URL(request.url).searchParams;
+    const requestedMonth = normalizeMonth(searchParams.get("month"));
+    const requestedYear = normalizeYear(searchParams.get("year"));
+    const requestedRangeStart = requestedMonth
+      ? `${requestedMonth}-01`
+      : requestedYear
+        ? `${requestedYear}-01-01`
+        : null;
+    const requestedRangeEnd = requestedMonth
+      ? `${requestedMonth}-31`
+      : requestedYear
+        ? `${requestedYear}-12-31`
+        : null;
     const adminDb = await getAdminDb();
     const organizationRef = adminDb
       .collection("organizations")
       .doc(employeeAuth.organizationId);
-    const requestsQuery: Query = requestedMonth
-      ? organizationRef
-          .collection("shiftRequests")
-          .where("date", ">=", `${requestedMonth}-01`)
-          .where("date", "<=", `${requestedMonth}-31`)
-      : organizationRef
-          .collection("shiftRequests")
-          .where("employeeId", "==", employeeAuth.employeeId);
-    const slotsQuery: Query = requestedMonth
+    const requestsQuery: Query = organizationRef
+      .collection("shiftRequests")
+      .where("employeeId", "==", employeeAuth.employeeId);
+    const slotsQuery: Query = requestedRangeStart && requestedRangeEnd
       ? organizationRef
           .collection("shiftSlots")
-          .where("date", ">=", `${requestedMonth}-01`)
-          .where("date", "<=", `${requestedMonth}-31`)
+          .where("date", ">=", requestedRangeStart)
+          .where("date", "<=", requestedRangeEnd)
       : organizationRef.collection("shiftSlots");
 
     const [
@@ -124,7 +133,14 @@ export async function GET(request: Request) {
     return NextResponse.json({
       requests: requestsSnapshot.docs
         .map(toShiftRequest)
-        .filter((shiftRequest) => shiftRequest.employeeId === employeeAuth.employeeId),
+        .filter((shiftRequest) => shiftRequest.employeeId === employeeAuth.employeeId)
+        .filter(
+          (shiftRequest) =>
+            !requestedRangeStart ||
+            !requestedRangeEnd ||
+            (shiftRequest.date >= requestedRangeStart &&
+              shiftRequest.date <= requestedRangeEnd),
+        ),
       slots: slotsSnapshot.docs.map(toShiftSlot),
       positions: positionsSnapshot.docs
         .map((positionSnapshot) =>

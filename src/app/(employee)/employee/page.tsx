@@ -1301,8 +1301,8 @@ function EmployeePageContent() {
 
           <EmployeeFeatureCard
             icon={<ListIcon />}
-            title="シフト希望一覧"
-            description="提出済みの希望シフト"
+            title="勤務履歴・予定"
+            description="勤務予定と履歴を確認します"
             toneClassName="bg-[#fff7ed] text-[#f97316]"
           >
             <div className="mt-4 grid grid-cols-2 gap-3">
