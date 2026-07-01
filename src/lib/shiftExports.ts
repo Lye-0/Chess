@@ -1371,7 +1371,7 @@ function createXlsxCellXml(cell: XlsxCell) {
 function getShiftExportXlsxStyleIndex(positionName: string, isHourLine: boolean) {
   const colorIndex = shiftExportColors.indexOf(getShiftExportColor(positionName));
 
-  return 12 + Math.max(0, colorIndex) * 2 + (isHourLine ? 0 : 1);
+  return 13 + Math.max(0, colorIndex) * 2 + (isHourLine ? 0 : 1);
 }
 
 function buildDailyRosterSheetXml(data: DailyShiftExportData) {
@@ -1427,7 +1427,11 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   rowHeights.set(4, 24);
   addCell(1, 1, "従業員シフト表", 1);
   addCell(1, 9, "日付", 2);
+  addCell(1, 10, "", 2);
   addCell(1, 11, formatFullDateLabel(data.date), 3);
+  for (let column = 12; column <= Math.min(18, maxColumn); column += 1) {
+    addCell(1, column, "", 3);
+  }
   addCell(2, 1, `${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 0);
   addCell(3, 1, "No.", 4);
   addCell(3, 2, "名前", 4);
@@ -1438,7 +1442,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
     const isHour = minute % 60 === 0;
     const label = isHour || slot === 0 ? formatExcelTimelineLabel(minute) : "";
 
-    addCell(3, column, slot === Math.floor(slotCount / 2) ? `${formatExcelHourLabel(start)}〜${formatExcelHourLabel(end)} タイムテーブル` : "", 4);
+    addCell(3, column, slot === 0 ? `タイムテーブル` : "", 12);
     addCell(4, column, label, isHour ? 5 : 9);
   }
 
@@ -1560,27 +1564,29 @@ function buildXlsxStylesXml() {
     <fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill>
     ${shiftFills}
   </fills>
-  <borders count="5">
+  <borders count="6">
     <border><left/><right/><top/><bottom/><diagonal/></border>
     <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
     <border><left style="medium"><color rgb="FF111111"/></left><right style="dotted"><color rgb="FF111111"/></right><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
     <border><left style="dotted"><color rgb="FF111111"/></left><right style="medium"><color rgb="FF111111"/></right><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
     <border><left style="thin"><color rgb="FF666666"/></left><right style="thin"><color rgb="FF666666"/></right><top style="thin"><color rgb="FF666666"/></top><bottom style="thin"><color rgb="FF666666"/></bottom><diagonal/></border>
+    <border><left/><right/><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="${12 + shiftExportColors.length * 2}">
+  <cellXfs count="${13 + shiftExportColors.length * 2}">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
-    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
     <xf numFmtId="0" fontId="3" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="2" xfId="0" applyBorder="1"/>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="3" xfId="0" applyBorder="1"/>
-    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
     ${shiftExportColors.map((_, index) => [
       `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>`,
       `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>`,
