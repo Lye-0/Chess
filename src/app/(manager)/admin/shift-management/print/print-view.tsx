@@ -80,6 +80,119 @@ function applySlotPositionNames(requests: ShiftRequest[], slots: ShiftSlot[]) {
   });
 }
 
+function parseTimeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+
+  return hour * 60 + minute;
+}
+
+function getEffectiveTimeRange(request: ShiftRequest) {
+  const actualStartTime = request.actualStartTime.trim();
+  const actualEndTime = request.actualEndTime.trim();
+
+  if (
+    actualStartTime &&
+    actualEndTime &&
+    (actualStartTime !== request.startTime || actualEndTime !== request.endTime)
+  ) {
+    return { startTime: actualStartTime, endTime: actualEndTime };
+  }
+
+  return { startTime: request.startTime, endTime: request.endTime };
+}
+
+function getShiftStartEndMinutes(request: ShiftRequest) {
+  const range = getEffectiveTimeRange(request);
+  const start = parseTimeToMinutes(range.startTime);
+  const end = parseTimeToMinutes(range.endTime);
+
+  return {
+    start,
+    end: end > start ? end : end + 24 * 60,
+  };
+}
+
+function getShiftDurationMinutes(request: ShiftRequest) {
+  const range = getShiftStartEndMinutes(request);
+
+  return Math.max(0, range.end - range.start);
+}
+
+function getWorkHoursLabel(minutes: number) {
+  const hours = Math.round((minutes / 60) * 10) / 10;
+
+  if (hours <= 0) return "";
+
+  return Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
+}
+
+function getDailyTimeRange(rows: MonthlyShiftExportRow[]) {
+  const ranges = rows.map((row) => getShiftStartEndMinutes(row.request));
+  const defaultStart = 9 * 60;
+  const defaultEnd = 23 * 60 + 30;
+  const minShiftStart = ranges.length > 0
+    ? Math.min(defaultStart, ...ranges.map((range) => range.start))
+    : defaultStart;
+  const maxShiftEnd = ranges.length > 0
+    ? Math.max(defaultEnd, ...ranges.map((range) => range.end))
+    : defaultEnd;
+
+  return {
+    start: Math.floor(minShiftStart / 30) * 30,
+    end: Math.max(defaultEnd, Math.ceil(maxShiftEnd / 30) * 30),
+  };
+}
+
+type PrintTimelineRow = {
+  row: MonthlyShiftExportRow;
+  lane: number;
+};
+
+function assignPrintLanes(rows: MonthlyShiftExportRow[]) {
+  const groups = new Map<string, MonthlyShiftExportRow[]>();
+
+  rows
+    .slice()
+    .sort((a, b) => {
+      const aRange = getShiftStartEndMinutes(a.request);
+      const bRange = getShiftStartEndMinutes(b.request);
+
+      if (aRange.start !== bRange.start) return aRange.start - bRange.start;
+      if (aRange.end !== bRange.end) return aRange.end - bRange.end;
+
+      return getPositionLabel(a.request).localeCompare(getPositionLabel(b.request), "ja");
+    })
+    .forEach((row) => {
+      const positionKey = row.request.positionId || getPositionLabel(row.request);
+      groups.set(positionKey, [...(groups.get(positionKey) ?? []), row]);
+    });
+
+  const placedRows: PrintTimelineRow[] = [];
+  let nextBaseLane = 0;
+
+  Array.from(groups.values()).forEach((items) => {
+    const laneEndMinutes: number[] = [];
+
+    items.forEach((row) => {
+      const range = getShiftStartEndMinutes(row.request);
+      const lane = laneEndMinutes.findIndex((endMinutes) => endMinutes <= range.start);
+      const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
+      laneEndMinutes[nextLane] = range.end;
+      placedRows.push({ row, lane: nextBaseLane + nextLane });
+    });
+
+    nextBaseLane += Math.max(1, laneEndMinutes.length);
+  });
+
+  return placedRows;
+}
+
+function getLaneCount(rows: PrintTimelineRow[]) {
+  return rows.length > 0 ? Math.max(...rows.map((row) => row.lane)) + 1 : 1;
+}
+
 function groupRowsByDate(rows: MonthlyShiftExportRow[]) {
   return rows.reduce<Record<string, MonthlyShiftExportRow[]>>((groups, row) => {
     groups[row.request.date] = [...(groups[row.request.date] ?? []), row];
@@ -95,6 +208,13 @@ function sortRows(rows: MonthlyShiftExportRow[]) {
 
     return getEmployeeDisplayName(a).localeCompare(getEmployeeDisplayName(b), "ja");
   });
+}
+
+function getTimelineGridColumns(start: number, end: number) {
+  const slotMinutes = 10;
+  const slotCount = Math.ceil((end - start) / slotMinutes);
+
+  return Array.from({ length: slotCount }, (_, index) => start + index * slotMinutes);
 }
 
 function PrintToolbar({
@@ -148,47 +268,141 @@ function DailyPrintSection({
   data: DailyShiftExportData;
   forcePageBreak?: boolean;
 }) {
-  const rows = sortRows(data.rows);
+  const sortedRows = sortRows(data.rows);
+  const { start, end } = getDailyTimeRange(sortedRows);
+  const timelineSlots = getTimelineGridColumns(start, end);
+  const rowsByEmployee = sortedRows.reduce<Record<string, MonthlyShiftExportRow[]>>((groups, row) => {
+    groups[row.request.employeeId] = [...(groups[row.request.employeeId] ?? []), row];
+    return groups;
+  }, {});
+  const displayEmployees = data.employees.length > 0
+    ? data.employees
+    : Array.from(
+        new Map(sortedRows.map((row) => [
+          row.request.employeeId,
+          row.employee ?? {
+            employeeId: row.request.employeeId,
+            name: row.request.employeeName,
+            email: row.request.employeeEmail,
+            employmentType: row.request.employmentType,
+            department: data.department,
+            workScore: 0,
+          },
+        ])).values(),
+      );
+  const timelineStartColumn = 3;
+  const workColumn = timelineStartColumn + timelineSlots.length;
+  const rowTemplate = `38px 118px repeat(${timelineSlots.length}, 10px) 60px 90px`;
 
   return (
     <section className={forcePageBreak ? "print-page" : undefined}>
-      <DocumentHeader
-        title={`${formatDateLabel(data.date)} シフト表`}
-        organizationName={data.organizationName}
-        department={data.department}
-      />
-      {rows.length === 0 ? (
-        <p className="rounded-md border border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
-          この日の承認済みシフトはありません。
-        </p>
-      ) : (
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <th className="w-28 border border-slate-400 bg-slate-100 px-3 py-2 text-left">時間</th>
-              <th className="w-40 border border-slate-400 bg-slate-100 px-3 py-2 text-left">氏名</th>
-              <th className="w-36 border border-slate-400 bg-slate-100 px-3 py-2 text-left">ポジション</th>
-              <th className="border border-slate-400 bg-slate-100 px-3 py-2 text-left">備考</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.request.id}>
-                <td className="border border-slate-300 px-3 py-2 font-semibold">
-                  {row.request.startTime}-{row.request.endTime}
-                </td>
-                <td className="border border-slate-300 px-3 py-2">{getEmployeeDisplayName(row)}</td>
-                <td className="border border-slate-300 px-3 py-2">{getPositionLabel(row.request)}</td>
-                <td className="border border-slate-300 px-3 py-2 text-slate-500">&nbsp;</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <div className="mb-2 grid grid-cols-[180px_1fr_210px] items-center text-[11px] font-semibold text-slate-900 print-header">
+        <div>従業員シフト表</div>
+        <div className="text-center">{formatDateLabel(data.date)}</div>
+        <div className="text-right">{data.organizationName}{data.department ? ` ${data.department}` : ""}</div>
+      </div>
+
+      <div className="excel-roster overflow-x-auto print:overflow-visible">
+        <div className="min-w-max border border-[#333] bg-white text-[10px] text-slate-950">
+          <div className="grid" style={{ gridTemplateColumns: rowTemplate }}>
+            <div className="excel-cell header-cell row-span-2">No.</div>
+            <div className="excel-cell header-cell row-span-2">名前</div>
+            <div
+              className="excel-cell header-cell text-center"
+              style={{ gridColumn: `${timelineStartColumn} / ${workColumn}` }}
+            >
+              タイムテーブル
+            </div>
+            <div className="excel-cell header-cell row-span-2">勤務時間</div>
+            <div className="excel-cell header-cell row-span-2">備考</div>
+
+            {timelineSlots.map((minute) => {
+              const isHalfHour = minute % 30 === 0;
+              const isHour = minute % 60 === 0;
+
+              return (
+                <div
+                  key={minute}
+                  className={`excel-time-cell ${isHour ? "hour-line" : isHalfHour ? "half-line" : "no-line"}`}
+                >
+                  {isHour ? Math.floor((minute % (24 * 60)) / 60) : ""}
+                </div>
+              );
+            })}
+          </div>
+
+          {displayEmployees.map((employee, index) => {
+            const employeeRows = rowsByEmployee[employee.employeeId] ?? [];
+            const laneRows = assignPrintLanes(employeeRows);
+            const laneCount = getLaneCount(laneRows);
+            const totalMinutes = employeeRows.reduce(
+              (total, row) => total + getShiftDurationMinutes(row.request),
+              0,
+            );
+            const rowHeight = Math.max(34, laneCount * 28);
+
+            return (
+              <div
+                key={employee.employeeId || `${employee.name}-${index}`}
+                className="grid"
+                style={{ gridTemplateColumns: rowTemplate, minHeight: `${rowHeight}px` }}
+              >
+                <div className="excel-cell body-cell justify-center text-center">{index + 1}</div>
+                <div className="excel-cell name-cell">{employee.name}</div>
+                <div
+                  className="timeline-row"
+                  style={{
+                    gridColumn: `${timelineStartColumn} / ${workColumn}`,
+                    gridTemplateColumns: `repeat(${timelineSlots.length}, 10px)`,
+                  }}
+                >
+                  {timelineSlots.map((minute) => {
+                    const isHalfHour = minute % 30 === 0;
+                    const isHour = minute % 60 === 0;
+
+                    return (
+                      <div
+                        key={minute}
+                        className={`timeline-slot ${isHour ? "hour-line" : isHalfHour ? "half-line" : "no-line"}`}
+                      />
+                    );
+                  })}
+                  {laneRows.map(({ row, lane }) => {
+                    const range = getShiftStartEndMinutes(row.request);
+                    const blockStart = Math.max(start, range.start);
+                    const blockEnd = Math.min(end, range.end);
+                    if (blockEnd <= blockStart) return null;
+
+                    const left = ((blockStart - start) / (end - start)) * 100;
+                    const width = ((blockEnd - blockStart) / (end - start)) * 100;
+                    const timeRange = getEffectiveTimeRange(row.request);
+
+                    return (
+                      <div
+                        key={row.request.id}
+                        className="shift-block"
+                        style={{
+                          left: `${left}%`,
+                          width: `${width}%`,
+                          top: `${lane * 28 + 3}px`,
+                        }}
+                      >
+                        <strong>{timeRange.startTime}-{timeRange.endTime}</strong>
+                        <span>{getPositionLabel(row.request)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="excel-cell work-cell">{getWorkHoursLabel(totalMinutes)}</div>
+                <div className="excel-cell body-cell">&nbsp;</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </section>
   );
 }
-
 function MonthlyPrintSection({ data }: { data: MonthlyShiftExportData }) {
   const days = getMonthDays(data.month);
   const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>((groups, row) => {
@@ -397,13 +611,126 @@ export default function ShiftPrintView({
         <style jsx global>{`
           @page {
             size: A4 landscape;
-            margin: 10mm;
+            margin: 6mm;
+          }
+
+          .excel-roster {
+            font-family: "Yu Gothic", "Meiryo", Arial, sans-serif;
+          }
+
+          .excel-cell {
+            align-items: center;
+            border-bottom: 1px solid #444;
+            border-right: 1px solid #444;
+            display: flex;
+            min-height: 34px;
+            padding: 2px 4px;
+          }
+
+          .header-cell {
+            background: #d9d9d9;
+            font-weight: 700;
+            justify-content: center;
+            text-align: center;
+          }
+
+          .body-cell {
+            background: #ffffff;
+          }
+
+          .name-cell {
+            background: #ddebf7;
+            color: #1f4e79;
+            font-weight: 600;
+          }
+
+          .work-cell {
+            align-items: center;
+            background: #ffff99;
+            border-bottom: 1px solid #444;
+            border-right: 1px solid #444;
+            display: flex;
+            font-weight: 700;
+            justify-content: center;
+            min-height: 34px;
+            padding: 2px;
+          }
+
+          .excel-time-cell {
+            align-items: flex-start;
+            background: #ffffff;
+            border-bottom: 1px solid #444;
+            border-right: 1px dotted #222;
+            display: flex;
+            font-size: 8px;
+            font-weight: 700;
+            justify-content: center;
+            min-height: 22px;
+            padding-top: 2px;
+          }
+
+          .timeline-row {
+            background: #ffffff;
+            border-bottom: 1px solid #444;
+            border-right: 1px solid #444;
+            display: grid;
+            grid-template-columns: inherit;
+            min-height: 34px;
+            position: relative;
+          }
+
+          .timeline-slot {
+            border-right: 1px dotted #222;
+            min-height: 100%;
+          }
+
+          .hour-line {
+            border-left: 2px solid #111;
+          }
+
+          .half-line {
+            border-left: 1px solid #666;
+          }
+
+          .minor-line {
+            border-left: 0;
+          }
+
+          .shift-block {
+            align-items: center;
+            background: #fce4ef;
+            border: 1px solid #e4a5be;
+            color: #111827;
+            display: flex;
+            flex-direction: column;
+            font-size: 8px;
+            font-weight: 700;
+            height: 24px;
+            justify-content: center;
+            line-height: 1.1;
+            overflow: hidden;
+            padding: 1px 2px;
+            position: absolute;
+            text-align: center;
+            white-space: nowrap;
+          }
+
+          .shift-block span {
+            font-size: 8px;
           }
 
           @media print {
             html,
             body {
               background: white !important;
+            }
+
+            .print-header {
+              margin-bottom: 3mm;
+            }
+
+            .excel-roster {
+              transform-origin: top left;
             }
 
             .print-page {
