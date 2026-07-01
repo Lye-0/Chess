@@ -419,7 +419,7 @@ function EmployeeShiftRequestsContent() {
     const monthValues = new Set<string>();
 
     displayRequests.forEach((request) => {
-      if (request.status === "承認済") {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(request.date)) {
         monthValues.add(request.date.slice(0, 7));
       }
     });
@@ -582,7 +582,7 @@ function EmployeeShiftRequestsContent() {
                   ))}
                 </select>
               </label>
-              <div className="inline-flex h-12 items-center rounded-lg border border-black/10 bg-white p-1 shadow-sm">
+              <div className="inline-flex h-12 items-center justify-self-center rounded-lg border border-black/10 bg-white p-1 shadow-sm sm:justify-self-auto">
                 {availableFilters.map((filter) => (
                   <button
                     key={filter}
