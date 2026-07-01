@@ -97,14 +97,9 @@ export async function GET(request: Request) {
     const organizationRef = adminDb
       .collection("organizations")
       .doc(employeeAuth.organizationId);
-    const requestsQuery: Query = requestedRangeStart && requestedRangeEnd
-      ? organizationRef
-          .collection("shiftRequests")
-          .where("date", ">=", requestedRangeStart)
-          .where("date", "<=", requestedRangeEnd)
-      : organizationRef
-          .collection("shiftRequests")
-          .where("employeeId", "==", employeeAuth.employeeId);
+    const requestsQuery: Query = organizationRef
+      .collection("shiftRequests")
+      .where("employeeId", "==", employeeAuth.employeeId);
     const slotsQuery: Query = requestedRangeStart && requestedRangeEnd
       ? organizationRef
           .collection("shiftSlots")
@@ -138,7 +133,14 @@ export async function GET(request: Request) {
     return NextResponse.json({
       requests: requestsSnapshot.docs
         .map(toShiftRequest)
-        .filter((shiftRequest) => shiftRequest.employeeId === employeeAuth.employeeId),
+        .filter((shiftRequest) => shiftRequest.employeeId === employeeAuth.employeeId)
+        .filter(
+          (shiftRequest) =>
+            !requestedRangeStart ||
+            !requestedRangeEnd ||
+            (shiftRequest.date >= requestedRangeStart &&
+              shiftRequest.date <= requestedRangeEnd),
+        ),
       slots: slotsSnapshot.docs.map(toShiftSlot),
       positions: positionsSnapshot.docs
         .map((positionSnapshot) =>
