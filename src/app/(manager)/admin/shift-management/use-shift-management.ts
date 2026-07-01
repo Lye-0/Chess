@@ -5,6 +5,7 @@ import {
   isFourDigitShiftDate,
   isValidShiftTimeRange,
   removeShiftSlot,
+  subscribeShiftSlots,
   subscribeShiftSlotsByMonth,
   updateShiftSlot,
   type ShiftSlot,
@@ -219,6 +220,7 @@ export function useShiftManagement(displayMonth: Date) {
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [exportRequests, setExportRequests] = useState<ShiftRequest[]>([]);
+  const [exportSlots, setExportSlots] = useState<ShiftSlot[]>([]);
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const [positions, setPositions] = useState<OrganizationPosition[]>([]);
   const [employeeWorkScores, setEmployeeWorkScores] = useState<Record<string, number>>({});
@@ -306,6 +308,15 @@ export function useShiftManagement(displayMonth: Date) {
       },
       organizationId,
     );
+    const unsubscribeExportSlots = subscribeShiftSlots(
+      (nextSlots) => {
+        setExportSlots(nextSlots);
+      },
+      (error) => {
+        console.error(error);
+      },
+      organizationId,
+    );
     const unsubscribeEmployees = subscribeEmployees(
       (employees) => {
         setEmployees(employees);
@@ -362,6 +373,7 @@ export function useShiftManagement(displayMonth: Date) {
       unsubscribeSlots();
       unsubscribeRequests();
       unsubscribeExportRequests();
+      unsubscribeExportSlots();
       unsubscribeEmployees();
       unsubscribePayroll();
       unsubscribePositions();
@@ -374,9 +386,27 @@ export function useShiftManagement(displayMonth: Date) {
   const activeExportMonth = exportMonths.includes(selectedExportMonth)
     ? selectedExportMonth
     : exportMonths[0];
+  const excelExportRequests = useMemo(() => {
+    const slotsById = new Map(exportSlots.map((slot) => [slot.id, slot]));
+
+    return exportRequests.map((request) => {
+      const currentPositionName = request.positionName.trim();
+      if (currentPositionName && currentPositionName !== "ポジション未設定") return request;
+
+      const slot = slotsById.get(request.slotId);
+      const slotPositionName = slot?.positionName.trim() ?? "";
+      if (!slotPositionName) return request;
+
+      return {
+        ...request,
+        positionId: request.positionId || slot?.positionId || "",
+        positionName: slotPositionName,
+      };
+    });
+  }, [exportRequests, exportSlots]);
   const approvedExportRequests = useMemo(
-    () => exportRequests.filter((request) => request.status === "承認済"),
-    [exportRequests],
+    () => excelExportRequests.filter((request) => request.status === "承認済"),
+    [excelExportRequests],
   );
   const exportDateRequests = selectedExportFormat === "excel"
     ? approvedExportRequests
@@ -406,7 +436,7 @@ export function useShiftManagement(displayMonth: Date) {
       }),
     [activeExportMonth, currentOrganization, employees, payrollSettings, requests],
   );
-  const dailyExportRequests = selectedExportFormat === "excel" ? exportRequests : requests;
+  const dailyExportRequests = selectedExportFormat === "excel" ? excelExportRequests : requests;
   const dailyExportData = useMemo(
     () =>
       buildDailyShiftExportData({

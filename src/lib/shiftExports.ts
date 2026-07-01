@@ -158,6 +158,7 @@ function getShiftDurationMinutes(range: { start: number; end: number }) {
 function assignDailyShiftLanes(
   rows: MonthlyShiftExportRow[],
   getRange: (request: ShiftRequest) => { start: number; end: number } = getShiftStartEndMinutes,
+  getPositionLabel: (request: ShiftRequest) => string = getShiftRequestPositionLabel,
 ) {
   const groups = new Map<string, MonthlyShiftExportRow[]>();
 
@@ -170,15 +171,15 @@ function assignDailyShiftLanes(
       if (aRange.start !== bRange.start) return aRange.start - bRange.start;
       if (aRange.end !== bRange.end) return aRange.end - bRange.end;
 
-      return getShiftRequestPositionLabel(a.request).localeCompare(
-        getShiftRequestPositionLabel(b.request),
+      return getPositionLabel(a.request).localeCompare(
+        getPositionLabel(b.request),
         "ja",
       );
     })
     .forEach((row) => {
       const positionKey =
         row.request.positionId ||
-        getShiftRequestPositionLabel(row.request) ||
+        getPositionLabel(row.request) ||
         "ポジション未設定";
       const group = groups.get(positionKey) ?? [];
       group.push(row);
@@ -199,8 +200,8 @@ function assignDailyShiftLanes(
 
       if (aFirst !== bFirst) return aFirst - bFirst;
 
-      return getShiftRequestPositionLabel(a[0].request).localeCompare(
-        getShiftRequestPositionLabel(b[0].request),
+      return getPositionLabel(a[0].request).localeCompare(
+        getPositionLabel(b[0].request),
         "ja",
       );
     })
@@ -1358,6 +1359,24 @@ function createXlsxCellXml(cell: XlsxCell) {
 const excelTimelineSlotMinutes = 10;
 
 type ExcelTimelineLineKind = "hour" | "half" | "minor";
+type ExcelLaneEdge = "single" | "top" | "middle" | "bottom";
+
+function getExcelLaneEdge(lane: number, laneCount: number): ExcelLaneEdge {
+  if (laneCount <= 1) return "single";
+  if (lane === 0) return "top";
+  if (lane === laneCount - 1) return "bottom";
+  return "middle";
+}
+
+function getExcelLaneEdgeOffset(edge: Exclude<ExcelLaneEdge, "single">) {
+  if (edge === "top") return 0;
+  if (edge === "middle") return 1;
+  return 2;
+}
+
+function getExcelLaneStyleStart() {
+  return 14 + shiftExportColors.length * 3;
+}
 
 function getExcelTimelineLineKind(minutes: number): ExcelTimelineLineKind {
   if (minutes % 60 === 0) return "hour";
@@ -1365,8 +1384,12 @@ function getExcelTimelineLineKind(minutes: number): ExcelTimelineLineKind {
   return "minor";
 }
 
-function getExcelTimelineGridStyleIndex(minutes: number) {
+function getExcelTimelineGridStyleIndex(minutes: number, edge: ExcelLaneEdge = "single") {
   const lineKind = getExcelTimelineLineKind(minutes);
+  if (edge !== "single") {
+    const lineOffset = lineKind === "hour" ? 0 : lineKind === "half" ? 1 : 2;
+    return getExcelLaneStyleStart() + 12 + lineOffset * 3 + getExcelLaneEdgeOffset(edge);
+  }
   if (lineKind === "hour") return 8;
   if (lineKind === "half") return 9;
   return 13;
@@ -1379,11 +1402,64 @@ function getExcelTimelineHeaderStyleIndex(minutes: number) {
   return 13;
 }
 
-function getShiftExportXlsxStyleIndex(positionName: string, lineKind: ExcelTimelineLineKind) {
+function getShiftExportXlsxStyleIndex(
+  positionName: string,
+  lineKind: ExcelTimelineLineKind,
+  edge: ExcelLaneEdge = "single",
+) {
   const colorIndex = shiftExportColors.indexOf(getShiftExportColor(positionName));
   const lineOffset = lineKind === "hour" ? 0 : lineKind === "half" ? 1 : 2;
+  const safeColorIndex = Math.max(0, colorIndex);
 
-  return 14 + Math.max(0, colorIndex) * 3 + lineOffset;
+  if (edge !== "single") {
+    return getExcelLaneStyleStart() + 21 + safeColorIndex * 9 + lineOffset * 3 + getExcelLaneEdgeOffset(edge);
+  }
+
+  return 14 + safeColorIndex * 3 + lineOffset;
+}
+
+function getExcelBodyLaneStyleIndex(baseStyle: number, edge: ExcelLaneEdge) {
+  if (edge === "single") return baseStyle;
+
+  const bodyStyleOffsets = new Map<number, number>([
+    [6, 0],
+    [7, 1],
+    [10, 2],
+    [11, 3],
+  ]);
+  const bodyOffset = bodyStyleOffsets.get(baseStyle);
+
+  return bodyOffset === undefined
+    ? baseStyle
+    : getExcelLaneStyleStart() + bodyOffset * 3 + getExcelLaneEdgeOffset(edge);
+}
+
+function createExcelPositionNameResolver(rows: MonthlyShiftExportRow[]) {
+  const namesByKey = new Map<string, string>();
+  const addName = (key: string, positionName: string) => {
+    if (!key || key.endsWith(":") || !positionName || namesByKey.has(key)) return;
+    namesByKey.set(key, positionName);
+  };
+
+  rows.forEach((row) => {
+    const { request } = row;
+    const positionName = request.positionName.trim();
+    if (!positionName) return;
+
+    addName(`slot:${request.slotId}`, positionName);
+    addName(`position:${request.positionId}`, positionName);
+  });
+
+  return (request: ShiftRequest) => {
+    const directName = request.positionName.trim();
+    if (directName) return directName;
+
+    return (
+      namesByKey.get(`slot:${request.slotId}`) ??
+      namesByKey.get(`position:${request.positionId}`) ??
+      getShiftRequestPositionLabel(request)
+    );
+  };
 }
 
 function buildDailyRosterSheetXml(data: DailyShiftExportData) {
@@ -1394,6 +1470,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   const noteColumn = workColumn + 1;
   const maxColumn = noteColumn;
   const displayEmployees = getEmployeeDisplayRows(data);
+  const resolvePositionName = createExcelPositionNameResolver(data.rows);
   const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
     (groups, row) => {
       groups[row.request.employeeId] = [...(groups[row.request.employeeId] ?? []), row];
@@ -1407,6 +1484,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
       groups[employee.employeeId] = assignDailyShiftLanes(
         rowsByEmployee[employee.employeeId] ?? [],
         getExcelShiftStartEndMinutes,
+        resolvePositionName,
       );
       return groups;
     },
@@ -1488,27 +1566,29 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
     const laneRows = employee ? laneRowsByEmployee[employee.employeeId] ?? [] : [];
     const laneCount = getDailyShiftLaneCount(laneRows);
     const startRow = currentRow;
-    const endRow = currentRow + laneCount - 1;
     const employeeMinutes = employeeRows.reduce(
       (total, row) => total + getShiftDurationMinutes(getExcelShiftStartEndMinutes(row.request)),
       0,
     );
 
-    addCell(startRow, 1, rowIndex + 1, 6, "n");
-    addCell(startRow, 2, employee?.name ?? "対象従業員なし", 7);
-    addCell(startRow, workColumn, employeeMinutes > 0 ? formatExcelWorkHours(employeeMinutes) : "", 10, employeeMinutes > 0 ? "n" : "inlineStr");
-    addCell(startRow, noteColumn, "", 11);
-    addMerge(startRow, 1, endRow, 1);
-    addMerge(startRow, 2, endRow, 2);
-    addMerge(startRow, workColumn, endRow, workColumn);
-    addMerge(startRow, noteColumn, endRow, noteColumn);
-
     for (let lane = 0; lane < laneCount; lane += 1) {
       const rowNumber = startRow + lane;
+      const isFirstLane = lane === 0;
+      const laneEdge = getExcelLaneEdge(lane, laneCount);
       rowHeights.set(rowNumber, 30);
+      addCell(rowNumber, 1, isFirstLane ? rowIndex + 1 : "", getExcelBodyLaneStyleIndex(6, laneEdge), isFirstLane ? "n" : "inlineStr");
+      addCell(rowNumber, 2, isFirstLane ? employee?.name ?? "対象従業員なし" : "", getExcelBodyLaneStyleIndex(7, laneEdge));
+      addCell(
+        rowNumber,
+        workColumn,
+        isFirstLane && employeeMinutes > 0 ? formatExcelWorkHours(employeeMinutes) : "",
+        getExcelBodyLaneStyleIndex(10, laneEdge),
+        isFirstLane && employeeMinutes > 0 ? "n" : "inlineStr",
+      );
+      addCell(rowNumber, noteColumn, "", getExcelBodyLaneStyleIndex(11, laneEdge));
       for (let slot = 0; slot < slotCount; slot += 1) {
         const minute = start + slot * excelTimelineSlotMinutes;
-        addCell(rowNumber, timelineStartColumn + slot, "", getExcelTimelineGridStyleIndex(minute));
+        addCell(rowNumber, timelineStartColumn + slot, "", getExcelTimelineGridStyleIndex(minute, laneEdge));
       }
     }
 
@@ -1521,13 +1601,13 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
       const startColumn = timelineStartColumn + Math.floor((blockStart - start) / excelTimelineSlotMinutes);
       const endColumn = timelineStartColumn + Math.max(0, Math.ceil((blockEnd - start) / excelTimelineSlotMinutes) - 1);
       const rowNumber = startRow + laneRow.lane;
-      const positionName = getShiftRequestPositionLabel(laneRow.request);
+      const positionName = resolvePositionName(laneRow.request);
       const timeRange = getEffectiveShiftTimeRange(laneRow.request);
       const blockText = `${timeRange.startTime}-${timeRange.endTime}\n${positionName}`;
       for (let column = startColumn; column <= endColumn; column += 1) {
         const minute = start + (column - timelineStartColumn) * excelTimelineSlotMinutes;
         const isStartColumn = column === startColumn;
-        const blockStyle = getShiftExportXlsxStyleIndex(positionName, getExcelTimelineLineKind(minute));
+        const blockStyle = getShiftExportXlsxStyleIndex(positionName, getExcelTimelineLineKind(minute), getExcelLaneEdge(laneRow.lane, laneCount));
 
         addCell(rowNumber, column, isStartColumn ? blockText : "", blockStyle);
       }
@@ -1575,6 +1655,25 @@ function buildXlsxStylesXml() {
   const shiftFills = shiftExportColors
     .map((color) => `<fill><patternFill patternType="solid"><fgColor rgb="FF${color.fill.slice(1).toUpperCase()}"/><bgColor indexed="64"/></patternFill></fill>`)
     .join("");
+  const bodyLaneXfs = [
+    { fontId: 0, fillId: 0, borderIds: [6, 7, 8], alignment: `<alignment horizontal="center" vertical="center"/>` },
+    { fontId: 0, fillId: 4, borderIds: [6, 7, 8], alignment: `<alignment vertical="center"/>` },
+    { fontId: 2, fillId: 3, borderIds: [6, 7, 8], alignment: `<alignment horizontal="centerContinuous" vertical="center"/>` },
+    { fontId: 0, fillId: 0, borderIds: [6, 7, 8], alignment: "" },
+  ]
+    .map((style) => style.borderIds
+      .map((borderId) => `<xf numFmtId="0" fontId="${style.fontId}" fillId="${style.fillId}" borderId="${borderId}" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1">${style.alignment}</xf>`)
+      .join(""))
+    .join("");
+  const timelineLaneXfs = [9, 10, 11, 12, 13, 14, 15, 16, 17]
+    .map((borderId) => `<xf numFmtId="0" fontId="0" fillId="0" borderId="${borderId}" xfId="0" applyBorder="1"/>`)
+    .join("");
+  const shiftLaneXfs = shiftExportColors
+    .map((_, index) => [9, 10, 11, 12, 13, 14, 15, 16, 17]
+      .map((borderId) => `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="${borderId}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center" wrapText="1"/></xf>`)
+      .join(""))
+    .join("");
+  const cellXfCount = 14 + shiftExportColors.length * 3 + 12 + 9 + shiftExportColors.length * 9;
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -1593,16 +1692,28 @@ function buildXlsxStylesXml() {
     <fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill>
     ${shiftFills}
   </fills>
-  <borders count="6">
+  <borders count="18">
     <border><left/><right/><top/><bottom/><diagonal/></border>
     <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
     <border><left style="medium"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
     <border><left style="dotted"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
     <border><left style="thin"><color rgb="FF666666"/></left><right style="thin"><color rgb="FF666666"/></right><top style="thin"><color rgb="FF666666"/></top><bottom style="thin"><color rgb="FF666666"/></bottom><diagonal/></border>
     <border><left/><right/><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
+    <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top style="thin"><color rgb="FF444444"/></top><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top/><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top/><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF777777"/></top><bottom/><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right/><top/><bottom/><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right/><top/><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF777777"/></top><bottom/><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF111111"/></left><right/><top/><bottom/><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF111111"/></left><right/><top/><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
+    <border><left/><right/><top style="thin"><color rgb="FF444444"/></top><bottom/><diagonal/></border>
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left/><right/><top/><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="${14 + shiftExportColors.length * 3}">
+  <cellXfs count="${cellXfCount}">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
@@ -1622,6 +1733,9 @@ function buildXlsxStylesXml() {
       `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center" wrapText="1"/></xf>`,
       `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center" wrapText="1"/></xf>`,
     ].join("")).join("")}
+    ${bodyLaneXfs}
+    ${timelineLaneXfs}
+    ${shiftLaneXfs}
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
