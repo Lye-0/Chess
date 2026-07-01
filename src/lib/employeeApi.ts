@@ -31,13 +31,25 @@ async function readApiResponse<T>(response: Response, fallbackMessage: string) {
   return result as T;
 }
 
-export async function fetchEmployeeShiftData(month?: string) {
+export type EmployeeShiftDataPeriod = string | {
+  month?: string;
+  year?: string;
+};
+
+export async function fetchEmployeeShiftData(period?: EmployeeShiftDataPeriod) {
   const searchParams = new URLSearchParams();
 
-  if (month) {
-    searchParams.set("month", month);
-  }
+  if (typeof period === "string") {
+    searchParams.set("month", period);
+  } else {
+    if (period?.month) {
+      searchParams.set("month", period.month);
+    }
 
+    if (period?.year) {
+      searchParams.set("year", period.year);
+    }
+  }
   const response = await fetch(
     `/api/employee/shift-data${searchParams.size > 0 ? `?${searchParams}` : ""}`,
     {
