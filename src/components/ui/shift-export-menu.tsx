@@ -24,6 +24,8 @@ type ShiftExportMenuProps = {
   selectedMonth: string;
   onMonthChange: (month: string) => void;
   onExport: (format: ShiftExportFormat) => void | Promise<void>;
+  selectedFormat?: ShiftExportFormat;
+  onFormatChange?: (format: ShiftExportFormat) => void;
   disabled?: boolean;
   hasData: boolean;
   scopeOptions?: ScopeOption[];
@@ -58,6 +60,8 @@ export function ShiftExportMenu({
   selectedMonth,
   onMonthChange,
   onExport,
+  selectedFormat: controlledSelectedFormat,
+  onFormatChange,
   disabled = false,
   hasData,
   scopeOptions,
@@ -69,9 +73,10 @@ export function ShiftExportMenu({
 }: ShiftExportMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [selectedFormat, setSelectedFormat] = useState<ShiftExportFormat>(
+  const [internalSelectedFormat, setInternalSelectedFormat] = useState<ShiftExportFormat>(
     formats[0]?.format ?? "png",
   );
+  const selectedFormat = controlledSelectedFormat ?? internalSelectedFormat;
   const showsTargetDate = selectedFormat !== "calendarSubscription";
   const selectedOption =
     formats.find((option) => option.format === selectedFormat) ?? formats[0];
@@ -93,6 +98,11 @@ export function ShiftExportMenu({
     !selectedOption.disabled &&
     (!requiresData || hasData);
 
+  useEffect(() => {
+    if (!availableScopeOptions || !onScopeChange || selectedScopeValue === selectedScope) return;
+
+    onScopeChange(selectedScopeValue);
+  }, [availableScopeOptions, onScopeChange, selectedScope, selectedScopeValue]);
   useEffect(() => {
     if (!isOpen) return;
 
@@ -130,7 +140,11 @@ export function ShiftExportMenu({
           <select
             id="shift-export-format"
             value={selectedOption?.format ?? ""}
-            onChange={(event) => setSelectedFormat(event.target.value as ShiftExportFormat)}
+            onChange={(event) => {
+              const nextFormat = event.target.value as ShiftExportFormat;
+              setInternalSelectedFormat(nextFormat);
+              onFormatChange?.(nextFormat);
+            }}
             className="mt-2 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm font-semibold outline-none"
           >
             {formats.map((option) => (

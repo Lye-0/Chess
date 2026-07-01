@@ -16,6 +16,7 @@ import {
   isShiftStartInFuture,
   removeShiftRequest,
   resetShiftRequestApproval,
+  subscribeShiftRequests,
   subscribeShiftRequestsByMonth,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
@@ -217,6 +218,7 @@ export function useShiftManagement(displayMonth: Date) {
   } = useManagerOrganizationAccess();
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [exportRequests, setExportRequests] = useState<ShiftRequest[]>([]);
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const [positions, setPositions] = useState<OrganizationPosition[]>([]);
   const [employeeWorkScores, setEmployeeWorkScores] = useState<Record<string, number>>({});
@@ -244,6 +246,8 @@ export function useShiftManagement(displayMonth: Date) {
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [selectedExportFormat, setSelectedExportFormat] =
+    useState<ShiftExportFormat>("pdf");
   const [selectedExportMonth, setSelectedExportMonth] = useState(
     () => getShiftExportMonths([])[0],
   );
@@ -287,6 +291,15 @@ export function useShiftManagement(displayMonth: Date) {
       selectedMonth,
       (nextRequests) => {
         setRequests(nextRequests);
+      },
+      (error) => {
+        console.error(error);
+      },
+      organizationId,
+    );
+    const unsubscribeExportRequests = subscribeShiftRequests(
+      (nextRequests) => {
+        setExportRequests(nextRequests);
       },
       (error) => {
         console.error(error);
@@ -348,6 +361,7 @@ export function useShiftManagement(displayMonth: Date) {
     return () => {
       unsubscribeSlots();
       unsubscribeRequests();
+      unsubscribeExportRequests();
       unsubscribeEmployees();
       unsubscribePayroll();
       unsubscribePositions();
@@ -360,13 +374,22 @@ export function useShiftManagement(displayMonth: Date) {
   const activeExportMonth = exportMonths.includes(selectedExportMonth)
     ? selectedExportMonth
     : exportMonths[0];
+  const approvedExportRequests = useMemo(
+    () => exportRequests.filter((request) => request.status === "承認済"),
+    [exportRequests],
+  );
+  const exportDateRequests = selectedExportFormat === "excel"
+    ? approvedExportRequests
+    : requests;
   const exportDates = useMemo(
     () =>
       getShiftExportDates(
-        requests,
-        selectedExportScope === "day" ? undefined : activeExportMonth,
+        exportDateRequests,
+        selectedExportFormat === "excel" || selectedExportScope === "day"
+          ? undefined
+          : activeExportMonth,
       ),
-    [activeExportMonth, requests, selectedExportScope],
+    [activeExportMonth, exportDateRequests, selectedExportFormat, selectedExportScope],
   );
   const activeExportDate = exportDates.includes(selectedExportDate)
     ? selectedExportDate
@@ -383,6 +406,7 @@ export function useShiftManagement(displayMonth: Date) {
       }),
     [activeExportMonth, currentOrganization, employees, payrollSettings, requests],
   );
+  const dailyExportRequests = selectedExportFormat === "excel" ? exportRequests : requests;
   const dailyExportData = useMemo(
     () =>
       buildDailyShiftExportData({
@@ -390,10 +414,10 @@ export function useShiftManagement(displayMonth: Date) {
         department: currentOrganization?.department ?? "",
         date: activeExportDate,
         employees,
-        requests,
+        requests: dailyExportRequests,
         payrollSettings,
       }),
-    [activeExportDate, currentOrganization, employees, payrollSettings, requests],
+    [activeExportDate, currentOrganization, dailyExportRequests, employees, payrollSettings],
   );
   const monthlyRequestMinutesByEmployee = useMemo(() => {
     return requests.reduce<Record<string, Record<string, number>>>((groups, request) => {
@@ -408,7 +432,7 @@ export function useShiftManagement(displayMonth: Date) {
     }, {});
   }, [requests]);
   const hasExportData =
-    selectedExportScope === "day"
+    selectedExportFormat === "excel" || selectedExportScope === "day"
       ? dailyExportData.rows.length > 0
       : monthlyExportData.rows.length > 0;
 
@@ -1038,6 +1062,8 @@ export function useShiftManagement(displayMonth: Date) {
     monthlyRequestMinutesByEmployee,
     payrollSettings,
     positions,
+    selectedExportFormat,
+    setSelectedExportFormat,
     exportMonths,
     activeExportMonth,
     setSelectedExportMonth,

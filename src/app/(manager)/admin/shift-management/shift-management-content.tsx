@@ -59,6 +59,8 @@ function AdminShiftManagementContent() {
     monthlyRequestMinutesByEmployee,
     payrollSettings,
     positions,
+    selectedExportFormat,
+    setSelectedExportFormat,
     exportMonths,
     activeExportMonth,
     setSelectedExportMonth,
@@ -252,6 +254,8 @@ function AdminShiftManagementContent() {
               selectedMonth={activeExportMonth}
               onMonthChange={setSelectedExportMonth}
               onExport={handleExport}
+              selectedFormat={selectedExportFormat}
+              onFormatChange={setSelectedExportFormat}
               disabled={isLoading}
               hasData={hasExportData}
               scopeOptions={[
