@@ -303,7 +303,7 @@ function DailyPrintSection({
       </div>
 
       <div className="excel-roster overflow-x-auto print:overflow-visible">
-        <div className="min-w-max border border-[#333] bg-white text-[10px] text-slate-950">
+        <div className="min-w-max border border-[#555] bg-white text-[10px] text-slate-950">
           <div className="grid" style={{ gridTemplateColumns: rowTemplate }}>
             <div className="excel-cell header-cell row-span-2">No.</div>
             <div className="excel-cell header-cell row-span-2">名前</div>
@@ -620,8 +620,8 @@ export default function ShiftPrintView({
 
           .excel-cell {
             align-items: center;
-            border-bottom: 1px solid #444;
-            border-right: 1px solid #444;
+            border-bottom: 1px solid #555;
+            border-right: 1px solid #555;
             display: flex;
             min-height: 34px;
             padding: 2px 4px;
@@ -647,8 +647,8 @@ export default function ShiftPrintView({
           .work-cell {
             align-items: center;
             background: #ffff99;
-            border-bottom: 1px solid #444;
-            border-right: 1px solid #444;
+            border-bottom: 1px solid #555;
+            border-right: 1px solid #555;
             display: flex;
             font-weight: 700;
             justify-content: center;
@@ -659,8 +659,8 @@ export default function ShiftPrintView({
           .excel-time-cell {
             align-items: flex-start;
             background: #ffffff;
-            border-bottom: 1px solid #444;
-            border-right: 1px dotted #222;
+            border-bottom: 1px solid #555;
+            border-right: 0;
             display: flex;
             font-size: 8px;
             font-weight: 700;
@@ -671,8 +671,8 @@ export default function ShiftPrintView({
 
           .timeline-row {
             background: #ffffff;
-            border-bottom: 1px solid #444;
-            border-right: 1px solid #444;
+            border-bottom: 1px solid #555;
+            border-right: 1px solid #555;
             display: grid;
             grid-template-columns: inherit;
             min-height: 34px;
@@ -680,26 +680,26 @@ export default function ShiftPrintView({
           }
 
           .timeline-slot {
-            border-right: 1px dotted #222;
+            border-right: 0;
             min-height: 100%;
           }
 
           .hour-line {
-            border-left: 2px solid #111;
+            border-left: 1px solid #333;
           }
 
           .half-line {
-            border-left: 1px solid #666;
+            border-left: 1px dotted #b8b8b8;
           }
 
-          .minor-line {
+          .no-line {
             border-left: 0;
           }
 
           .shift-block {
             align-items: center;
-            background: #fce4ef;
-            border: 1px solid #e4a5be;
+            background: #fdecf4;
+            border: 1px solid #f3c4d5;
             color: #111827;
             display: flex;
             flex-direction: column;
