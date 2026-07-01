@@ -59,6 +59,8 @@ function AdminShiftManagementContent() {
     monthlyRequestMinutesByEmployee,
     payrollSettings,
     positions,
+    selectedExportFormat,
+    setSelectedExportFormat,
     exportMonths,
     activeExportMonth,
     setSelectedExportMonth,
@@ -244,13 +246,16 @@ function AdminShiftManagementContent() {
           <div className="flex items-center gap-2">
             <ShiftExportMenu
               formats={[
-                { format: "pdf", label: "PDFをダウンロード" },
-                { format: "csv", label: "CSVをダウンロード" },
+                { format: "pdf", label: "PDF" },
+                { format: "csv", label: "CSV" },
+                { format: "excel", label: "Excel" },
               ]}
               months={exportMonths}
               selectedMonth={activeExportMonth}
               onMonthChange={setSelectedExportMonth}
               onExport={handleExport}
+              selectedFormat={selectedExportFormat}
+              onFormatChange={setSelectedExportFormat}
               disabled={isLoading}
               hasData={hasExportData}
               scopeOptions={[

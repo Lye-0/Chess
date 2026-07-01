@@ -7,7 +7,7 @@ import {
 } from "./payroll";
 import { getShiftRequestPositionLabel, type ShiftRequest } from "./shiftRequests";
 
-export type ShiftExportFormat = "ics" | "png" | "pdf" | "csv";
+export type ShiftExportFormat = "ics" | "png" | "pdf" | "csv" | "excel" | "calendarSubscription";
 export type ShiftExportScope = "month" | "monthDaily" | "day";
 
 export type MonthlyShiftExportRow = {
@@ -30,6 +30,10 @@ export type DailyShiftExportData = {
   date: string;
   employees: EmployeeProfile[];
   rows: MonthlyShiftExportRow[];
+};
+
+type DailyShiftExportLaneRow = MonthlyShiftExportRow & {
+  lane: number;
 };
 
 type BuildMonthlyShiftExportDataInput = {
@@ -104,14 +108,138 @@ function getShiftStartEnd(request: ShiftRequest) {
   return { startAt, endAt };
 }
 
-function getShiftStartEndMinutes(request: ShiftRequest) {
-  const start = parseTimeToMinutes(request.startTime);
-  const end = parseTimeToMinutes(request.endTime);
+function getShiftStartEndMinutesFromTimes(timeRange: Pick<ShiftRequest, "startTime" | "endTime">) {
+  const start = parseTimeToMinutes(timeRange.startTime);
+  const end = parseTimeToMinutes(timeRange.endTime);
 
   return {
     start,
     end: end > start ? end : end + 24 * 60,
   };
+}
+
+function getShiftStartEndMinutes(request: ShiftRequest) {
+  return getShiftStartEndMinutesFromTimes(request);
+}
+
+function hasActualTimeAdjustment(request: ShiftRequest) {
+  const actualStartTime = request.actualStartTime.trim();
+  const actualEndTime = request.actualEndTime.trim();
+
+  return Boolean(
+    actualStartTime &&
+      actualEndTime &&
+      (actualStartTime !== request.startTime || actualEndTime !== request.endTime),
+  );
+}
+
+function getEffectiveShiftTimeRange(request: ShiftRequest) {
+  if (hasActualTimeAdjustment(request)) {
+    return {
+      startTime: request.actualStartTime.trim(),
+      endTime: request.actualEndTime.trim(),
+    };
+  }
+
+  return {
+    startTime: request.startTime,
+    endTime: request.endTime,
+  };
+}
+
+function getExcelShiftStartEndMinutes(request: ShiftRequest) {
+  return getShiftStartEndMinutesFromTimes(getEffectiveShiftTimeRange(request));
+}
+
+function getShiftDurationMinutes(range: { start: number; end: number }) {
+  return Math.max(0, range.end - range.start);
+}
+
+function assignDailyShiftLanes(
+  rows: MonthlyShiftExportRow[],
+  getRange: (request: ShiftRequest) => { start: number; end: number } = getShiftStartEndMinutes,
+  getPositionLabel: (request: ShiftRequest) => string = getShiftRequestPositionLabel,
+) {
+  const groups = new Map<string, MonthlyShiftExportRow[]>();
+
+  rows
+    .slice()
+    .sort((a, b) => {
+      const aRange = getRange(a.request);
+      const bRange = getRange(b.request);
+
+      if (aRange.start !== bRange.start) return aRange.start - bRange.start;
+      if (aRange.end !== bRange.end) return aRange.end - bRange.end;
+
+      return getPositionLabel(a.request).localeCompare(
+        getPositionLabel(b.request),
+        "ja",
+      );
+    })
+    .forEach((row) => {
+      const positionKey =
+        row.request.positionId ||
+        getPositionLabel(row.request) ||
+        "ポジション未設定";
+      const group = groups.get(positionKey) ?? [];
+      group.push(row);
+      groups.set(positionKey, group);
+    });
+
+  const placedRows: DailyShiftExportLaneRow[] = [];
+  let nextBaseLane = 0;
+
+  Array.from(groups.values())
+    .sort((a, b) => {
+      const aFirst = Math.min(
+        ...a.map((row) => getRange(row.request).start),
+      );
+      const bFirst = Math.min(
+        ...b.map((row) => getRange(row.request).start),
+      );
+
+      if (aFirst !== bFirst) return aFirst - bFirst;
+
+      return getPositionLabel(a[0].request).localeCompare(
+        getPositionLabel(b[0].request),
+        "ja",
+      );
+    })
+    .forEach((items) => {
+      const laneEndMinutes: number[] = [];
+
+      items.forEach((row) => {
+        const range = getRange(row.request);
+        const lane = laneEndMinutes.findIndex(
+          (endMinutes) => endMinutes <= range.start,
+        );
+        const nextLane = lane >= 0 ? lane : laneEndMinutes.length;
+        laneEndMinutes[nextLane] = range.end;
+        placedRows.push({ ...row, lane: nextBaseLane + nextLane });
+      });
+
+      nextBaseLane += Math.max(1, laneEndMinutes.length);
+    });
+
+  return placedRows.sort((a, b) => {
+    const aRange = getRange(a.request);
+    const bRange = getRange(b.request);
+
+    if (aRange.start !== bRange.start) return aRange.start - bRange.start;
+    return aRange.end - bRange.end;
+  });
+}
+
+function getDailyShiftLaneCount(rows: DailyShiftExportLaneRow[]) {
+  return rows.length > 0 ? Math.max(...rows.map((row) => row.lane)) + 1 : 1;
+}
+
+function getDailyRosterRowHeight(laneCount: number) {
+  const blockHeight = 46;
+  const blockGap = 6;
+  const verticalPadding = 22;
+
+  return Math.max(68, verticalPadding + laneCount * blockHeight + (laneCount - 1) * blockGap);
 }
 
 function formatMonthLabel(month: string) {
@@ -258,6 +386,20 @@ function getEmployeeDisplayRows(data: MonthlyShiftExportData | DailyShiftExportD
   return data.employees.length > 0 ? data.employees : [null];
 }
 
+function getMonthlyRosterRowHeight(maxDailyShiftCount: number) {
+  const blockHeight = 24;
+  const blockGap = 4;
+  const verticalPadding = 6;
+  const visibleShiftCount = Math.max(1, maxDailyShiftCount);
+
+  return Math.max(
+    58,
+    visibleShiftCount * blockHeight +
+      Math.max(0, visibleShiftCount - 1) * blockGap +
+      verticalPadding,
+  );
+}
+
 
 function drawFittedCenteredText(
   context: CanvasRenderingContext2D,
@@ -358,12 +500,52 @@ function drawCompactShiftExportBlock(
   });
 }
 function drawEmployeeRoster(data: MonthlyShiftExportData) {
-  const rows = data.rows;
-  const width = 1100;
-  const headerHeight = 132;
-  const rowHeight = 58;
-  const footerHeight = 52;
-  const height = headerHeight + Math.max(1, rows.length) * rowHeight + footerHeight;
+  const [year, monthNumber] = data.month.split("-").map(Number);
+  const monthIndex = monthNumber - 1;
+  const firstDay = new Date(year, monthIndex, 1).getDay();
+  const firstCalendarDate = new Date(year, monthIndex, 1 - firstDay);
+  const calendarDays = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(firstCalendarDate);
+    date.setDate(firstCalendarDate.getDate() + index);
+    const dateValue = [
+      date.getFullYear(),
+      padDatePart(date.getMonth() + 1),
+      padDatePart(date.getDate()),
+    ].join("-");
+
+    return {
+      date: dateValue,
+      day: date.getDate(),
+      outside: date.getMonth() !== monthIndex,
+    };
+  });
+  const rowsByDate = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
+    (groups, row) => {
+      groups[row.request.date] = [...(groups[row.request.date] ?? []), row];
+      return groups;
+    },
+    {},
+  );
+  const width = 1520;
+  const marginX = 24;
+  const headerHeight = 86;
+  const weekdayHeight = 40;
+  const shiftLineHeight = 20;
+  const weekRowHeights = Array.from({ length: 6 }, (_, weekIndex) => {
+    const maxShiftCountInWeek = Math.max(
+      1,
+      ...calendarDays
+        .slice(weekIndex * 7, weekIndex * 7 + 7)
+        .map((day) => rowsByDate[day.date]?.length ?? 0),
+    );
+
+    return Math.max(120, 50 + maxShiftCountInWeek * shiftLineHeight);
+  });
+  const footerHeight = 42;
+  const calendarWidth = width - marginX * 2;
+  const cellWidth = calendarWidth / 7;
+  const calendarBodyHeight = weekRowHeights.reduce((total, rowHeight) => total + rowHeight, 0);
+  const height = headerHeight + weekdayHeight + calendarBodyHeight + footerHeight;
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
 
@@ -372,60 +554,96 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, width, height);
   context.textBaseline = "middle";
-  context.fillStyle = "#111827";
-  context.font = "bold 30px Arial, sans-serif";
-  context.fillText("月間シフト表", 32, 38);
+  context.fillStyle = "#030213";
+  context.font = "bold 28px Arial, sans-serif";
+  context.fillText("マイカレンダー", marginX, 24);
   context.font = "16px Arial, sans-serif";
-  context.fillText(`${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 32, 74);
-  context.fillText(formatMonthLabel(data.month), 32, 102);
+  context.fillStyle = "#717182";
+  context.fillText("自分の確定シフトを月ごとに確認できます", marginX, 54);
+  context.fillStyle = "#030213";
+  context.font = "bold 18px Arial, sans-serif";
+  context.textAlign = "center";
+  context.fillText(formatMonthLabel(data.month), width / 2, 32);
+  context.textAlign = "left";
 
-  const columns = [
-    { label: "日付", x: 32 },
-    { label: "勤務時間", x: 202 },
-    { label: "ポジション", x: 372 },
-    { label: "氏名", x: 542 },
-    { label: "合計", x: 742 },
-    { label: "給与目安", x: 862 },
-  ];
+  const calendarTop = headerHeight;
+  context.strokeStyle = "#94a3b8";
+  context.lineWidth = 1.25;
+  weekdays.forEach((weekday, index) => {
+    const x = marginX + index * cellWidth;
 
-  context.fillStyle = "#f3f4f6";
-  context.fillRect(24, headerHeight - 38, width - 48, 38);
-  context.fillStyle = "#111827";
-  context.font = "bold 14px Arial, sans-serif";
-  columns.forEach((column) => context.fillText(column.label, column.x + 12, headerHeight - 19));
+    context.fillStyle = "#ffffff";
+    context.fillRect(x, calendarTop, cellWidth, weekdayHeight);
+    context.strokeRect(x, calendarTop, cellWidth, weekdayHeight);
+    context.fillStyle = "#475569";
+    context.font = "bold 16px Arial, sans-serif";
+    context.textAlign = "center";
+    context.fillText(weekday, x + cellWidth / 2, calendarTop + weekdayHeight / 2);
+  });
+  context.textAlign = "left";
 
-  if (rows.length === 0) {
-    context.fillStyle = "#717182";
-    context.font = "16px Arial, sans-serif";
-    context.fillText("この月の承認済みシフトはありません", 32, headerHeight + 28);
-  } else {
-    rows.forEach((row, index) => {
-      const y = headerHeight + index * rowHeight;
-
-      context.fillStyle = index % 2 === 0 ? "#ffffff" : "#f8fafc";
-      context.fillRect(24, y, width - 48, rowHeight);
-      context.fillStyle = "#111827";
-      context.font = "14px Arial, sans-serif";
-      context.fillText(formatDateLabel(row.request.date), columns[0].x + 12, y + rowHeight / 2);
-      context.fillText(`${row.request.startTime} - ${row.request.endTime}`, columns[1].x + 12, y + rowHeight / 2);
-      context.fillText(getShiftRequestPositionLabel(row.request), columns[2].x + 12, y + rowHeight / 2);
-      context.fillText(row.request.employeeName, columns[3].x + 12, y + rowHeight / 2);
-      context.fillText(formatHours(row.payroll.totalMinutes), columns[4].x + 12, y + rowHeight / 2);
-      context.fillText(formatCurrency(row.payroll.totalPay), columns[5].x + 12, y + rowHeight / 2);
+  calendarDays.forEach((day, index) => {
+    const column = index % 7;
+    const row = Math.floor(index / 7);
+    const x = marginX + column * cellWidth;
+    const rowHeight = weekRowHeights[row] ?? 120;
+    const y = calendarTop + weekdayHeight + weekRowHeights
+      .slice(0, row)
+      .reduce((total, height) => total + height, 0);
+    const dayRows = (rowsByDate[day.date] ?? []).slice().sort((a, b) => {
+      if (a.request.startTime !== b.request.startTime) {
+        return a.request.startTime.localeCompare(b.request.startTime);
+      }
+      return getShiftRequestPositionLabel(a.request).localeCompare(
+        getShiftRequestPositionLabel(b.request),
+        "ja",
+      );
     });
-  }
+    context.fillStyle = day.outside ? "#fafafa" : "#ffffff";
+    context.fillRect(x, y, cellWidth, rowHeight);
+    context.strokeStyle = "#94a3b8";
+    context.strokeRect(x, y, cellWidth, rowHeight);
 
-  context.strokeStyle = "#cbd5e1";
-  for (let y = headerHeight - 38; y <= height - footerHeight; y += rowHeight) {
-    context.beginPath();
-    context.moveTo(24, y);
-    context.lineTo(width - 24, y);
-    context.stroke();
-  }
+    context.fillStyle = day.outside ? "#9ca3af" : "#475569";
+    context.font = "bold 15px Arial, sans-serif";
+    context.textAlign = "center";
+    context.fillText(String(day.day), x + 24, y + 25);
+    context.textAlign = "left";
+
+    if (dayRows.length > 0) {
+      context.fillStyle = "#eef2f7";
+      context.beginPath();
+      context.roundRect(x + cellWidth - 54, y + 14, 42, 22, 11);
+      context.fill();
+      context.fillStyle = "#475569";
+      context.font = "bold 13px Arial, sans-serif";
+      context.textAlign = "center";
+      context.fillText(`${dayRows.length}件`, x + cellWidth - 33, y + 25);
+      context.textAlign = "left";
+    }
+
+    dayRows.forEach((rowItem, rowIndex) => {
+      const textY = y + 55 + rowIndex * shiftLineHeight;
+      const positionName = getShiftRequestPositionLabel(rowItem.request);
+
+      context.save();
+      context.beginPath();
+      context.rect(x + 12, textY - 10, cellWidth - 24, shiftLineHeight);
+      context.clip();
+      context.fillStyle = "#15803d";
+      context.font = "bold 13px Arial, sans-serif";
+      context.fillText(
+        `${rowItem.request.startTime}～${rowItem.request.endTime}（${positionName}）`,
+        x + 12,
+        textY,
+      );
+      context.restore();
+    });
+  });
 
   context.fillStyle = "#475569";
   context.font = "13px Arial, sans-serif";
-  context.fillText(`出力日時: ${new Date().toLocaleString("ja-JP")}`, 32, height - 24);
+  context.fillText(`出力日時: ${new Date().toLocaleString("ja-JP")}`, marginX, height - 18);
 
   return canvas;
 }
@@ -433,7 +651,6 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
 function drawManagerRoster(data: MonthlyShiftExportData) {
   const days = getMonthDays(data.month);
   const headerHeight = 122;
-  const rowHeight = 58;
   const footerHeight = 52;
   const indexWidth = 46;
   const nameWidth = 176;
@@ -441,7 +658,25 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
   const totalWidth = 88;
   const payWidth = 108;
   const width = indexWidth + nameWidth + days.length * dayWidth + totalWidth + payWidth;
-  const height = headerHeight + Math.max(1, data.employees.length) * rowHeight + footerHeight;
+  const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
+    (groups, row) => {
+      groups[row.request.employeeId] = [...(groups[row.request.employeeId] ?? []), row];
+      return groups;
+    },
+    {},
+  );
+  const displayEmployees = getEmployeeDisplayRows(data);
+  const rowHeights = displayEmployees.map((employee) => {
+    const employeeRows = employee ? rowsByEmployee[employee.employeeId] ?? [] : [];
+    const maxDailyShiftCount = days.reduce((maxCount, day) => {
+      const dayShiftCount = employeeRows.filter((row) => row.request.date === day.date).length;
+      return Math.max(maxCount, dayShiftCount);
+    }, 0);
+
+    return getMonthlyRosterRowHeight(maxDailyShiftCount);
+  });
+  const bodyHeight = rowHeights.reduce((total, rowHeight) => total + rowHeight, 0);
+  const height = headerHeight + bodyHeight + footerHeight;
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
 
@@ -461,14 +696,6 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
 
   const tableTop = headerHeight - 42;
   const totalX = indexWidth + nameWidth + days.length * dayWidth;
-  const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
-    (groups, row) => {
-      groups[row.request.employeeId] = [...(groups[row.request.employeeId] ?? []), row];
-      return groups;
-    },
-    {},
-  );
-  const displayEmployees = getEmployeeDisplayRows(data);
 
   context.fillStyle = "#f3f4f6";
   context.fillRect(0, tableTop, width, 42);
@@ -496,8 +723,11 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
   context.fillText("合計", totalX + 22, tableTop + 21);
   context.fillText("給与目安", totalX + totalWidth + 18, tableTop + 21);
 
+  let nextRowY = headerHeight;
+
   displayEmployees.forEach((employee, rowIndex) => {
-    const y = headerHeight + rowIndex * rowHeight;
+    const y = nextRowY;
+    const rowHeight = rowHeights[rowIndex] ?? getMonthlyRosterRowHeight(0);
     const employeeRows = employee ? rowsByEmployee[employee.employeeId] ?? [] : [];
     const totalMinutes = employeeRows.reduce((total, row) => total + row.payroll.totalMinutes, 0);
     const totalPay = employeeRows.reduce((total, row) => total + row.payroll.totalPay, 0);
@@ -516,24 +746,18 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
       const x = indexWidth + nameWidth + dayIndex * dayWidth;
       const dayRows = employeeRows.filter((row) => row.request.date === day.date);
 
-      const visibleRows = dayRows.slice(0, 2);
       const blockHeight = 24;
       const blockGap = 4;
-      const blockGroupHeight = visibleRows.length * blockHeight + Math.max(0, visibleRows.length - 1) * blockGap;
+      const blockGroupHeight = dayRows.length * blockHeight + Math.max(0, dayRows.length - 1) * blockGap;
       const firstBlockY = y + rowHeight / 2 - blockGroupHeight / 2;
 
-      visibleRows.forEach((row, index) => {
+      dayRows.forEach((row, index) => {
         const blockX = x + 4;
         const blockY = firstBlockY + index * (blockHeight + blockGap);
         const blockWidth = dayWidth - 8;
 
         drawCompactShiftExportBlock(context, row, blockX, blockY, blockWidth, blockHeight);
       });
-      if (dayRows.length > 2) {
-        context.fillStyle = "#111827";
-        context.font = "bold 11px Arial, sans-serif";
-        context.fillText(`+${dayRows.length - 2}`, x + 8, y + rowHeight - 7);
-      }
     });
 
     context.fillStyle = "#fef08a";
@@ -544,6 +768,8 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
     context.font = "bold 13px Arial, sans-serif";
     context.fillText(formatHours(totalMinutes), totalX + 16, y + rowHeight / 2);
     context.fillText(formatCurrency(totalPay), totalX + totalWidth + 12, y + rowHeight / 2);
+
+    nextRowY += rowHeight;
   });
 
   const bottom = height - footerHeight;
@@ -561,12 +787,14 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
     context.lineTo(width, lineY);
     context.stroke();
   });
-  for (let y = headerHeight + rowHeight; y <= bottom; y += rowHeight) {
+  let nextLineY = headerHeight;
+  rowHeights.forEach((rowHeight) => {
+    nextLineY += rowHeight;
     context.beginPath();
-    context.moveTo(0, y);
-    context.lineTo(width, y);
+    context.moveTo(0, nextLineY);
+    context.lineTo(width, nextLineY);
     context.stroke();
-  }
+  });
 
   context.fillStyle = "#475569";
   context.font = "13px Arial, sans-serif";
@@ -580,13 +808,12 @@ function getDailyTimeRange(rows: MonthlyShiftExportRow[]) {
   const minShiftStart = Math.min(...shiftRanges.map((range) => range.start), 9 * 60);
   const maxShiftEnd = Math.max(...shiftRanges.map((range) => range.end), 22 * 60);
   const start = Math.floor(minShiftStart / 30) * 30;
-  const end = Math.max(start + 60, Math.ceil(maxShiftEnd / 30) * 30);
+  const end = Math.max(start + 60, Math.ceil(maxShiftEnd / 30) * 30 + 30);
 
   return { start, end };
 }
 
 function drawDailyRoster(data: DailyShiftExportData) {
-  const rowHeight = 68;
   const headerHeight = 138;
   const timeHeaderHeight = 56;
   const footerHeight = 52;
@@ -603,6 +830,20 @@ function drawDailyRoster(data: DailyShiftExportData) {
     },
     {},
   );
+  const laneRowsByEmployee = displayEmployees.reduce<Record<string, DailyShiftExportLaneRow[]>>(
+    (groups, employee) => {
+      if (!employee) return groups;
+      groups[employee.employeeId] = assignDailyShiftLanes(
+        rowsByEmployee[employee.employeeId] ?? [],
+      );
+      return groups;
+    },
+    {},
+  );
+  const rowHeights = displayEmployees.map((employee) => {
+    const laneRows = employee ? laneRowsByEmployee[employee.employeeId] ?? [] : [];
+    return getDailyRosterRowHeight(getDailyShiftLaneCount(laneRows));
+  });
   const { start, end } = getDailyTimeRange(data.rows);
   const slotCount = Math.ceil((end - start) / 30);
   const timeWidth = slotCount * slotWidth;
@@ -610,7 +851,7 @@ function drawDailyRoster(data: DailyShiftExportData) {
   const width = indexWidth + nameWidth + timeWidth + totalWidth + payWidth;
   const tableTop = headerHeight;
   const bodyTop = tableTop + timeHeaderHeight;
-  const bodyHeight = Math.max(1, displayEmployees.length) * rowHeight;
+  const bodyHeight = rowHeights.reduce((total, rowHeight) => total + rowHeight, 0);
   const height = bodyTop + bodyHeight + footerHeight;
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
@@ -625,9 +866,20 @@ function drawDailyRoster(data: DailyShiftExportData) {
   context.fillStyle = "#111827";
   context.font = "bold 28px Arial, sans-serif";
   context.fillText("従業員シフト表", 28, 36);
+
+  const dateLabel = formatFullDateLabel(data.date);
+  context.font = "bold 22px Arial, sans-serif";
+  const dateLabelWidth = Math.ceil(context.measureText(dateLabel).width) + 36;
+  context.fillStyle = "#fef3c7";
+  context.fillRect(260, 17, dateLabelWidth, 38);
+  context.strokeStyle = "#facc15";
+  context.lineWidth = 1;
+  context.strokeRect(260, 17, dateLabelWidth, 38);
+  context.fillStyle = "#111827";
+  context.fillText(dateLabel, 278, 36);
+
   context.font = "16px Arial, sans-serif";
-  context.fillText(`${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 28, 70);
-  context.fillText(formatFullDateLabel(data.date), 28, 96);
+  context.fillText(`${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 28, 78);
 
   const totalMinutes = data.rows.reduce((total, row) => total + row.payroll.totalMinutes, 0);
   const totalPay = data.rows.reduce((total, row) => total + row.payroll.totalPay, 0);
@@ -666,9 +918,14 @@ function drawDailyRoster(data: DailyShiftExportData) {
     }
   }
 
+  let nextRowY = bodyTop;
+
   displayEmployees.forEach((employee, rowIndex) => {
-    const y = bodyTop + rowIndex * rowHeight;
+    const y = nextRowY;
+    const rowHeight = rowHeights[rowIndex] ?? getDailyRosterRowHeight(1);
     const employeeRows = employee ? rowsByEmployee[employee.employeeId] ?? [] : [];
+    const laneRows = employee ? laneRowsByEmployee[employee.employeeId] ?? [] : [];
+    const laneCount = getDailyShiftLaneCount(laneRows);
     const employeeMinutes = employeeRows.reduce((total, row) => total + row.payroll.totalMinutes, 0);
     const employeePay = employeeRows.reduce((total, row) => total + row.payroll.totalPay, 0);
 
@@ -682,14 +939,16 @@ function drawDailyRoster(data: DailyShiftExportData) {
     context.font = "bold 17px Arial, sans-serif";
     drawCenteredWrappedText(context, employee?.name ?? "対象従業員なし", indexWidth + 12, y, nameWidth - 20, rowHeight, 20, 2);
 
-    employeeRows.forEach((row) => {
+    laneRows.forEach((row) => {
       const range = getShiftStartEndMinutes(row.request);
       const blockStart = Math.max(start, range.start);
       const blockEnd = Math.min(end, range.end);
       const x = indexWidth + nameWidth + ((blockStart - start) / 30) * slotWidth + 2;
       const blockWidth = Math.max(10, ((blockEnd - blockStart) / 30) * slotWidth - 4);
       const blockHeight = 46;
-      const blockY = y + rowHeight / 2 - blockHeight / 2;
+      const blockGap = 6;
+      const blockGroupHeight = laneCount * blockHeight + (laneCount - 1) * blockGap;
+      const blockY = y + rowHeight / 2 - blockGroupHeight / 2 + row.lane * (blockHeight + blockGap);
 
       if (blockEnd <= blockStart) return;
       drawShiftExportBlock(context, row, x, blockY, blockWidth, blockHeight);
@@ -703,6 +962,8 @@ function drawDailyRoster(data: DailyShiftExportData) {
     context.font = "bold 13px Arial, sans-serif";
     context.fillText(formatHours(employeeMinutes), totalX + 16, y + rowHeight / 2);
     context.fillText(formatCurrency(employeePay), totalX + totalWidth + 12, y + rowHeight / 2);
+
+    nextRowY += rowHeight;
   });
 
   const verticalLines = [0, indexWidth, indexWidth + nameWidth, totalX, totalX + totalWidth, width];
@@ -722,14 +983,16 @@ function drawDailyRoster(data: DailyShiftExportData) {
     context.lineTo(width, lineY);
     context.stroke();
   });
-  for (let y = bodyTop + rowHeight; y <= bodyTop + bodyHeight; y += rowHeight) {
+  let nextLineY = bodyTop;
+  rowHeights.forEach((rowHeight) => {
+    nextLineY += rowHeight;
     context.strokeStyle = "#2f3338";
     context.lineWidth = 1;
     context.beginPath();
-    context.moveTo(0, y);
-    context.lineTo(width, y);
+    context.moveTo(0, nextLineY);
+    context.lineTo(width, nextLineY);
     context.stroke();
-  }
+  });
 
   context.fillStyle = "#475569";
   context.font = "13px Arial, sans-serif";
@@ -921,37 +1184,53 @@ export function buildDailyShiftExportData({
   };
 }
 
-export function downloadIcs(data: MonthlyShiftExportData) {
-  const events = data.rows
-    .map((row) => {
-      const { startAt, endAt } = getShiftStartEnd(row.request);
-      const positionName = getShiftRequestPositionLabel(row.request);
-      const description = `${formatDateLabel(row.request.date)} ${row.request.startTime}-${row.request.endTime} ${positionName}`;
+export function buildShiftRequestsIcsContent(
+  requests: ShiftRequest[],
+  calendarName?: string,
+) {
+  const now = new Date();
+  const events = requests
+    .map((request) => {
+      const { startAt, endAt } = getShiftStartEnd(request);
+      const positionName = getShiftRequestPositionLabel(request);
+      const description = `${formatDateLabel(request.date)} ${request.startTime}-${request.endTime} ${positionName}`;
 
       return [
         "BEGIN:VEVENT",
-        `UID:${row.request.id}@chess-shift`,
-        `DTSTAMP:${formatIcsDateTime(new Date())}`,
+        `UID:${request.id}@chess-shift`,
+        `DTSTAMP:${formatIcsDateTime(now)}`,
         `DTSTART:${formatIcsDateTime(startAt)}`,
         `DTEND:${formatIcsDateTime(endAt)}`,
-        `SUMMARY:${escapeIcsText(`${row.request.employeeName} ${positionName} シフト`)}`,
+        `SUMMARY:${escapeIcsText(`シフト ${positionName}`)}`,
         `DESCRIPTION:${escapeIcsText(description)}`,
         "END:VEVENT",
       ].join("\r\n");
     })
     .join("\r\n");
-  const content = [
+
+  return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//Chess Shift//Shift Export//JA",
     "CALSCALE:GREGORIAN",
+    calendarName ? `X-WR-CALNAME:${escapeIcsText(calendarName)}` : "",
     events,
     "END:VCALENDAR",
   ]
     .filter(Boolean)
     .join("\r\n");
+}
 
-  downloadTextFile(`${getFilenameBase(data)}.ics`, content, "text/calendar;charset=utf-8");
+export function buildIcsContent(data: MonthlyShiftExportData) {
+  return buildShiftRequestsIcsContent(data.rows.map((row) => row.request));
+}
+
+export function downloadIcs(data: MonthlyShiftExportData) {
+  downloadTextFile(
+    `${getFilenameBase(data)}.ics`,
+    buildIcsContent(data),
+    "text/calendar;charset=utf-8",
+  );
 }
 
 export function downloadCsv(data: MonthlyShiftExportData) {
@@ -999,6 +1278,625 @@ export function downloadDailyCsv(data: DailyShiftExportData) {
     .join("\r\n");
 
   downloadTextFile(`${getFilenameBase(data)}.csv`, `\uFEFF${content}`, "text/csv;charset=utf-8");
+}
+
+type XlsxCellValue = string | number;
+
+type XlsxCell = {
+  ref: string;
+  value: XlsxCellValue;
+  style?: number;
+  type?: "inlineStr" | "n";
+};
+
+function getExcelDailyTimeRange(rows: MonthlyShiftExportRow[]) {
+  const shiftRanges = rows.map((row) => getExcelShiftStartEndMinutes(row.request));
+  const defaultStart = 9 * 60;
+  const defaultEnd = 23 * 60 + 30;
+  const minShiftStart = shiftRanges.length > 0
+    ? Math.min(...shiftRanges.map((range) => range.start), defaultStart)
+    : defaultStart;
+  const maxShiftEnd = shiftRanges.length > 0
+    ? Math.max(...shiftRanges.map((range) => range.end), defaultEnd)
+    : defaultEnd;
+  const start = Math.floor(minShiftStart / 30) * 30;
+  const end = Math.max(defaultEnd, Math.ceil(maxShiftEnd / 30) * 30);
+
+  return { start, end };
+}
+
+function formatExcelWorkHours(minutes: number) {
+  const hours = Math.round((minutes / 60) * 10) / 10;
+
+  return Number.isInteger(hours) ? hours : Number(hours.toFixed(1));
+}
+
+function getColumnName(column: number) {
+  let value = column;
+  let name = "";
+
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    value = Math.floor((value - 1) / 26);
+  }
+
+  return name;
+}
+
+function getCellColumnIndex(ref: string) {
+  const columnName = ref.match(/^[A-Z]+/)?.[0] ?? "";
+
+  return [...columnName].reduce(
+    (total, character) => total * 26 + character.charCodeAt(0) - 64,
+    0,
+  );
+}
+
+function escapeXml(value: XlsxCellValue) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function createXlsxCellXml(cell: XlsxCell) {
+  const style = cell.style !== undefined ? ` s="${cell.style}"` : "";
+
+  if (cell.type === "n" || typeof cell.value === "number") {
+    return `<c r="${cell.ref}"${style}><v>${cell.value}</v></c>`;
+  }
+
+  if (cell.value === "") {
+    return `<c r="${cell.ref}"${style}/>`;
+  }
+
+  const textAttributes = String(cell.value).includes("\n") ? ` xml:space="preserve"` : "";
+  return `<c r="${cell.ref}" t="inlineStr"${style}><is><t${textAttributes}>${escapeXml(cell.value)}</t></is></c>`;
+}
+
+const excelTimelineSlotMinutes = 10;
+
+type ExcelTimelineLineKind = "hour" | "half" | "minor";
+type ExcelLaneEdge = "single" | "top" | "middle" | "bottom";
+
+function getExcelLaneEdge(lane: number, laneCount: number): ExcelLaneEdge {
+  if (laneCount <= 1) return "single";
+  if (lane === 0) return "top";
+  if (lane === laneCount - 1) return "bottom";
+  return "middle";
+}
+
+function getExcelLaneEdgeOffset(edge: Exclude<ExcelLaneEdge, "single">) {
+  if (edge === "top") return 0;
+  if (edge === "middle") return 1;
+  return 2;
+}
+
+function getExcelLaneStyleStart() {
+  return 14 + shiftExportColors.length * 3;
+}
+
+function getExcelTimelineLineKind(minutes: number): ExcelTimelineLineKind {
+  if (minutes % 60 === 0) return "hour";
+  if (minutes % 30 === 0) return "half";
+  return "minor";
+}
+
+function getExcelTimelineGridStyleIndex(minutes: number, edge: ExcelLaneEdge = "single") {
+  const lineKind = getExcelTimelineLineKind(minutes);
+  if (edge !== "single") {
+    const lineOffset = lineKind === "hour" ? 0 : lineKind === "half" ? 1 : 2;
+    return getExcelLaneStyleStart() + 12 + lineOffset * 3 + getExcelLaneEdgeOffset(edge);
+  }
+  if (lineKind === "hour") return 8;
+  if (lineKind === "half") return 9;
+  return 13;
+}
+
+function getExcelTimelineHeaderStyleIndex(minutes: number) {
+  const lineKind = getExcelTimelineLineKind(minutes);
+  if (lineKind === "hour") return 5;
+  if (lineKind === "half") return 9;
+  return 13;
+}
+
+function getShiftExportXlsxStyleIndex(
+  positionName: string,
+  lineKind: ExcelTimelineLineKind,
+  edge: ExcelLaneEdge = "single",
+) {
+  const colorIndex = shiftExportColors.indexOf(getShiftExportColor(positionName));
+  const lineOffset = lineKind === "hour" ? 0 : lineKind === "half" ? 1 : 2;
+  const safeColorIndex = Math.max(0, colorIndex);
+
+  if (edge !== "single") {
+    return getExcelLaneStyleStart() + 21 + safeColorIndex * 9 + lineOffset * 3 + getExcelLaneEdgeOffset(edge);
+  }
+
+  return 14 + safeColorIndex * 3 + lineOffset;
+}
+
+function getExcelBodyLaneStyleIndex(baseStyle: number, edge: ExcelLaneEdge) {
+  if (edge === "single") return baseStyle;
+
+  const bodyStyleOffsets = new Map<number, number>([
+    [6, 0],
+    [7, 1],
+    [10, 2],
+    [11, 3],
+  ]);
+  const bodyOffset = bodyStyleOffsets.get(baseStyle);
+
+  return bodyOffset === undefined
+    ? baseStyle
+    : getExcelLaneStyleStart() + bodyOffset * 3 + getExcelLaneEdgeOffset(edge);
+}
+
+function createExcelPositionNameResolver(rows: MonthlyShiftExportRow[]) {
+  const namesByKey = new Map<string, string>();
+  const addName = (key: string, positionName: string) => {
+    if (!key || key.endsWith(":") || !positionName || namesByKey.has(key)) return;
+    namesByKey.set(key, positionName);
+  };
+
+  rows.forEach((row) => {
+    const { request } = row;
+    const positionName = request.positionName.trim();
+    if (!positionName) return;
+
+    addName(`slot:${request.slotId}`, positionName);
+    addName(`position:${request.positionId}`, positionName);
+  });
+
+  return (request: ShiftRequest) => {
+    const directName = request.positionName.trim();
+    if (directName) return directName;
+
+    return (
+      namesByKey.get(`slot:${request.slotId}`) ??
+      namesByKey.get(`position:${request.positionId}`) ??
+      getShiftRequestPositionLabel(request)
+    );
+  };
+}
+
+function buildDailyRosterSheetXml(data: DailyShiftExportData) {
+  const { start, end } = getExcelDailyTimeRange(data.rows);
+  const slotCount = Math.ceil((end - start) / excelTimelineSlotMinutes);
+  const timelineStartColumn = 3;
+  const workColumn = timelineStartColumn + slotCount;
+  const noteColumn = workColumn + 1;
+  const maxColumn = noteColumn;
+  const displayEmployees = getEmployeeDisplayRows(data);
+  const resolvePositionName = createExcelPositionNameResolver(data.rows);
+  const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>(
+    (groups, row) => {
+      groups[row.request.employeeId] = [...(groups[row.request.employeeId] ?? []), row];
+      return groups;
+    },
+    {},
+  );
+  const laneRowsByEmployee = displayEmployees.reduce<Record<string, DailyShiftExportLaneRow[]>>(
+    (groups, employee) => {
+      if (!employee) return groups;
+      groups[employee.employeeId] = assignDailyShiftLanes(
+        rowsByEmployee[employee.employeeId] ?? [],
+        getExcelShiftStartEndMinutes,
+        resolvePositionName,
+      );
+      return groups;
+    },
+    {},
+  );
+  const cellsByRow = new Map<number, XlsxCell[]>();
+  const merges: string[] = [];
+  const rowHeights = new Map<number, number>();
+  const addCell = (row: number, column: number, value: XlsxCellValue, style?: number, type?: XlsxCell["type"]) => {
+    const ref = `${getColumnName(column)}${row}`;
+    const cells = [...(cellsByRow.get(row) ?? [])];
+    const cell = { ref, value, style, type };
+    const existingIndex = cells.findIndex((item) => item.ref === ref);
+
+    if (existingIndex >= 0) {
+      cells[existingIndex] = cell;
+    } else {
+      cells.push(cell);
+    }
+
+    cellsByRow.set(row, cells);
+  };
+  const addMerge = (startRow: number, startColumn: number, endRow: number, endColumn: number) => {
+    if (startRow === endRow && startColumn === endColumn) return;
+    merges.push(`${getColumnName(startColumn)}${startRow}:${getColumnName(endColumn)}${endRow}`);
+  };
+
+  rowHeights.set(1, 34);
+  rowHeights.set(3, 28);
+  rowHeights.set(4, 24);
+  const dateLabelColumn = timelineStartColumn + Math.round((6 * 30) / excelTimelineSlotMinutes);
+  const dateValueColumn = dateLabelColumn + Math.round((2 * 30) / excelTimelineSlotMinutes);
+  const dateValueEndColumn = Math.min(
+    dateValueColumn + Math.round((8 * 30) / excelTimelineSlotMinutes) - 1,
+    maxColumn,
+  );
+
+  addCell(1, 1, "従業員シフト表", 1);
+  for (let column = dateLabelColumn; column < dateValueColumn; column += 1) {
+    addCell(1, column, column === dateLabelColumn ? "日付" : "", 2);
+  }
+  for (let column = dateValueColumn; column <= dateValueEndColumn; column += 1) {
+    addCell(1, column, column === dateValueColumn ? formatFullDateLabel(data.date) : "", 3);
+  }
+  addCell(2, 1, `${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 0);
+  addCell(3, 1, "No.", 4);
+  addCell(3, 2, "名前", 4);
+
+  for (let slot = 0; slot < slotCount; slot += 1) {
+    const minute = start + slot * excelTimelineSlotMinutes;
+    const column = timelineStartColumn + slot;
+
+    addCell(3, column, slot === 0 ? `タイムテーブル` : "", 12);
+
+    if ((minute - start) % 30 === 0) {
+      const headerEndColumn = Math.min(
+        column + Math.round(30 / excelTimelineSlotMinutes) - 1,
+        workColumn - 1,
+      );
+      const lineKind = getExcelTimelineLineKind(minute);
+      const hour = Math.floor((minute % (24 * 60)) / 60);
+      const label = lineKind === "hour" ? hour : "";
+
+      addCell(4, column, label, getExcelTimelineHeaderStyleIndex(minute), typeof label === "number" ? "n" : "inlineStr");
+      addMerge(4, column, 4, headerEndColumn);
+    }
+  }
+
+  addCell(3, workColumn, "勤務時間", 4);
+  addCell(3, noteColumn, "備考", 4);
+  addCell(4, 1, "", 4);
+  addCell(4, 2, "", 4);
+  addCell(4, workColumn, "", 4);
+  addCell(4, noteColumn, "", 4);
+
+  let currentRow = 5;
+  displayEmployees.forEach((employee, rowIndex) => {
+    const employeeRows = employee ? rowsByEmployee[employee.employeeId] ?? [] : [];
+    const laneRows = employee ? laneRowsByEmployee[employee.employeeId] ?? [] : [];
+    const laneCount = getDailyShiftLaneCount(laneRows);
+    const startRow = currentRow;
+    const employeeMinutes = employeeRows.reduce(
+      (total, row) => total + getShiftDurationMinutes(getExcelShiftStartEndMinutes(row.request)),
+      0,
+    );
+
+    for (let lane = 0; lane < laneCount; lane += 1) {
+      const rowNumber = startRow + lane;
+      const isFirstLane = lane === 0;
+      const laneEdge = getExcelLaneEdge(lane, laneCount);
+      rowHeights.set(rowNumber, 30);
+      addCell(rowNumber, 1, isFirstLane ? rowIndex + 1 : "", getExcelBodyLaneStyleIndex(6, laneEdge), isFirstLane ? "n" : "inlineStr");
+      addCell(rowNumber, 2, isFirstLane ? employee?.name ?? "対象従業員なし" : "", getExcelBodyLaneStyleIndex(7, laneEdge));
+      addCell(
+        rowNumber,
+        workColumn,
+        isFirstLane && employeeMinutes > 0 ? formatExcelWorkHours(employeeMinutes) : "",
+        getExcelBodyLaneStyleIndex(10, laneEdge),
+        isFirstLane && employeeMinutes > 0 ? "n" : "inlineStr",
+      );
+      addCell(rowNumber, noteColumn, "", getExcelBodyLaneStyleIndex(11, laneEdge));
+      for (let slot = 0; slot < slotCount; slot += 1) {
+        const minute = start + slot * excelTimelineSlotMinutes;
+        addCell(rowNumber, timelineStartColumn + slot, "", getExcelTimelineGridStyleIndex(minute, laneEdge));
+      }
+    }
+
+    laneRows.forEach((laneRow) => {
+      const range = getExcelShiftStartEndMinutes(laneRow.request);
+      const blockStart = Math.max(start, range.start);
+      const blockEnd = Math.min(end, range.end);
+      if (blockEnd <= blockStart) return;
+
+      const startColumn = timelineStartColumn + Math.floor((blockStart - start) / excelTimelineSlotMinutes);
+      const endColumn = timelineStartColumn + Math.max(0, Math.ceil((blockEnd - start) / excelTimelineSlotMinutes) - 1);
+      const rowNumber = startRow + laneRow.lane;
+      const positionName = resolvePositionName(laneRow.request);
+      const timeRange = getEffectiveShiftTimeRange(laneRow.request);
+      const blockText = `${timeRange.startTime}-${timeRange.endTime}\n${positionName}`;
+      for (let column = startColumn; column <= endColumn; column += 1) {
+        const minute = start + (column - timelineStartColumn) * excelTimelineSlotMinutes;
+        const isStartColumn = column === startColumn;
+        const blockStyle = getShiftExportXlsxStyleIndex(positionName, getExcelTimelineLineKind(minute), getExcelLaneEdge(laneRow.lane, laneCount));
+
+        addCell(rowNumber, column, isStartColumn ? blockText : "", blockStyle);
+      }
+    });
+
+    currentRow += laneCount;
+  });
+
+  const sheetRows = Array.from(cellsByRow.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([row, cells]) => {
+      const height = rowHeights.get(row);
+      const heightAttributes = height ? ` ht="${height}" customHeight="1"` : "";
+      const sortedCells = cells.sort((a, b) => getCellColumnIndex(a.ref) - getCellColumnIndex(b.ref));
+      return `<row r="${row}"${heightAttributes}>${sortedCells.map(createXlsxCellXml).join("")}</row>`;
+    })
+    .join("");
+  const columnXml = [
+    '<col min="1" max="1" width="5.2" customWidth="1"/>',
+    '<col min="2" max="2" width="15" customWidth="1"/>',
+    `<col min="${timelineStartColumn}" max="${workColumn - 1}" width="1.04" customWidth="1"/>`,
+    `<col min="${workColumn}" max="${workColumn}" width="8.5" customWidth="1"/>`,
+    `<col min="${noteColumn}" max="${noteColumn}" width="12.5" customWidth="1"/>`,
+  ].join("");
+  const mergeXml = merges.length > 0
+    ? `<mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>`
+    : "";
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
+  <dimension ref="A1:${getColumnName(maxColumn)}${Math.max(4, currentRow - 1)}"/>
+  <sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>${columnXml}</cols>
+  <sheetData>${sheetRows}</sheetData>
+  ${mergeXml}
+  <printOptions horizontalCentered="1"/>
+  <pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.2" footer="0.2"/>
+  <pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>
+</worksheet>`;
+}
+
+function buildXlsxStylesXml() {
+  const shiftFills = shiftExportColors
+    .map((color) => `<fill><patternFill patternType="solid"><fgColor rgb="FF${color.fill.slice(1).toUpperCase()}"/><bgColor indexed="64"/></patternFill></fill>`)
+    .join("");
+  const bodyLaneXfs = [
+    { fontId: 0, fillId: 0, borderIds: [6, 7, 8], alignment: `<alignment horizontal="center" vertical="center"/>` },
+    { fontId: 0, fillId: 4, borderIds: [6, 7, 8], alignment: `<alignment vertical="center"/>` },
+    { fontId: 2, fillId: 3, borderIds: [6, 7, 8], alignment: `<alignment horizontal="centerContinuous" vertical="center"/>` },
+    { fontId: 0, fillId: 0, borderIds: [6, 7, 8], alignment: "" },
+  ]
+    .map((style) => style.borderIds
+      .map((borderId) => `<xf numFmtId="0" fontId="${style.fontId}" fillId="${style.fillId}" borderId="${borderId}" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1">${style.alignment}</xf>`)
+      .join(""))
+    .join("");
+  const timelineLaneXfs = [9, 10, 11, 12, 13, 14, 15, 16, 17]
+    .map((borderId) => `<xf numFmtId="0" fontId="0" fillId="0" borderId="${borderId}" xfId="0" applyBorder="1"/>`)
+    .join("");
+  const shiftLaneXfs = shiftExportColors
+    .map((_, index) => [9, 10, 11, 12, 13, 14, 15, 16, 17]
+      .map((borderId) => `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="${borderId}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center" wrapText="1"/></xf>`)
+      .join(""))
+    .join("");
+  const cellXfCount = 14 + shiftExportColors.length * 3 + 12 + 9 + shiftExportColors.length * 9;
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="4">
+    <font><sz val="11"/><name val="Yu Gothic"/></font>
+    <font><b/><sz val="20"/><name val="Yu Gothic"/></font>
+    <font><b/><sz val="11"/><name val="Yu Gothic"/></font>
+    <font><b/><sz val="8"/><name val="Yu Gothic"/></font>
+  </fonts>
+  <fills count="${6 + shiftExportColors.length}">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFFF99"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill>
+    ${shiftFills}
+  </fills>
+  <borders count="18">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
+    <border><left style="thin"><color rgb="FF666666"/></left><right style="thin"><color rgb="FF666666"/></right><top style="thin"><color rgb="FF666666"/></top><bottom style="thin"><color rgb="FF666666"/></bottom><diagonal/></border>
+    <border><left/><right/><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
+    <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top style="thin"><color rgb="FF444444"/></top><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top/><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top/><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF777777"/></top><bottom/><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right/><top/><bottom/><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right/><top/><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF777777"/></top><bottom/><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF111111"/></left><right/><top/><bottom/><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF111111"/></left><right/><top/><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
+    <border><left/><right/><top style="thin"><color rgb="FF444444"/></top><bottom/><diagonal/></border>
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left/><right/><top/><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="${cellXfCount}">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="2" xfId="0" applyBorder="1"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="3" xfId="0" applyBorder="1"/>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="5" xfId="0" applyBorder="1"/>
+    ${shiftExportColors.map((_, index) => [
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center" wrapText="1"/></xf>`,
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center" wrapText="1"/></xf>`,
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center" wrapText="1"/></xf>`,
+    ].join("")).join("")}
+    ${bodyLaneXfs}
+    ${timelineLaneXfs}
+    ${shiftLaneXfs}
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+}
+
+function stringToBytes(value: string) {
+  return new TextEncoder().encode(value);
+}
+
+const crcTable = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
+  return value >>> 0;
+});
+
+function crc32(bytes: Uint8Array) {
+  let crc = 0xffffffff;
+  bytes.forEach((byte) => {
+    crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  });
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function concatBytes(chunks: Uint8Array[]) {
+  const totalLength = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const output = new Uint8Array(totalLength);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return output;
+}
+
+function createZip(files: { name: string; content: string }[]) {
+  const chunks: Uint8Array[] = [];
+  const centralDirectory: Uint8Array[] = [];
+  let offset = 0;
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  const writeUint16 = (view: DataView, byteOffset: number, value: number) => view.setUint16(byteOffset, value, true);
+  const writeUint32 = (view: DataView, byteOffset: number, value: number) => view.setUint32(byteOffset, value >>> 0, true);
+
+  files.forEach((file) => {
+    const nameBytes = stringToBytes(file.name);
+    const contentBytes = stringToBytes(file.content);
+    const checksum = crc32(contentBytes);
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const localView = new DataView(localHeader.buffer);
+    writeUint32(localView, 0, 0x04034b50);
+    writeUint16(localView, 4, 20);
+    writeUint16(localView, 6, 0);
+    writeUint16(localView, 8, 0);
+    writeUint16(localView, 10, dosTime);
+    writeUint16(localView, 12, dosDate);
+    writeUint32(localView, 14, checksum);
+    writeUint32(localView, 18, contentBytes.length);
+    writeUint32(localView, 22, contentBytes.length);
+    writeUint16(localView, 26, nameBytes.length);
+    writeUint16(localView, 28, 0);
+    localHeader.set(nameBytes, 30);
+    chunks.push(localHeader, contentBytes);
+
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(centralHeader.buffer);
+    writeUint32(centralView, 0, 0x02014b50);
+    writeUint16(centralView, 4, 20);
+    writeUint16(centralView, 6, 20);
+    writeUint16(centralView, 8, 0);
+    writeUint16(centralView, 10, 0);
+    writeUint16(centralView, 12, dosTime);
+    writeUint16(centralView, 14, dosDate);
+    writeUint32(centralView, 16, checksum);
+    writeUint32(centralView, 20, contentBytes.length);
+    writeUint32(centralView, 24, contentBytes.length);
+    writeUint16(centralView, 28, nameBytes.length);
+    writeUint16(centralView, 30, 0);
+    writeUint16(centralView, 32, 0);
+    writeUint16(centralView, 34, 0);
+    writeUint16(centralView, 36, 0);
+    writeUint32(centralView, 38, 0);
+    writeUint32(centralView, 42, offset);
+    centralHeader.set(nameBytes, 46);
+    centralDirectory.push(centralHeader);
+    offset += localHeader.length + contentBytes.length;
+  });
+
+  const centralOffset = offset;
+  const centralBytes = concatBytes(centralDirectory);
+  const endHeader = new Uint8Array(22);
+  const endView = new DataView(endHeader.buffer);
+  writeUint32(endView, 0, 0x06054b50);
+  writeUint16(endView, 4, 0);
+  writeUint16(endView, 6, 0);
+  writeUint16(endView, 8, files.length);
+  writeUint16(endView, 10, files.length);
+  writeUint32(endView, 12, centralBytes.length);
+  writeUint32(endView, 16, centralOffset);
+  writeUint16(endView, 20, 0);
+
+  return concatBytes([...chunks, centralBytes, endHeader]);
+}
+
+function getExcelSheetName(date: string) {
+  const parsedDate = new Date(`${date}T00:00:00`);
+
+  return `${parsedDate.getMonth() + 1}月${parsedDate.getDate()}日`;
+}
+
+function buildDailyRosterXlsxBytes(data: DailyShiftExportData) {
+  return createZip([
+    {
+      name: "[Content_Types].xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`,
+    },
+    {
+      name: "_rels/.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`,
+    },
+    {
+      name: "xl/workbook.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="${escapeXml(getExcelSheetName(data.date))}" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`,
+    },
+    {
+      name: "xl/_rels/workbook.xml.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`,
+    },
+    { name: "xl/styles.xml", content: buildXlsxStylesXml() },
+    { name: "xl/worksheets/sheet1.xml", content: buildDailyRosterSheetXml(data) },
+  ]);
+}
+
+export function downloadDailyRosterExcel(data: DailyShiftExportData) {
+  const bytes = buildDailyRosterXlsxBytes(data);
+
+  downloadBlob(
+    `${getFilenameBase(data)}.xlsx`,
+    new Blob([bytes.buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  );
 }
 
 export function downloadRosterPng(data: MonthlyShiftExportData) {

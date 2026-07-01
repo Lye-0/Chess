@@ -83,6 +83,14 @@ export async function GET(request: Request) {
     const organizationRef = adminDb
       .collection("organizations")
       .doc(employeeAuth.organizationId);
+    const requestsQuery: Query = requestedMonth
+      ? organizationRef
+          .collection("shiftRequests")
+          .where("date", ">=", `${requestedMonth}-01`)
+          .where("date", "<=", `${requestedMonth}-31`)
+      : organizationRef
+          .collection("shiftRequests")
+          .where("employeeId", "==", employeeAuth.employeeId);
     const slotsQuery: Query = requestedMonth
       ? organizationRef
           .collection("shiftSlots")
@@ -99,10 +107,7 @@ export async function GET(request: Request) {
       shiftRequestSettingsSnapshot,
     ] = await Promise.all([
       organizationRef.collection("employees").doc(employeeAuth.employeeId).get(),
-      organizationRef
-        .collection("shiftRequests")
-        .where("employeeId", "==", employeeAuth.employeeId)
-        .get(),
+      requestsQuery.get(),
       slotsQuery.get(),
       organizationRef.collection("positions").get(),
       organizationRef.collection("settings").doc("payroll").get(),
@@ -117,7 +122,9 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
-      requests: requestsSnapshot.docs.map(toShiftRequest),
+      requests: requestsSnapshot.docs
+        .map(toShiftRequest)
+        .filter((shiftRequest) => shiftRequest.employeeId === employeeAuth.employeeId),
       slots: slotsSnapshot.docs.map(toShiftSlot),
       positions: positionsSnapshot.docs
         .map((positionSnapshot) =>
