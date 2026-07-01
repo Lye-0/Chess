@@ -1036,3 +1036,4 @@ export function downloadMonthDailyRosterPdf(data: MonthlyShiftExportData) {
 
   downloadBlob(`shift-${data.month}-daily.pdf`, new Blob([pdfBytes.buffer], { type: "application/pdf" }));
 }
+
