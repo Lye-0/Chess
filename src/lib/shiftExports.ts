@@ -1351,7 +1351,8 @@ function createXlsxCellXml(cell: XlsxCell) {
     return `<c r="${cell.ref}"${style}/>`;
   }
 
-  return `<c r="${cell.ref}" t="inlineStr"${style}><is><t>${escapeXml(cell.value)}</t></is></c>`;
+  const textAttributes = String(cell.value).includes("\n") ? ` xml:space="preserve"` : "";
+  return `<c r="${cell.ref}" t="inlineStr"${style}><is><t${textAttributes}>${escapeXml(cell.value)}</t></is></c>`;
 }
 
 const excelTimelineSlotMinutes = 10;
@@ -1504,7 +1505,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
 
     for (let lane = 0; lane < laneCount; lane += 1) {
       const rowNumber = startRow + lane;
-      rowHeights.set(rowNumber, 22);
+      rowHeights.set(rowNumber, 30);
       for (let slot = 0; slot < slotCount; slot += 1) {
         const minute = start + slot * excelTimelineSlotMinutes;
         addCell(rowNumber, timelineStartColumn + slot, "", getExcelTimelineGridStyleIndex(minute));
@@ -1522,7 +1523,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
       const rowNumber = startRow + laneRow.lane;
       const positionName = getShiftRequestPositionLabel(laneRow.request);
       const timeRange = getEffectiveShiftTimeRange(laneRow.request);
-      const blockText = `${timeRange.startTime}-${timeRange.endTime}`;
+      const blockText = `${timeRange.startTime}-${timeRange.endTime}\n${positionName}`;
       for (let column = startColumn; column <= endColumn; column += 1) {
         const minute = start + (column - timelineStartColumn) * excelTimelineSlotMinutes;
         const isStartColumn = column === startColumn;
@@ -1581,7 +1582,7 @@ function buildXlsxStylesXml() {
     <font><sz val="11"/><name val="Yu Gothic"/></font>
     <font><b/><sz val="20"/><name val="Yu Gothic"/></font>
     <font><b/><sz val="11"/><name val="Yu Gothic"/></font>
-    <font><b/><sz val="9"/><name val="Yu Gothic"/></font>
+    <font><b/><sz val="8"/><name val="Yu Gothic"/></font>
   </fonts>
   <fills count="${6 + shiftExportColors.length}">
     <fill><patternFill patternType="none"/></fill>
@@ -1617,9 +1618,9 @@ function buildXlsxStylesXml() {
     <xf numFmtId="0" fontId="2" fillId="2" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="5" xfId="0" applyBorder="1"/>
     ${shiftExportColors.map((_, index) => [
-      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>`,
-      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>`,
-      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>`,
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center" wrapText="1"/></xf>`,
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center" wrapText="1"/></xf>`,
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center" wrapText="1"/></xf>`,
     ].join("")).join("")}
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
