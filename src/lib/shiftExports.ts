@@ -108,9 +108,9 @@ function getShiftStartEnd(request: ShiftRequest) {
   return { startAt, endAt };
 }
 
-function getShiftStartEndMinutes(request: ShiftRequest) {
-  const start = parseTimeToMinutes(request.startTime);
-  const end = parseTimeToMinutes(request.endTime);
+function getShiftStartEndMinutesFromTimes(timeRange: Pick<ShiftRequest, "startTime" | "endTime">) {
+  const start = parseTimeToMinutes(timeRange.startTime);
+  const end = parseTimeToMinutes(timeRange.endTime);
 
   return {
     start,
@@ -118,14 +118,54 @@ function getShiftStartEndMinutes(request: ShiftRequest) {
   };
 }
 
-function assignDailyShiftLanes(rows: MonthlyShiftExportRow[]) {
+function getShiftStartEndMinutes(request: ShiftRequest) {
+  return getShiftStartEndMinutesFromTimes(request);
+}
+
+function hasActualTimeAdjustment(request: ShiftRequest) {
+  const actualStartTime = request.actualStartTime.trim();
+  const actualEndTime = request.actualEndTime.trim();
+
+  return Boolean(
+    actualStartTime &&
+      actualEndTime &&
+      (actualStartTime !== request.startTime || actualEndTime !== request.endTime),
+  );
+}
+
+function getEffectiveShiftTimeRange(request: ShiftRequest) {
+  if (hasActualTimeAdjustment(request)) {
+    return {
+      startTime: request.actualStartTime.trim(),
+      endTime: request.actualEndTime.trim(),
+    };
+  }
+
+  return {
+    startTime: request.startTime,
+    endTime: request.endTime,
+  };
+}
+
+function getExcelShiftStartEndMinutes(request: ShiftRequest) {
+  return getShiftStartEndMinutesFromTimes(getEffectiveShiftTimeRange(request));
+}
+
+function getShiftDurationMinutes(range: { start: number; end: number }) {
+  return Math.max(0, range.end - range.start);
+}
+
+function assignDailyShiftLanes(
+  rows: MonthlyShiftExportRow[],
+  getRange: (request: ShiftRequest) => { start: number; end: number } = getShiftStartEndMinutes,
+) {
   const groups = new Map<string, MonthlyShiftExportRow[]>();
 
   rows
     .slice()
     .sort((a, b) => {
-      const aRange = getShiftStartEndMinutes(a.request);
-      const bRange = getShiftStartEndMinutes(b.request);
+      const aRange = getRange(a.request);
+      const bRange = getRange(b.request);
 
       if (aRange.start !== bRange.start) return aRange.start - bRange.start;
       if (aRange.end !== bRange.end) return aRange.end - bRange.end;
@@ -151,10 +191,10 @@ function assignDailyShiftLanes(rows: MonthlyShiftExportRow[]) {
   Array.from(groups.values())
     .sort((a, b) => {
       const aFirst = Math.min(
-        ...a.map((row) => getShiftStartEndMinutes(row.request).start),
+        ...a.map((row) => getRange(row.request).start),
       );
       const bFirst = Math.min(
-        ...b.map((row) => getShiftStartEndMinutes(row.request).start),
+        ...b.map((row) => getRange(row.request).start),
       );
 
       if (aFirst !== bFirst) return aFirst - bFirst;
@@ -168,7 +208,7 @@ function assignDailyShiftLanes(rows: MonthlyShiftExportRow[]) {
       const laneEndMinutes: number[] = [];
 
       items.forEach((row) => {
-        const range = getShiftStartEndMinutes(row.request);
+        const range = getRange(row.request);
         const lane = laneEndMinutes.findIndex(
           (endMinutes) => endMinutes <= range.start,
         );
@@ -181,8 +221,8 @@ function assignDailyShiftLanes(rows: MonthlyShiftExportRow[]) {
     });
 
   return placedRows.sort((a, b) => {
-    const aRange = getShiftStartEndMinutes(a.request);
-    const bRange = getShiftStartEndMinutes(b.request);
+    const aRange = getRange(a.request);
+    const bRange = getRange(b.request);
 
     if (aRange.start !== bRange.start) return aRange.start - bRange.start;
     return aRange.end - bRange.end;
@@ -1249,7 +1289,7 @@ type XlsxCell = {
 };
 
 function getExcelDailyTimeRange(rows: MonthlyShiftExportRow[]) {
-  const shiftRanges = rows.map((row) => getShiftStartEndMinutes(row.request));
+  const shiftRanges = rows.map((row) => getExcelShiftStartEndMinutes(row.request));
   const defaultStart = 9 * 60;
   const defaultEnd = 23 * 60 + 30;
   const minShiftStart = shiftRanges.length > 0
@@ -1352,7 +1392,10 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   const laneRowsByEmployee = displayEmployees.reduce<Record<string, DailyShiftExportLaneRow[]>>(
     (groups, employee) => {
       if (!employee) return groups;
-      groups[employee.employeeId] = assignDailyShiftLanes(rowsByEmployee[employee.employeeId] ?? []);
+      groups[employee.employeeId] = assignDailyShiftLanes(
+        rowsByEmployee[employee.employeeId] ?? [],
+        getExcelShiftStartEndMinutes,
+      );
       return groups;
     },
     {},
@@ -1383,23 +1426,11 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   rowHeights.set(3, 28);
   rowHeights.set(4, 24);
   addCell(1, 1, "従業員シフト表", 1);
-  addMerge(1, 1, 1, Math.min(8, maxColumn));
   addCell(1, 9, "日付", 2);
-  addMerge(1, 9, 1, Math.min(10, maxColumn));
   addCell(1, 11, formatFullDateLabel(data.date), 3);
-  addMerge(1, 11, 1, Math.min(18, maxColumn));
   addCell(2, 1, `${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 0);
-  addMerge(2, 1, 2, Math.min(12, maxColumn));
   addCell(3, 1, "No.", 4);
   addCell(3, 2, "名前", 4);
-  addCell(3, timelineStartColumn, `${formatExcelHourLabel(start)}〜${formatExcelHourLabel(end)} タイムテーブル`, 4);
-  addCell(3, workColumn, "勤務時間", 4);
-  addCell(3, noteColumn, "備考", 4);
-  addMerge(3, 1, 4, 1);
-  addMerge(3, 2, 4, 2);
-  addMerge(3, timelineStartColumn, 3, workColumn - 1);
-  addMerge(3, workColumn, 4, workColumn);
-  addMerge(3, noteColumn, 4, noteColumn);
 
   for (let slot = 0; slot < slotCount; slot += 1) {
     const minute = start + slot * 30;
@@ -1407,8 +1438,16 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
     const isHour = minute % 60 === 0;
     const label = isHour || slot === 0 ? formatExcelTimelineLabel(minute) : "";
 
+    addCell(3, column, slot === Math.floor(slotCount / 2) ? `${formatExcelHourLabel(start)}〜${formatExcelHourLabel(end)} タイムテーブル` : "", 4);
     addCell(4, column, label, isHour ? 5 : 9);
   }
+
+  addCell(3, workColumn, "勤務時間", 4);
+  addCell(3, noteColumn, "備考", 4);
+  addCell(4, 1, "", 4);
+  addCell(4, 2, "", 4);
+  addCell(4, workColumn, "", 4);
+  addCell(4, noteColumn, "", 4);
 
   let currentRow = 5;
   displayEmployees.forEach((employee, rowIndex) => {
@@ -1417,7 +1456,10 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
     const laneCount = getDailyShiftLaneCount(laneRows);
     const startRow = currentRow;
     const endRow = currentRow + laneCount - 1;
-    const employeeMinutes = employeeRows.reduce((total, row) => total + row.payroll.totalMinutes, 0);
+    const employeeMinutes = employeeRows.reduce(
+      (total, row) => total + getShiftDurationMinutes(getExcelShiftStartEndMinutes(row.request)),
+      0,
+    );
 
     addCell(startRow, 1, rowIndex + 1, 6, "n");
     addCell(startRow, 2, employee?.name ?? "対象従業員なし", 7);
@@ -1438,7 +1480,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
     }
 
     laneRows.forEach((laneRow) => {
-      const range = getShiftStartEndMinutes(laneRow.request);
+      const range = getExcelShiftStartEndMinutes(laneRow.request);
       const blockStart = Math.max(start, range.start);
       const blockEnd = Math.min(end, range.end);
       if (blockEnd <= blockStart) return;
@@ -1447,7 +1489,8 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
       const endColumn = timelineStartColumn + Math.max(0, Math.ceil((blockEnd - start) / 30) - 1);
       const rowNumber = startRow + laneRow.lane;
       const positionName = getShiftRequestPositionLabel(laneRow.request);
-      const blockText = `${laneRow.request.startTime}-${laneRow.request.endTime} ${positionName}`;
+      const timeRange = getEffectiveShiftTimeRange(laneRow.request);
+      const blockText = `${timeRange.startTime}-${timeRange.endTime} ${positionName}`;
       for (let column = startColumn; column <= endColumn; column += 1) {
         const minute = start + (column - timelineStartColumn) * 30;
         const isStartColumn = column === startColumn;
@@ -1520,8 +1563,8 @@ function buildXlsxStylesXml() {
   <borders count="5">
     <border><left/><right/><top/><bottom/><diagonal/></border>
     <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
-    <border><left style="medium"><color rgb="FF111111"/></left><right style="dotted"><color rgb="FF666666"/></right><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
-    <border><left style="dotted"><color rgb="FF666666"/></left><right style="thin"><color rgb="FFBBBBBB"/></right><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right style="dotted"><color rgb="FF111111"/></right><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF111111"/></left><right style="medium"><color rgb="FF111111"/></right><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
     <border><left style="thin"><color rgb="FF666666"/></left><right style="thin"><color rgb="FF666666"/></right><top style="thin"><color rgb="FF666666"/></top><bottom style="thin"><color rgb="FF666666"/></bottom><diagonal/></border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
@@ -1539,8 +1582,8 @@ function buildXlsxStylesXml() {
     <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
     ${shiftExportColors.map((_, index) => [
-      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>`,
-      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>`,
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>`,
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>`,
     ].join("")).join("")}
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
