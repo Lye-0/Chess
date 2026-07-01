@@ -468,6 +468,25 @@ export function useShiftManagement(displayMonth: Date) {
 
   const handleExport = useCallback(
     (format: ShiftExportFormat) => {
+      if (format === "print") {
+        const params = new URLSearchParams();
+        params.set("organizationId", organizationId);
+        params.set("scope", selectedExportScope);
+
+        if (selectedExportScope === "day") {
+          params.set("date", activeExportDate);
+        } else {
+          params.set("month", activeExportMonth);
+        }
+
+        window.open(
+          `/admin/shift-management/print?${params.toString()}`,
+          "_blank",
+          "noopener,noreferrer",
+        );
+        return;
+      }
+
       if (format === "csv") {
         if (selectedExportScope === "day") {
           downloadDailyCsv(dailyExportData);
@@ -497,7 +516,14 @@ export function useShiftManagement(displayMonth: Date) {
         downloadRosterPdf(monthlyExportData);
       }
     },
-    [dailyExportData, monthlyExportData, selectedExportScope],
+    [
+      activeExportDate,
+      activeExportMonth,
+      dailyExportData,
+      monthlyExportData,
+      organizationId,
+      selectedExportScope,
+    ],
   );
 
   const displaySlots = useMemo(() => {

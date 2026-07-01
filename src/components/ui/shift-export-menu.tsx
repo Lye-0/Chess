@@ -50,6 +50,7 @@ function formatDateLabel(date: string) {
 }
 
 function getDefaultActionLabel(format: ShiftExportFormat) {
+  if (format === "print") return "印刷ページを開く";
   return format === "calendarSubscription" ? "準備中" : "ダウンロード";
 }
 

@@ -249,6 +249,7 @@ function AdminShiftManagementContent() {
                 { format: "pdf", label: "PDF" },
                 { format: "csv", label: "CSV" },
                 { format: "excel", label: "Excel" },
+                { format: "print", label: "印刷", actionLabel: "印刷ページを開く" },
               ]}
               months={exportMonths}
               selectedMonth={activeExportMonth}
