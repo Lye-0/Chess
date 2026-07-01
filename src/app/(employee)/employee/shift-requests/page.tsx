@@ -128,17 +128,6 @@ function formatMonthLabel(value: string) {
   return `${date.getFullYear()}年${date.getMonth() + 1}月`;
 }
 
-function getSelectableMonthValues(referenceDate: Date) {
-  return Array.from({ length: 61 }, (_, index) => {
-    const date = new Date(
-      referenceDate.getFullYear(),
-      referenceDate.getMonth() + index - 36,
-      1,
-    );
-
-    return getMonthValue(date);
-  }).reverse();
-}
 
 function sortRequests(requests: ShiftRequest[]) {
   return [...requests].sort((a, b) => {
@@ -422,23 +411,35 @@ function EmployeeShiftRequestsContent() {
     };
   }, [employee, selectedYearValue]);
 
-  const availableFilters = useMemo(
-    () => getAvailableFilters(selectedMonthValue, currentMonthValue),
-    [currentMonthValue, selectedMonthValue],
-  );
-
-
-  const activeFilter = availableFilters.includes(selectedFilter)
-    ? selectedFilter
-    : availableFilters[0];
-
   const displayRequests = useMemo(
     () => applySlotPositionNames(requests, slots),
     [requests, slots],
   );
+  const selectableMonthValues = useMemo(() => {
+    const monthValues = new Set<string>();
+
+    displayRequests.forEach((request) => {
+      if (request.status === "承認済") {
+        monthValues.add(request.date.slice(0, 7));
+      }
+    });
+
+    return Array.from(monthValues).sort((a, b) => b.localeCompare(a));
+  }, [displayRequests]);
+  const activeMonthValue = selectableMonthValues.includes(selectedMonthValue)
+    ? selectedMonthValue
+    : selectableMonthValues[0] ?? selectedMonthValue;
+  const availableFilters = useMemo(
+    () => getAvailableFilters(activeMonthValue, currentMonthValue),
+    [activeMonthValue, currentMonthValue],
+  );
+  const activeFilter = availableFilters.includes(selectedFilter)
+    ? selectedFilter
+    : availableFilters[0];
+
   const monthRequests = useMemo(
-    () => sortRequests(displayRequests.filter((request) => isRequestInMonth(request, selectedMonthValue))),
-    [displayRequests, selectedMonthValue],
+    () => sortRequests(displayRequests.filter((request) => isRequestInMonth(request, activeMonthValue))),
+    [activeMonthValue, displayRequests],
   );
   const completedMonthRequests = useMemo(
     () => monthRequests.filter((request) => request.status === "承認済" && isCompletedRequest(request, now)),
@@ -486,7 +487,6 @@ function EmployeeShiftRequestsContent() {
     () => sumShiftPay(completedYearRequests, payrollSettings),
     [completedYearRequests, payrollSettings],
   );
-  const selectableMonthValues = useMemo(() => getSelectableMonthValues(now), [now]);
   const selectedFilterLabel = requestFilterLabels[activeFilter];
   const isDataLoading = isLoading || loadedYearValue !== selectedYearValue;
 
@@ -560,14 +560,21 @@ function EmployeeShiftRequestsContent() {
                 </div>
               )}
             </div>
-            <div className="grid gap-3 sm:grid-cols-[180px_auto] sm:items-center">
+            <div className="grid gap-3 sm:grid-cols-[225px_auto] sm:items-end">
               <label className="grid gap-1 text-sm font-semibold text-[#475569]">
                 月を選択
                 <select
-                  value={selectedMonthValue}
-                  onChange={(event) => setSelectedMonth(parseMonthValue(event.target.value))}
-                  className="h-11 rounded-md border border-black/10 bg-white px-3 text-sm font-semibold text-[#030213] shadow-sm outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-[#bfdbfe]"
+                  value={selectableMonthValues.length > 0 ? activeMonthValue : ""}
+                  onChange={(event) => {
+                    if (event.target.value) {
+                      setSelectedMonth(parseMonthValue(event.target.value));
+                    }
+                  }}
+                  className="h-12 rounded-md border border-black/10 bg-white px-4 text-sm font-semibold text-[#030213] shadow-sm outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-[#bfdbfe]"
                 >
+                  {selectableMonthValues.length === 0 && (
+                    <option value="">対象の月はありません</option>
+                  )}
                   {selectableMonthValues.map((monthValue) => (
                     <option key={monthValue} value={monthValue}>
                       {formatMonthLabel(monthValue)}
@@ -575,7 +582,7 @@ function EmployeeShiftRequestsContent() {
                   ))}
                 </select>
               </label>
-              <div className="inline-flex rounded-lg border border-black/10 bg-white p-1 shadow-sm">
+              <div className="inline-flex h-12 items-center rounded-lg border border-black/10 bg-white p-1 shadow-sm">
                 {availableFilters.map((filter) => (
                   <button
                     key={filter}
@@ -600,12 +607,12 @@ function EmployeeShiftRequestsContent() {
           <SummaryPanel
             label="選択月の勤務時間"
             value={formatWorkHours(monthlyWorkMinutes)}
-            description={`${formatMonthLabel(selectedMonthValue)}の勤務済みシフト`}
+            description={`${formatMonthLabel(activeMonthValue)}の勤務済みシフト`}
           />
           <SummaryPanel
             label="選択月のお給料"
             value={formatCurrency(monthlyPay)}
-            description={`${formatMonthLabel(selectedMonthValue)}の勤務済みシフト`}
+            description={`${formatMonthLabel(activeMonthValue)}の勤務済みシフト`}
           />
           <SummaryPanel
             label="年間の勤務時間"
@@ -624,7 +631,7 @@ function EmployeeShiftRequestsContent() {
             <div className="min-w-0">
               <h2 className="text-lg font-semibold">{selectedFilterLabel}</h2>
               <p className="mt-1 text-sm text-[#717182]">
-                {formatMonthLabel(selectedMonthValue)}の{selectedFilterLabel}シフト
+                {formatMonthLabel(activeMonthValue)}の{selectedFilterLabel}シフト
               </p>
             </div>
             <span className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-[#eef2f7] px-2 text-center text-sm font-semibold leading-tight text-[#475569]">
