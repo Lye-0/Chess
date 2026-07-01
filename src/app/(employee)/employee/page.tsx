@@ -36,7 +36,6 @@ import {
   buildMonthlyShiftExportData,
   downloadIcs,
   downloadRosterPng,
-  getShiftExportMonths,
   type ShiftExportFormat,
 } from "@/lib/shiftExports";
 
@@ -167,6 +166,37 @@ function toDateString(date: Date) {
 
 function getMonthStart(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function getMonthValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+
+  return `${year}-${month}`;
+}
+
+function getSelectableMonthValues(referenceDate: Date) {
+  return Array.from({ length: 25 }, (_, index) => {
+    const date = new Date(
+      referenceDate.getFullYear(),
+      referenceDate.getMonth() + index - 12,
+      1,
+    );
+
+    return getMonthValue(date);
+  }).reverse();
+}
+
+function applySlotPositionNames(requests: ShiftRequest[], slots: ShiftSlot[]) {
+  const slotPositionNameById = slots.reduce<Record<string, string>>((positions, slot) => {
+    positions[slot.id] = slot.positionName;
+    return positions;
+  }, {});
+
+  return requests.map((request) => ({
+    ...request,
+    positionName: request.positionName || slotPositionNameById[request.slotId] || "",
+  }));
 }
 
 function getMonthCalendarDays(monthDate: Date) {
@@ -360,12 +390,6 @@ function isRequestInMonth(request: ShiftRequest, date: Date) {
     startAt.getFullYear() === date.getFullYear() &&
     startAt.getMonth() === date.getMonth()
   );
-}
-
-function isRequestInYear(request: ShiftRequest, year: number) {
-  const startAt = getRequestStartAt(request);
-
-  return startAt.getFullYear() === year;
 }
 
 function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
@@ -695,8 +719,9 @@ function SelectedDayTimeline({
   const laneCount = timelineItems.length > 0
     ? Math.max(...timelineItems.map((item) => item.lane)) + 1
     : 1;
-  const timelineLaneHeight = 56;
-  const bodyHeight = Math.max(112, laneCount * timelineLaneHeight + 28);
+  const timelineBlockHeight = 66;
+  const timelineLaneHeight = 74;
+  const bodyHeight = Math.max(112, laneCount * timelineLaneHeight + 32);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -764,7 +789,7 @@ function SelectedDayTimeline({
                     <div
                       key={request.id}
                       className={[
-                        "absolute h-12 min-w-32 overflow-hidden rounded-md border px-3 py-2 text-left shadow-sm",
+                        "absolute min-w-32 overflow-hidden rounded-md border px-3 py-2 text-left leading-tight shadow-sm",
                         approved
                           ? "border-[#86efac] bg-[#dcfce7] text-[#166534]"
                           : "border-[#93c5fd] bg-[#dbeafe] text-[#1d4ed8]",
@@ -773,6 +798,7 @@ function SelectedDayTimeline({
                         left: `${left}%`,
                         top: 14 + lane * timelineLaneHeight,
                         width: `${width}%`,
+                        height: timelineBlockHeight,
                       }}
                     >
                       <p className="truncate text-xs font-semibold">
@@ -827,8 +853,10 @@ function EmployeePageContent() {
     [sessionSnapshot],
   );
   const employee = sessionEmployee;
-  const [requests, setRequests] = useState<ShiftRequest[]>([]);
-  const [slots, setSlots] = useState<ShiftSlot[]>([]);
+  const [currentRequests, setCurrentRequests] = useState<ShiftRequest[]>([]);
+  const [currentSlots, setCurrentSlots] = useState<ShiftSlot[]>([]);
+  const [calendarRequests, setCalendarRequests] = useState<ShiftRequest[]>([]);
+  const [calendarSlots, setCalendarSlots] = useState<ShiftSlot[]>([]);
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
     defaultPayrollSettings,
   );
@@ -840,8 +868,8 @@ function EmployeePageContent() {
   const [now, setNow] = useState(() => new Date());
   const [displayMonth, setDisplayMonth] = useState(() => getMonthStart(new Date()));
   const [selectedDate, setSelectedDate] = useState(() => toDateString(new Date()));
-  const [selectedExportMonth, setSelectedExportMonth] = useState(
-    () => getShiftExportMonths([])[0],
+  const [selectedExportMonth, setSelectedExportMonth] = useState(() =>
+    getMonthValue(new Date()),
   );
   const [exportMessage, setExportMessage] = useState("");
 
@@ -860,20 +888,35 @@ function EmployeePageContent() {
     }
   }, [router, sessionEmployee]);
 
+  const currentMonthValue = getMonthValue(now);
+  const calendarMonthValue = getMonthValue(displayMonth);
+
   useEffect(() => {
     if (!employee) return;
 
     let isActive = true;
 
     async function loadData() {
+      setIsLoading(true);
+      setIsPayrollLoading(true);
+      setCurrentRequests([]);
+      setCurrentSlots([]);
+      setCalendarRequests([]);
+      setCalendarSlots([]);
+
       try {
-        const data = await fetchEmployeeShiftData();
+        const currentMonthData = await fetchEmployeeShiftData(currentMonthValue);
+        const calendarMonthData = calendarMonthValue === currentMonthValue
+          ? currentMonthData
+          : await fetchEmployeeShiftData(calendarMonthValue);
         if (!isActive) return;
 
-        setRequests(data.requests);
-        setSlots(data.slots);
-        setPayrollSettings(data.payrollSettings);
-        setShiftRequestSettings(data.shiftRequestSettings);
+        setCurrentRequests(currentMonthData.requests);
+        setCurrentSlots(currentMonthData.slots);
+        setCalendarRequests(calendarMonthData.requests);
+        setCalendarSlots(calendarMonthData.slots);
+        setPayrollSettings(currentMonthData.payrollSettings);
+        setShiftRequestSettings(currentMonthData.shiftRequestSettings);
       } catch (error) {
         console.error(error);
       } finally {
@@ -889,28 +932,25 @@ function EmployeePageContent() {
     return () => {
       isActive = false;
     };
-  }, [employee]);
+  }, [calendarMonthValue, currentMonthValue, employee]);
 
-  const slotPositionNameById = useMemo(() => {
-    return slots.reduce<Record<string, string>>((positions, slot) => {
-      positions[slot.id] = slot.positionName;
-      return positions;
-    }, {});
-  }, [slots]);
-  const displayRequests = useMemo(() => {
-    return requests.map((request) => ({
-      ...request,
-      positionName:
-        request.positionName || slotPositionNameById[request.slotId] || "",
-    }));
-  }, [requests, slotPositionNameById]);
-  const exportMonths = useMemo(() => getShiftExportMonths(displayRequests), [displayRequests]);
+  const currentDisplayRequests = useMemo(
+    () => applySlotPositionNames(currentRequests, currentSlots),
+    [currentRequests, currentSlots],
+  );
+  const calendarDisplayRequests = useMemo(
+    () => applySlotPositionNames(calendarRequests, calendarSlots),
+    [calendarRequests, calendarSlots],
+  );
+  const exportMonths = useMemo(() => getSelectableMonthValues(now), [now]);
   const activeExportMonth = exportMonths.includes(selectedExportMonth)
     ? selectedExportMonth
-    : exportMonths[0];
+    : currentMonthValue;
 
-
-  const sortedRequests = useMemo(() => sortRequests(displayRequests), [displayRequests]);
+  const sortedRequests = useMemo(
+    () => sortRequests(currentDisplayRequests),
+    [currentDisplayRequests],
+  );
   const upcomingRequests = useMemo(
     () => sortedRequests.filter((request) => !isCompletedRequest(request, now)),
     [sortedRequests, now],
@@ -935,7 +975,10 @@ function EmployeePageContent() {
     () => approvedRequests.find((request) => isWithinNextDays(request, 7, now)),
     [approvedRequests, now],
   );
-  const myCalendarRequests = approvedRequests;
+  const myCalendarRequests = useMemo(
+    () => sortRequests(calendarDisplayRequests).filter((request) => request.status === "承認済"),
+    [calendarDisplayRequests],
+  );
   const requestsByDate = useMemo(() => {
     return myCalendarRequests.reduce<Record<string, ShiftRequest[]>>((groups, request) => {
       groups[request.date] = [...(groups[request.date] ?? []), request];
@@ -979,15 +1022,6 @@ function EmployeePageContent() {
       ),
     [completedApprovedRequests, currentDate],
   );
-  const yearlyWorkMinutes = useMemo(
-    () =>
-      sumWorkMinutes(
-        completedApprovedRequests.filter((request) =>
-          isRequestInYear(request, currentYear),
-        ),
-      ),
-    [completedApprovedRequests, currentYear],
-  );
   const monthlyPay = useMemo(
     () =>
       sumShiftPay(
@@ -997,16 +1031,6 @@ function EmployeePageContent() {
         payrollSettings,
       ),
     [completedApprovedRequests, currentDate, payrollSettings],
-  );
-  const yearlyPay = useMemo(
-    () =>
-      sumShiftPay(
-        completedApprovedRequests.filter((request) =>
-          isRequestInYear(request, currentYear),
-        ),
-        payrollSettings,
-      ),
-    [completedApprovedRequests, currentYear, payrollSettings],
   );
   const nearestRequestPayroll = nearestRequest
     ? calculateShiftPayroll(nearestRequest, payrollSettings)
@@ -1024,22 +1048,6 @@ function EmployeePageContent() {
   );
   const hasNearestActualMemo = Boolean(
     showNearestActuals && nearestRequest?.actualMemo.trim(),
-  );
-
-  const monthlyExportData = useMemo(
-    () =>
-      employee
-        ? buildMonthlyShiftExportData({
-            organizationName: employee.organization,
-            department: employee.department,
-            month: activeExportMonth,
-            employees: [employee],
-            requests: displayRequests,
-            payrollSettings,
-            employeeId: employee.employeeId,
-          })
-        : null,
-    [employee, payrollSettings, displayRequests, activeExportMonth],
   );
 
   function changeDisplayMonth(offset: number) {
@@ -1089,15 +1097,41 @@ function EmployeePageContent() {
       return;
     }
 
-    if (!monthlyExportData) return;
+    if (!employee) return;
 
-    if (format === "ics") {
-      downloadIcs(monthlyExportData);
-      return;
-    }
+    try {
+      const exportData = await fetchEmployeeShiftData(activeExportMonth);
+      const exportRequests = applySlotPositionNames(exportData.requests, exportData.slots);
+      const monthlyExportData = buildMonthlyShiftExportData({
+        organizationName: employee.organization,
+        department: employee.department,
+        month: activeExportMonth,
+        employees: [employee],
+        requests: exportRequests,
+        payrollSettings: exportData.payrollSettings,
+        employeeId: employee.employeeId,
+      });
 
-    if (format === "png") {
-      downloadRosterPng(monthlyExportData);
+      if (monthlyExportData.rows.length === 0) {
+        setExportMessage("この月の承認済みシフトはありません。");
+        return;
+      }
+
+      if (format === "ics") {
+        downloadIcs(monthlyExportData);
+        return;
+      }
+
+      if (format === "png") {
+        downloadRosterPng(monthlyExportData);
+      }
+    } catch (error) {
+      console.error(error);
+      setExportMessage(
+        error instanceof Error
+          ? error.message
+          : "エクスポート用データの読み込みに失敗しました。",
+      );
     }
   }
 
@@ -1153,7 +1187,7 @@ function EmployeePageContent() {
               onMonthChange={setSelectedExportMonth}
               onExport={handleExport}
               disabled={isLoading || isPayrollLoading}
-              hasData={Boolean(monthlyExportData?.rows.length)}
+              hasData={true}
             />
             <button
               type="button"
@@ -1317,24 +1351,10 @@ function EmployeePageContent() {
             description={`${currentYear}年${currentDate.getMonth() + 1}月の終了済みシフト`}
             minutes={monthlyWorkMinutes}
           />
-          <WorkHoursCard
-            title="年間の勤務時間"
-            description={`${currentYear}年1月1日〜12月31日の終了済みシフト`}
-            minutes={yearlyWorkMinutes}
-          />
-        </section>
-
-        <section className="mt-6 grid gap-6 lg:grid-cols-2">
           <PayCard
             title="今月のお給料"
             description={`${currentYear}年${currentDate.getMonth() + 1}月の終了済みシフト`}
             amount={monthlyPay}
-            isLoading={isPayrollLoading}
-          />
-          <PayCard
-            title="年間のお給料"
-            description={`${currentYear}年1月1日〜12月31日の終了済みシフト`}
-            amount={yearlyPay}
             isLoading={isPayrollLoading}
           />
         </section>
