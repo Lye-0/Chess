@@ -292,14 +292,14 @@ function DailyPrintSection({
       );
   const timelineStartColumn = 3;
   const workColumn = timelineStartColumn + timelineSlots.length;
-  const rowTemplate = `38px 118px repeat(${timelineSlots.length}, 10px) 60px 90px`;
+  const rowTemplate = `32px 108px repeat(${timelineSlots.length}, 9px) 52px 72px`;
 
   return (
     <section className={forcePageBreak ? "print-page" : undefined}>
-      <div className="mb-2 grid grid-cols-[180px_1fr_210px] items-center text-[11px] font-semibold text-slate-900 print-header">
-        <div>従業員シフト表</div>
-        <div className="text-center">{formatDateLabel(data.date)}</div>
-        <div className="text-right">{data.organizationName}{data.department ? ` ${data.department}` : ""}</div>
+      <div className="print-header">
+        <div className="print-title">従業員シフト表</div>
+        <div className="print-date">{formatDateLabel(data.date)}</div>
+        <div className="print-org">{data.organizationName}{data.department ? ` ${data.department}` : ""}</div>
       </div>
 
       <div className="excel-roster overflow-x-auto print:overflow-visible">
@@ -339,7 +339,7 @@ function DailyPrintSection({
               (total, row) => total + getShiftDurationMinutes(row.request),
               0,
             );
-            const rowHeight = Math.max(34, laneCount * 28);
+            const rowHeight = Math.max(16, laneCount * 16);
 
             return (
               <div
@@ -353,7 +353,7 @@ function DailyPrintSection({
                   className="timeline-row"
                   style={{
                     gridColumn: `${timelineStartColumn} / ${workColumn}`,
-                    gridTemplateColumns: `repeat(${timelineSlots.length}, 10px)`,
+                    gridTemplateColumns: `repeat(${timelineSlots.length}, 9px)`,
                   }}
                 >
                   {timelineSlots.map((minute) => {
@@ -384,7 +384,7 @@ function DailyPrintSection({
                         style={{
                           left: `${left}%`,
                           width: `${width}%`,
-                          top: `${lane * 28 + 3}px`,
+                          top: `${lane * 16 + 1}px`,
                         }}
                       >
                         <strong>{timeRange.startTime}-{timeRange.endTime}</strong>
@@ -614,6 +614,31 @@ export default function ShiftPrintView({
             margin: 6mm;
           }
 
+          .print-header {
+            align-items: end;
+            display: grid;
+            grid-template-columns: 240px 1fr 240px;
+            margin-bottom: 6px;
+          }
+
+          .print-title {
+            font-size: 22px;
+            font-weight: 800;
+            line-height: 1;
+          }
+
+          .print-date {
+            font-size: 14px;
+            font-weight: 700;
+            text-align: center;
+          }
+
+          .print-org {
+            font-size: 11px;
+            font-weight: 700;
+            text-align: right;
+          }
+
           .excel-roster {
             font-family: "Yu Gothic", "Meiryo", Arial, sans-serif;
           }
@@ -623,8 +648,8 @@ export default function ShiftPrintView({
             border-bottom: 1px solid #555;
             border-right: 1px solid #555;
             display: flex;
-            min-height: 34px;
-            padding: 2px 4px;
+            min-height: 16px;
+            padding: 0 3px;
           }
 
           .header-cell {
@@ -652,8 +677,8 @@ export default function ShiftPrintView({
             display: flex;
             font-weight: 700;
             justify-content: center;
-            min-height: 34px;
-            padding: 2px;
+            min-height: 16px;
+            padding: 0 2px;
           }
 
           .excel-time-cell {
@@ -665,8 +690,8 @@ export default function ShiftPrintView({
             font-size: 8px;
             font-weight: 700;
             justify-content: center;
-            min-height: 22px;
-            padding-top: 2px;
+            min-height: 15px;
+            padding-top: 1px;
           }
 
           .timeline-row {
@@ -675,7 +700,7 @@ export default function ShiftPrintView({
             border-right: 1px solid #555;
             display: grid;
             grid-template-columns: inherit;
-            min-height: 34px;
+            min-height: 16px;
             position: relative;
           }
 
@@ -698,25 +723,25 @@ export default function ShiftPrintView({
 
           .shift-block {
             align-items: center;
-            background: #fdecf4;
-            border: 1px solid #f3c4d5;
+            background: #fff2f7;
+            border: 1px solid #f7d7e2;
             color: #111827;
             display: flex;
             flex-direction: column;
-            font-size: 8px;
+            font-size: 7px;
             font-weight: 700;
-            height: 24px;
+            height: 14px;
             justify-content: center;
             line-height: 1.1;
             overflow: hidden;
-            padding: 1px 2px;
+            padding: 0 1px;
             position: absolute;
             text-align: center;
             white-space: nowrap;
           }
 
           .shift-block span {
-            font-size: 8px;
+            font-size: 7px;
           }
 
           @media print {
@@ -726,7 +751,11 @@ export default function ShiftPrintView({
             }
 
             .print-header {
-              margin-bottom: 3mm;
+              margin-bottom: 2mm;
+            }
+
+            .print-title {
+              font-size: 24px;
             }
 
             .excel-roster {
