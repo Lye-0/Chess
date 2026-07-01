@@ -1328,10 +1328,10 @@ function createXlsxCellXml(cell: XlsxCell) {
   return `<c r="${cell.ref}" t="inlineStr"${style}><is><t>${escapeXml(cell.value)}</t></is></c>`;
 }
 
-function getShiftExportXlsxStyleIndex(positionName: string) {
+function getShiftExportXlsxStyleIndex(positionName: string, isHourLine: boolean) {
   const colorIndex = shiftExportColors.indexOf(getShiftExportColor(positionName));
 
-  return 12 + Math.max(0, colorIndex);
+  return 12 + Math.max(0, colorIndex) * 2 + (isHourLine ? 0 : 1);
 }
 
 function buildDailyRosterSheetXml(data: DailyShiftExportData) {
@@ -1378,24 +1378,18 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
     if (startRow === endRow && startColumn === endColumn) return;
     merges.push(`${getColumnName(startColumn)}${startRow}:${getColumnName(endColumn)}${endRow}`);
   };
-  const removeCellsInRange = (row: number, startColumn: number, endColumn: number) => {
-    const cells = cellsByRow.get(row) ?? [];
-    const refsToRemove = new Set(
-      Array.from({ length: endColumn - startColumn + 1 }, (_, index) => (
-        `${getColumnName(startColumn + index)}${row}`
-      )),
-    );
-    cellsByRow.set(row, cells.filter((cell) => !refsToRemove.has(cell.ref)));
-  };
 
-  rowHeights.set(1, 30);
+  rowHeights.set(1, 34);
   rowHeights.set(3, 28);
   rowHeights.set(4, 24);
   addCell(1, 1, "従業員シフト表", 1);
-  addCell(1, 4, "日付", 2);
-  addCell(1, 5, formatFullDateLabel(data.date), 3);
-  addMerge(1, 5, 1, Math.min(8, maxColumn));
+  addMerge(1, 1, 1, Math.min(8, maxColumn));
+  addCell(1, 9, "日付", 2);
+  addMerge(1, 9, 1, Math.min(10, maxColumn));
+  addCell(1, 11, formatFullDateLabel(data.date), 3);
+  addMerge(1, 11, 1, Math.min(18, maxColumn));
   addCell(2, 1, `${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 0);
+  addMerge(2, 1, 2, Math.min(12, maxColumn));
   addCell(3, 1, "No.", 4);
   addCell(3, 2, "名前", 4);
   addCell(3, timelineStartColumn, `${formatExcelHourLabel(start)}〜${formatExcelHourLabel(end)} タイムテーブル`, 4);
@@ -1436,7 +1430,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
 
     for (let lane = 0; lane < laneCount; lane += 1) {
       const rowNumber = startRow + lane;
-      rowHeights.set(rowNumber, 19);
+      rowHeights.set(rowNumber, 22);
       for (let slot = 0; slot < slotCount; slot += 1) {
         const minute = start + slot * 30;
         addCell(rowNumber, timelineStartColumn + slot, "", minute % 60 === 0 ? 8 : 9);
@@ -1454,11 +1448,13 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
       const rowNumber = startRow + laneRow.lane;
       const positionName = getShiftRequestPositionLabel(laneRow.request);
       const blockText = `${laneRow.request.startTime}-${laneRow.request.endTime} ${positionName}`;
-      const blockStyle = getShiftExportXlsxStyleIndex(positionName);
+      for (let column = startColumn; column <= endColumn; column += 1) {
+        const minute = start + (column - timelineStartColumn) * 30;
+        const isStartColumn = column === startColumn;
+        const blockStyle = getShiftExportXlsxStyleIndex(positionName, minute % 60 === 0);
 
-      removeCellsInRange(rowNumber, startColumn, endColumn);
-      addCell(rowNumber, startColumn, blockText, blockStyle);
-      addMerge(rowNumber, startColumn, rowNumber, endColumn);
+        addCell(rowNumber, column, isStartColumn ? blockText : "", blockStyle);
+      }
     });
 
     currentRow += laneCount;
@@ -1474,11 +1470,11 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
     })
     .join("");
   const columnXml = [
-    '<col min="1" max="1" width="4.8" customWidth="1"/>',
-    '<col min="2" max="2" width="13.5" customWidth="1"/>',
-    `<col min="${timelineStartColumn}" max="${workColumn - 1}" width="2.35" customWidth="1"/>`,
-    `<col min="${workColumn}" max="${workColumn}" width="7.5" customWidth="1"/>`,
-    `<col min="${noteColumn}" max="${noteColumn}" width="11" customWidth="1"/>`,
+    '<col min="1" max="1" width="5.2" customWidth="1"/>',
+    '<col min="2" max="2" width="15" customWidth="1"/>',
+    `<col min="${timelineStartColumn}" max="${workColumn - 1}" width="3.1" customWidth="1"/>`,
+    `<col min="${workColumn}" max="${workColumn}" width="8.5" customWidth="1"/>`,
+    `<col min="${noteColumn}" max="${noteColumn}" width="12.5" customWidth="1"/>`,
   ].join("");
   const mergeXml = merges.length > 0
     ? `<mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>`
@@ -1510,7 +1506,7 @@ function buildXlsxStylesXml() {
     <font><sz val="11"/><name val="Yu Gothic"/></font>
     <font><b/><sz val="20"/><name val="Yu Gothic"/></font>
     <font><b/><sz val="11"/><name val="Yu Gothic"/></font>
-    <font><b/><sz val="8"/><name val="Yu Gothic"/></font>
+    <font><b/><sz val="9"/><name val="Yu Gothic"/></font>
   </fonts>
   <fills count="${6 + shiftExportColors.length}">
     <fill><patternFill patternType="none"/></fill>
@@ -1524,12 +1520,12 @@ function buildXlsxStylesXml() {
   <borders count="5">
     <border><left/><right/><top/><bottom/><diagonal/></border>
     <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
-    <border><left style="medium"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
-    <border><left style="dotted"><color rgb="FF666666"/></left><right/><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right style="dotted"><color rgb="FF666666"/></right><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF666666"/></left><right style="thin"><color rgb="FFBBBBBB"/></right><top style="thin"><color rgb="FF999999"/></top><bottom style="thin"><color rgb="FF999999"/></bottom><diagonal/></border>
     <border><left style="thin"><color rgb="FF666666"/></left><right style="thin"><color rgb="FF666666"/></right><top style="thin"><color rgb="FF666666"/></top><bottom style="thin"><color rgb="FF666666"/></bottom><diagonal/></border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="${12 + shiftExportColors.length}">
+  <cellXfs count="${12 + shiftExportColors.length * 2}">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
@@ -1542,7 +1538,10 @@ function buildXlsxStylesXml() {
     <xf numFmtId="0" fontId="0" fillId="0" borderId="3" xfId="0" applyBorder="1"/>
     <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
-    ${shiftExportColors.map((_, index) => `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="4" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" shrinkToFit="1"/></xf>`).join("")}
+    ${shiftExportColors.map((_, index) => [
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>`,
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>`,
+    ].join("")).join("")}
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
