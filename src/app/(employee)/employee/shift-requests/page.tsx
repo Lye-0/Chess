@@ -103,9 +103,6 @@ function formatDateOnly(date: string) {
   return `${parsedDate.getFullYear()}年${parsedDate.getMonth() + 1}月${parsedDate.getDate()}日`;
 }
 
-function getMonthStart(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
 
 function getMonthValue(date: Date) {
   const year = date.getFullYear();
@@ -118,6 +115,16 @@ function getYearValue(date: Date) {
   return String(date.getFullYear());
 }
 
+function getSelectableYearValues(referenceDate: Date) {
+  const currentYear = referenceDate.getFullYear();
+
+  return Array.from({ length: 6 }, (_, index) => String(currentYear - 3 + index));
+}
+
+function getMonthNumberValue(date: Date) {
+  return String(date.getMonth() + 1).padStart(2, "0");
+}
+
 function parseMonthValue(value: string) {
   return new Date(`${value}-01T00:00:00`);
 }
@@ -127,7 +134,6 @@ function formatMonthLabel(value: string) {
 
   return `${date.getFullYear()}年${date.getMonth() + 1}月`;
 }
-
 
 function sortRequests(requests: ShiftRequest[]) {
   return [...requests].sort((a, b) => {
@@ -338,9 +344,9 @@ function EmployeeShiftRequestsContent() {
   const employee = sessionEmployee;
   const now = useMemo(() => new Date(), []);
   const currentMonthValue = useMemo(() => getMonthValue(now), [now]);
-  const [selectedMonth, setSelectedMonth] = useState(() => getMonthStart(now));
-  const selectedMonthValue = getMonthValue(selectedMonth);
-  const selectedYearValue = getYearValue(selectedMonth);
+  const [selectedYearValue, setSelectedYearValue] = useState(() => getYearValue(now));
+  const [selectedMonthNumber, setSelectedMonthNumber] = useState(() => getMonthNumberValue(now));
+  const selectedMonthValue = `${selectedYearValue}-${selectedMonthNumber}`;
   const [selectedFilter, setSelectedFilter] = useState<RequestFilter>("upcoming");
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
@@ -415,20 +421,12 @@ function EmployeeShiftRequestsContent() {
     () => applySlotPositionNames(requests, slots),
     [requests, slots],
   );
-  const selectableMonthValues = useMemo(() => {
-    const monthValues = new Set<string>();
-
-    displayRequests.forEach((request) => {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(request.date)) {
-        monthValues.add(request.date.slice(0, 7));
-      }
-    });
-
-    return Array.from(monthValues).sort((a, b) => b.localeCompare(a));
-  }, [displayRequests]);
-  const activeMonthValue = selectableMonthValues.includes(selectedMonthValue)
-    ? selectedMonthValue
-    : selectableMonthValues[0] ?? selectedMonthValue;
+  const selectableYearValues = useMemo(() => getSelectableYearValues(now), [now]);
+  const monthNumberValues = useMemo(
+    () => Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")),
+    [],
+  );
+  const activeMonthValue = selectedMonthValue;
   const availableFilters = useMemo(
     () => getAvailableFilters(activeMonthValue, currentMonthValue),
     [activeMonthValue, currentMonthValue],
@@ -560,24 +558,31 @@ function EmployeeShiftRequestsContent() {
                 </div>
               )}
             </div>
-            <div className="grid gap-3 sm:grid-cols-[225px_auto] sm:items-end">
+            <div className="grid gap-3 sm:grid-cols-[120px_120px_auto] sm:items-end">
+              <label className="grid gap-1 text-sm font-semibold text-[#475569]">
+                年を選択
+                <select
+                  value={selectedYearValue}
+                  onChange={(event) => setSelectedYearValue(event.target.value)}
+                  className="h-12 rounded-md border border-black/10 bg-white px-4 text-sm font-semibold text-[#030213] shadow-sm outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-[#bfdbfe]"
+                >
+                  {selectableYearValues.map((yearValue) => (
+                    <option key={yearValue} value={yearValue}>
+                      {yearValue}年
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="grid gap-1 text-sm font-semibold text-[#475569]">
                 月を選択
                 <select
-                  value={selectableMonthValues.length > 0 ? activeMonthValue : ""}
-                  onChange={(event) => {
-                    if (event.target.value) {
-                      setSelectedMonth(parseMonthValue(event.target.value));
-                    }
-                  }}
+                  value={selectedMonthNumber}
+                  onChange={(event) => setSelectedMonthNumber(event.target.value)}
                   className="h-12 rounded-md border border-black/10 bg-white px-4 text-sm font-semibold text-[#030213] shadow-sm outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-[#bfdbfe]"
                 >
-                  {selectableMonthValues.length === 0 && (
-                    <option value="">対象の月はありません</option>
-                  )}
-                  {selectableMonthValues.map((monthValue) => (
-                    <option key={monthValue} value={monthValue}>
-                      {formatMonthLabel(monthValue)}
+                  {monthNumberValues.map((monthNumber) => (
+                    <option key={monthNumber} value={monthNumber}>
+                      {Number(monthNumber)}月
                     </option>
                   ))}
                 </select>
