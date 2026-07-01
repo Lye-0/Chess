@@ -1304,20 +1304,6 @@ function getExcelDailyTimeRange(rows: MonthlyShiftExportRow[]) {
   return { start, end };
 }
 
-function formatExcelHourLabel(minutes: number) {
-  const hour = Math.floor((minutes % (24 * 60)) / 60);
-  const minute = minutes % 60;
-
-  return `${hour}:${padDatePart(minute)}`;
-}
-
-function formatExcelTimelineLabel(minutes: number) {
-  const hour = Math.floor((minutes % (24 * 60)) / 60);
-  const minute = minutes % 60;
-
-  return minute === 0 ? String(hour) : formatExcelHourLabel(minutes);
-}
-
 function formatExcelWorkHours(minutes: number) {
   const hours = Math.round((minutes / 60) * 10) / 10;
 
@@ -1368,15 +1354,40 @@ function createXlsxCellXml(cell: XlsxCell) {
   return `<c r="${cell.ref}" t="inlineStr"${style}><is><t>${escapeXml(cell.value)}</t></is></c>`;
 }
 
-function getShiftExportXlsxStyleIndex(positionName: string, isHourLine: boolean) {
-  const colorIndex = shiftExportColors.indexOf(getShiftExportColor(positionName));
+const excelTimelineSlotMinutes = 10;
 
-  return 13 + Math.max(0, colorIndex) * 2 + (isHourLine ? 0 : 1);
+type ExcelTimelineLineKind = "hour" | "half" | "minor";
+
+function getExcelTimelineLineKind(minutes: number): ExcelTimelineLineKind {
+  if (minutes % 60 === 0) return "hour";
+  if (minutes % 30 === 0) return "half";
+  return "minor";
+}
+
+function getExcelTimelineGridStyleIndex(minutes: number) {
+  const lineKind = getExcelTimelineLineKind(minutes);
+  if (lineKind === "hour") return 8;
+  if (lineKind === "half") return 9;
+  return 13;
+}
+
+function getExcelTimelineHeaderStyleIndex(minutes: number) {
+  const lineKind = getExcelTimelineLineKind(minutes);
+  if (lineKind === "hour") return 5;
+  if (lineKind === "half") return 9;
+  return 13;
+}
+
+function getShiftExportXlsxStyleIndex(positionName: string, lineKind: ExcelTimelineLineKind) {
+  const colorIndex = shiftExportColors.indexOf(getShiftExportColor(positionName));
+  const lineOffset = lineKind === "hour" ? 0 : lineKind === "half" ? 1 : 2;
+
+  return 14 + Math.max(0, colorIndex) * 3 + lineOffset;
 }
 
 function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   const { start, end } = getExcelDailyTimeRange(data.rows);
-  const slotCount = Math.ceil((end - start) / 30);
+  const slotCount = Math.ceil((end - start) / excelTimelineSlotMinutes);
   const timelineStartColumn = 3;
   const workColumn = timelineStartColumn + slotCount;
   const noteColumn = workColumn + 1;
@@ -1425,25 +1436,42 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   rowHeights.set(1, 34);
   rowHeights.set(3, 28);
   rowHeights.set(4, 24);
+  const dateLabelColumn = timelineStartColumn + Math.round((6 * 30) / excelTimelineSlotMinutes);
+  const dateValueColumn = dateLabelColumn + Math.round((2 * 30) / excelTimelineSlotMinutes);
+  const dateValueEndColumn = Math.min(
+    dateValueColumn + Math.round((8 * 30) / excelTimelineSlotMinutes) - 1,
+    maxColumn,
+  );
+
   addCell(1, 1, "従業員シフト表", 1);
-  addCell(1, 9, "日付", 2);
-  addCell(1, 10, "", 2);
-  addCell(1, 11, formatFullDateLabel(data.date), 3);
-  for (let column = 12; column <= Math.min(18, maxColumn); column += 1) {
-    addCell(1, column, "", 3);
+  for (let column = dateLabelColumn; column < dateValueColumn; column += 1) {
+    addCell(1, column, column === dateLabelColumn ? "日付" : "", 2);
+  }
+  for (let column = dateValueColumn; column <= dateValueEndColumn; column += 1) {
+    addCell(1, column, column === dateValueColumn ? formatFullDateLabel(data.date) : "", 3);
   }
   addCell(2, 1, `${data.organizationName}${data.department ? ` ${data.department}` : ""}`, 0);
   addCell(3, 1, "No.", 4);
   addCell(3, 2, "名前", 4);
 
   for (let slot = 0; slot < slotCount; slot += 1) {
-    const minute = start + slot * 30;
+    const minute = start + slot * excelTimelineSlotMinutes;
     const column = timelineStartColumn + slot;
-    const isHour = minute % 60 === 0;
-    const label = isHour || slot === 0 ? formatExcelTimelineLabel(minute) : "";
 
     addCell(3, column, slot === 0 ? `タイムテーブル` : "", 12);
-    addCell(4, column, label, isHour ? 5 : 9);
+
+    if ((minute - start) % 30 === 0) {
+      const headerEndColumn = Math.min(
+        column + Math.round(30 / excelTimelineSlotMinutes) - 1,
+        workColumn - 1,
+      );
+      const lineKind = getExcelTimelineLineKind(minute);
+      const hour = Math.floor((minute % (24 * 60)) / 60);
+      const label = lineKind === "hour" ? hour : "";
+
+      addCell(4, column, label, getExcelTimelineHeaderStyleIndex(minute), typeof label === "number" ? "n" : "inlineStr");
+      addMerge(4, column, 4, headerEndColumn);
+    }
   }
 
   addCell(3, workColumn, "勤務時間", 4);
@@ -1478,8 +1506,8 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
       const rowNumber = startRow + lane;
       rowHeights.set(rowNumber, 22);
       for (let slot = 0; slot < slotCount; slot += 1) {
-        const minute = start + slot * 30;
-        addCell(rowNumber, timelineStartColumn + slot, "", minute % 60 === 0 ? 8 : 9);
+        const minute = start + slot * excelTimelineSlotMinutes;
+        addCell(rowNumber, timelineStartColumn + slot, "", getExcelTimelineGridStyleIndex(minute));
       }
     }
 
@@ -1489,16 +1517,16 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
       const blockEnd = Math.min(end, range.end);
       if (blockEnd <= blockStart) return;
 
-      const startColumn = timelineStartColumn + Math.floor((blockStart - start) / 30);
-      const endColumn = timelineStartColumn + Math.max(0, Math.ceil((blockEnd - start) / 30) - 1);
+      const startColumn = timelineStartColumn + Math.floor((blockStart - start) / excelTimelineSlotMinutes);
+      const endColumn = timelineStartColumn + Math.max(0, Math.ceil((blockEnd - start) / excelTimelineSlotMinutes) - 1);
       const rowNumber = startRow + laneRow.lane;
       const positionName = getShiftRequestPositionLabel(laneRow.request);
       const timeRange = getEffectiveShiftTimeRange(laneRow.request);
-      const blockText = `${timeRange.startTime}-${timeRange.endTime} ${positionName}`;
+      const blockText = `${timeRange.startTime}-${timeRange.endTime}`;
       for (let column = startColumn; column <= endColumn; column += 1) {
-        const minute = start + (column - timelineStartColumn) * 30;
+        const minute = start + (column - timelineStartColumn) * excelTimelineSlotMinutes;
         const isStartColumn = column === startColumn;
-        const blockStyle = getShiftExportXlsxStyleIndex(positionName, minute % 60 === 0);
+        const blockStyle = getShiftExportXlsxStyleIndex(positionName, getExcelTimelineLineKind(minute));
 
         addCell(rowNumber, column, isStartColumn ? blockText : "", blockStyle);
       }
@@ -1519,7 +1547,7 @@ function buildDailyRosterSheetXml(data: DailyShiftExportData) {
   const columnXml = [
     '<col min="1" max="1" width="5.2" customWidth="1"/>',
     '<col min="2" max="2" width="15" customWidth="1"/>',
-    `<col min="${timelineStartColumn}" max="${workColumn - 1}" width="3.1" customWidth="1"/>`,
+    `<col min="${timelineStartColumn}" max="${workColumn - 1}" width="1.04" customWidth="1"/>`,
     `<col min="${workColumn}" max="${workColumn}" width="8.5" customWidth="1"/>`,
     `<col min="${noteColumn}" max="${noteColumn}" width="12.5" customWidth="1"/>`,
   ].join("");
@@ -1567,13 +1595,13 @@ function buildXlsxStylesXml() {
   <borders count="6">
     <border><left/><right/><top/><bottom/><diagonal/></border>
     <border><left style="thin"><color rgb="FF444444"/></left><right style="thin"><color rgb="FF444444"/></right><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
-    <border><left style="medium"><color rgb="FF111111"/></left><right style="dotted"><color rgb="FF111111"/></right><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
-    <border><left style="dotted"><color rgb="FF111111"/></left><right style="medium"><color rgb="FF111111"/></right><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
+    <border><left style="medium"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
+    <border><left style="dotted"><color rgb="FF111111"/></left><right/><top style="thin"><color rgb="FF777777"/></top><bottom style="thin"><color rgb="FF777777"/></bottom><diagonal/></border>
     <border><left style="thin"><color rgb="FF666666"/></left><right style="thin"><color rgb="FF666666"/></right><top style="thin"><color rgb="FF666666"/></top><bottom style="thin"><color rgb="FF666666"/></bottom><diagonal/></border>
     <border><left/><right/><top style="thin"><color rgb="FF444444"/></top><bottom style="thin"><color rgb="FF444444"/></bottom><diagonal/></border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="${13 + shiftExportColors.length * 2}">
+  <cellXfs count="${14 + shiftExportColors.length * 3}">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
@@ -1587,9 +1615,11 @@ function buildXlsxStylesXml() {
     <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="5" xfId="0" applyBorder="1"/>
     ${shiftExportColors.map((_, index) => [
       `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>`,
       `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>`,
+      `<xf numFmtId="0" fontId="3" fillId="${6 + index}" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="centerContinuous" vertical="center"/></xf>`,
     ].join("")).join("")}
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
