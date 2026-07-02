@@ -165,7 +165,7 @@ function assignPrintLanes(rows: MonthlyShiftExportRow[]) {
       return getPositionLabel(a.request).localeCompare(getPositionLabel(b.request), "ja");
     })
     .forEach((row) => {
-      const positionKey = row.request.positionId || getPositionLabel(row.request);
+      const positionKey = getPositionLabel(row.request);
       groups.set(positionKey, [...(groups.get(positionKey) ?? []), row]);
     });
 
@@ -290,9 +290,11 @@ function DailyPrintSection({
           },
         ])).values(),
       );
-  const timelineStartColumn = 3;
-  const workColumn = timelineStartColumn + timelineSlots.length;
-  const rowTemplate = `32px 108px repeat(${timelineSlots.length}, 9px) 52px 72px`;
+
+  const rowBaseHeight = 23;
+  const laneHeight = 21;
+  const slotWidth = 6;
+  const timelineWidth = timelineSlots.length * slotWidth;
 
   return (
     <section className={forcePageBreak ? "print-page" : undefined}>
@@ -303,59 +305,25 @@ function DailyPrintSection({
       </div>
 
       <div className="excel-roster overflow-x-auto print:overflow-visible">
-        <div className="min-w-max border border-[#555] bg-white text-[10px] text-slate-950">
-          <div className="grid" style={{ gridTemplateColumns: rowTemplate }}>
-            <div className="excel-cell header-cell row-span-2">No.</div>
-            <div className="excel-cell header-cell row-span-2">名前</div>
-            <div
-              className="excel-cell header-cell text-center"
-              style={{ gridColumn: `${timelineStartColumn} / ${workColumn}` }}
-            >
-              タイムテーブル
-            </div>
-            <div className="excel-cell header-cell row-span-2">勤務時間</div>
-            <div className="excel-cell header-cell row-span-2">備考</div>
-
-            {timelineSlots.map((minute) => {
-              const isHalfHour = minute % 30 === 0;
-              const isHour = minute % 60 === 0;
-
-              return (
-                <div
-                  key={minute}
-                  className={`excel-time-cell ${isHour ? "hour-line" : isHalfHour ? "half-line" : "no-line"}`}
-                >
-                  {isHour ? Math.floor((minute % (24 * 60)) / 60) : ""}
-                </div>
-              );
-            })}
-          </div>
-
-          {displayEmployees.map((employee, index) => {
-            const employeeRows = rowsByEmployee[employee.employeeId] ?? [];
-            const laneRows = assignPrintLanes(employeeRows);
-            const laneCount = getLaneCount(laneRows);
-            const totalMinutes = employeeRows.reduce(
-              (total, row) => total + getShiftDurationMinutes(row.request),
-              0,
-            );
-            const rowHeight = Math.max(16, laneCount * 16);
-
-            return (
-              <div
-                key={employee.employeeId || `${employee.name}-${index}`}
-                className="grid"
-                style={{ gridTemplateColumns: rowTemplate, minHeight: `${rowHeight}px` }}
-              >
-                <div className="excel-cell body-cell justify-center text-center">{index + 1}</div>
-                <div className="excel-cell name-cell">{employee.name}</div>
-                <div
-                  className="timeline-row"
-                  style={{
-                    gridColumn: `${timelineStartColumn} / ${workColumn}`,
-                    gridTemplateColumns: `repeat(${timelineSlots.length}, 9px)`,
-                  }}
-                >
+        <table className="daily-roster-table text-slate-950" style={{ "--timeline-width": `${timelineWidth}px` } as React.CSSProperties}>
+          <colgroup>
+            <col className="no-col" />
+            <col className="name-col" />
+            <col className="timeline-col" />
+            <col className="work-col" />
+            <col className="note-col" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th className="header-cell" rowSpan={2}>No.</th>
+              <th className="header-cell" rowSpan={2}>名前</th>
+              <th className="header-cell timetable-title">タイムテーブル</th>
+              <th className="header-cell" rowSpan={2}>勤務時間</th>
+              <th className="header-cell" rowSpan={2}>備考</th>
+            </tr>
+            <tr>
+              <th className="time-header-cell">
+                <div className="timeline-grid time-grid" style={{ gridTemplateColumns: `repeat(${timelineSlots.length}, minmax(0, 1fr))` }}>
                   {timelineSlots.map((minute) => {
                     const isHalfHour = minute % 30 === 0;
                     const isHour = minute % 60 === 0;
@@ -363,42 +331,93 @@ function DailyPrintSection({
                     return (
                       <div
                         key={minute}
-                        className={`timeline-slot ${isHour ? "hour-line" : isHalfHour ? "half-line" : "no-line"}`}
+                        className={`time-slot ${isHour ? "hour-line" : isHalfHour ? "half-line" : "no-line"}`}
                       />
                     );
                   })}
-                  {laneRows.map(({ row, lane }) => {
-                    const range = getShiftStartEndMinutes(row.request);
-                    const blockStart = Math.max(start, range.start);
-                    const blockEnd = Math.min(end, range.end);
-                    if (blockEnd <= blockStart) return null;
-
-                    const left = ((blockStart - start) / (end - start)) * 100;
-                    const width = ((blockEnd - blockStart) / (end - start)) * 100;
-                    const timeRange = getEffectiveTimeRange(row.request);
-
-                    return (
-                      <div
-                        key={row.request.id}
-                        className="shift-block"
-                        style={{
-                          left: `${left}%`,
-                          width: `${width}%`,
-                          top: `${lane * 16 + 1}px`,
-                        }}
+                  {timelineSlots
+                    .filter((minute) => minute % 60 === 0)
+                    .map((minute) => (
+                      <span
+                        key={`label-${minute}`}
+                        className="time-label"
+                        style={{ left: `${((minute - start) / (end - start)) * 100}%` }}
                       >
-                        <strong>{timeRange.startTime}-{timeRange.endTime}</strong>
-                        <span>{getPositionLabel(row.request)}</span>
-                      </div>
-                    );
-                  })}
+                        {Math.floor((minute % (24 * 60)) / 60)}
+                      </span>
+                    ))}
                 </div>
-                <div className="excel-cell work-cell">{getWorkHoursLabel(totalMinutes)}</div>
-                <div className="excel-cell body-cell">&nbsp;</div>
-              </div>
-            );
-          })}
-        </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayEmployees.map((employee, index) => {
+              const employeeRows = rowsByEmployee[employee.employeeId] ?? [];
+              const laneRows = assignPrintLanes(employeeRows);
+              const laneCount = getLaneCount(laneRows);
+              const totalMinutes = employeeRows.reduce(
+                (total, row) => total + getShiftDurationMinutes(row.request),
+                0,
+              );
+              const rowHeight = Math.max(rowBaseHeight, laneCount * laneHeight);
+
+              return (
+                <tr key={employee.employeeId || `${employee.name}-${index}`} style={{ height: `${rowHeight}px` }}>
+                  <td className="body-cell no-cell">{index + 1}</td>
+                  <td className="body-cell name-cell">{employee.name}</td>
+                  <td className="timeline-cell" style={{ height: `${rowHeight}px` }}>
+                    <div
+                      className="timeline-grid timeline-body-grid"
+                      style={{
+                        gridTemplateColumns: `repeat(${timelineSlots.length}, minmax(0, 1fr))`,
+                        minHeight: `${rowHeight}px`,
+                      }}
+                    >
+                      {timelineSlots.map((minute) => {
+                        const isHalfHour = minute % 30 === 0;
+                        const isHour = minute % 60 === 0;
+
+                        return (
+                          <div
+                            key={minute}
+                            className={`timeline-slot ${isHour ? "hour-line" : isHalfHour ? "half-line" : "no-line"}`}
+                          />
+                        );
+                      })}
+                      {laneRows.map(({ row, lane }) => {
+                        const range = getShiftStartEndMinutes(row.request);
+                        const blockStart = Math.max(start, range.start);
+                        const blockEnd = Math.min(end, range.end);
+                        if (blockEnd <= blockStart) return null;
+
+                        const left = ((blockStart - start) / (end - start)) * 100;
+                        const width = ((blockEnd - blockStart) / (end - start)) * 100;
+                        const timeRange = getEffectiveTimeRange(row.request);
+
+                        return (
+                          <div
+                            key={row.request.id}
+                            className="shift-block"
+                            style={{
+                              left: `${left}%`,
+                              width: `${width}%`,
+                              top: `${lane * laneHeight + 4}px`,
+                            }}
+                          >
+                            <strong>{timeRange.startTime}-{timeRange.endTime}</strong>
+                            <span>{getPositionLabel(row.request)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </td>
+                  <td className="body-cell work-cell">{getWorkHoursLabel(totalMinutes)}</td>
+                  <td className="body-cell note-cell">&nbsp;</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </section>
   );
@@ -610,7 +629,7 @@ export default function ShiftPrintView({
       <div className="mx-auto max-w-[1180px] px-4 py-6 print:max-w-none print:p-0">
         <style jsx global>{`
           @page {
-            size: A4 landscape;
+            size: A4 portrait;
             margin: 6mm;
           }
 
@@ -643,74 +662,152 @@ export default function ShiftPrintView({
             font-family: "Yu Gothic", "Meiryo", Arial, sans-serif;
           }
 
-          .excel-cell {
-            align-items: center;
-            border-bottom: 1px solid #555;
-            border-right: 1px solid #555;
-            display: flex;
-            min-height: 16px;
+          .excel-roster,
+          .excel-roster * {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          .daily-roster-table {
+            background: #ffffff;
+            border: 2px solid #444;
+            border-collapse: collapse;
+            table-layout: fixed;
+            width: auto;
+          }
+
+          .daily-roster-table th,
+          .daily-roster-table td {
+            border: 1px solid #666;
+            box-sizing: border-box;
+            height: 23px;
             padding: 0 3px;
+            vertical-align: middle;
+          }
+
+          .daily-roster-table thead th {
+            border-bottom: 2px solid #444;
+          }
+
+          .daily-roster-table tbody tr:first-child td {
+            border-top: 2px solid #444;
+          }
+
+          .no-col {
+            width: 34px;
+          }
+
+          .name-col {
+            width: 108px;
+          }
+
+          .timeline-col {
+            width: var(--timeline-width);
+          }
+
+          .work-col {
+            width: 72px;
+          }
+
+          .note-col {
+            width: 84px;
           }
 
           .header-cell {
             background: #d9d9d9;
-            font-weight: 700;
-            justify-content: center;
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 1.15;
             text-align: center;
+            white-space: nowrap;
+          }
+
+          .timetable-title {
+            height: 23px;
           }
 
           .body-cell {
             background: #ffffff;
+            font-size: 10px;
+          }
+
+          .no-cell {
+            text-align: center;
           }
 
           .name-cell {
+            border-right: 2px solid #444 !important;
             background: #ddebf7;
             color: #1f4e79;
             font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
 
           .work-cell {
-            align-items: center;
-            background: #ffff99;
-            border-bottom: 1px solid #555;
-            border-right: 1px solid #555;
-            display: flex;
-            font-weight: 700;
-            justify-content: center;
-            min-height: 16px;
-            padding: 0 2px;
+            background: #ffff66;
+            font-size: 12px;
+            font-weight: 800;
+            text-align: center;
           }
 
-          .excel-time-cell {
-            align-items: flex-start;
+          .note-cell {
             background: #ffffff;
-            border-bottom: 1px solid #555;
-            border-right: 0;
-            display: flex;
-            font-size: 8px;
-            font-weight: 700;
-            justify-content: center;
-            min-height: 15px;
-            padding-top: 1px;
           }
 
-          .timeline-row {
-            background: #ffffff;
-            border-bottom: 1px solid #555;
-            border-right: 1px solid #555;
+          .time-header-cell,
+          .timeline-cell {
+            border-left: 2px solid #444 !important;
+            border-right: 2px solid #444 !important;
+            padding: 0 !important;
+          }
+
+          .time-header-cell {
+            border-bottom: 2px solid #444 !important;
+          }
+
+          .timeline-grid {
             display: grid;
-            grid-template-columns: inherit;
-            min-height: 16px;
+            position: relative;
+            width: 100%;
+          }
+
+          .time-grid {
+            height: 17px;
+          }
+
+          .time-slot {
+            background: #ffffff;
+            box-sizing: border-box;
             position: relative;
           }
 
+          .time-label {
+            display: block;
+            font-size: 9px;
+            font-weight: 800;
+            line-height: 1;
+            min-width: 14px;
+            position: absolute;
+            text-align: left;
+            top: 2px;
+            transform: translateX(2px);
+            z-index: 3;
+          }
+
+          .timeline-body-grid {
+            background: #ffffff;
+            overflow: hidden;
+          }
+
           .timeline-slot {
-            border-right: 0;
+            box-sizing: border-box;
             min-height: 100%;
           }
 
           .hour-line {
-            border-left: 1px solid #333;
+            border-left: 1px solid #999;
           }
 
           .half-line {
@@ -723,27 +820,28 @@ export default function ShiftPrintView({
 
           .shift-block {
             align-items: center;
-            background: #fff2f7;
-            border: 1px solid #f7d7e2;
+            background: #f4bfd4;
+            border: 1px solid #df7fa6;
+            box-sizing: border-box;
             color: #111827;
             display: flex;
             flex-direction: column;
             font-size: 7px;
-            font-weight: 700;
-            height: 14px;
+            font-weight: 800;
+            height: 16px;
             justify-content: center;
-            line-height: 1.1;
+            line-height: 1.05;
             overflow: hidden;
             padding: 0 1px;
             position: absolute;
             text-align: center;
             white-space: nowrap;
+            z-index: 2;
           }
 
           .shift-block span {
             font-size: 7px;
           }
-
           @media print {
             html,
             body {
@@ -760,6 +858,91 @@ export default function ShiftPrintView({
 
             .excel-roster {
               transform-origin: top left;
+            }
+
+            .daily-roster-table {
+              border-width: 1.5px;
+              width: 100%;
+            }
+
+            .daily-roster-table th,
+            .daily-roster-table td {
+              border-color: #666;
+            }
+
+            .header-cell {
+              background: #d9d9d9 !important;
+              color: #000000 !important;
+            }
+
+            .body-cell,
+            .note-cell,
+            .time-slot,
+            .timeline-body-grid {
+              background: #ffffff !important;
+              color: #000000 !important;
+            }
+
+            .name-cell {
+              background: #ddebf7 !important;
+              color: #1f4e79 !important;
+            }
+
+            .work-cell {
+              background: #ffff66 !important;
+              color: #000000 !important;
+            }
+
+            .shift-block {
+              background: #f4bfd4 !important;
+              border-color: #df7fa6 !important;
+              color: #111827 !important;
+            }
+
+            .no-col {
+              width: 7mm;
+            }
+
+            .name-col {
+              width: 24mm;
+            }
+
+            .timeline-col {
+              width: auto;
+            }
+
+            .work-col {
+              width: 17mm;
+            }
+
+            .note-col {
+              width: 18mm;
+            }
+
+            .time-header-cell,
+            .timeline-cell,
+            .name-cell {
+              border-color: #444 !important;
+              border-width: 1.5px !important;
+            }
+
+            .daily-roster-table thead th,
+            .time-header-cell {
+              border-bottom-color: #444 !important;
+              border-bottom-width: 2px !important;
+            }
+
+            .daily-roster-table tbody tr:first-child td {
+              border-top-color: #444 !important;
+              border-top-width: 2px !important;
+            }
+
+            .hour-line {
+              border-left-color: #999;
+            }
+
+            .half-line {
+              border-left-color: #c4c4c4;
             }
 
             .print-page {

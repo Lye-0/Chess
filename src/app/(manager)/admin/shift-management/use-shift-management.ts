@@ -75,6 +75,15 @@ function padDatePart(value: number) {
 function getMonthValue(date: Date) {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0")].join("-");
 }
+
+function getDefaultExportDate(dates: string[], selectedDate: string, month: string) {
+  if (dates.includes(selectedDate)) return selectedDate;
+
+  const sortedDates = [...dates].sort();
+  const firstDateInMonth = sortedDates.find((date) => date.startsWith(month));
+
+  return firstDateInMonth ?? sortedDates[0] ?? selectedDate;
+}
 function toShiftDateString(date: Date) {
   return [
     date.getFullYear(),
@@ -421,9 +430,11 @@ export function useShiftManagement(displayMonth: Date) {
       ),
     [activeExportMonth, exportDateRequests, selectedExportFormat, selectedExportScope],
   );
-  const activeExportDate = exportDates.includes(selectedExportDate)
-    ? selectedExportDate
-    : exportDates[0];
+  const activeExportDate = getDefaultExportDate(
+    exportDates,
+    selectedExportDate,
+    activeExportMonth,
+  );
   const monthlyExportData = useMemo(
     () =>
       buildMonthlyShiftExportData({
