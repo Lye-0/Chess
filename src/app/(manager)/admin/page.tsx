@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   subscribeShiftRequests,
   type ShiftRequest,
@@ -156,6 +156,12 @@ function AdminContent() {
     () => getShiftExportDates([])[0],
   );
   const [selectedExportScope, setSelectedExportScope] = useState<ShiftExportScope>("month");
+  const [usesCompactHeader, setUsesCompactHeader] = useState(true);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const backLinkRef = useRef<HTMLAnchorElement>(null);
+  const organizationHeaderRef = useRef<HTMLDivElement>(null);
+  const exportActionRef = useRef<HTMLDivElement>(null);
+  const secondaryActionsRef = useRef<HTMLDivElement>(null);
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
   const [isLoadingSlots, setIsLoadingSlots] = useState(true);
 
@@ -206,6 +212,43 @@ function AdminContent() {
       unsubscribePayroll();
     };
   }, [currentOrganization, organizationId]);
+
+  useEffect(() => {
+    function updateHeaderMode() {
+      const headerWidth = headerRef.current?.clientWidth ?? 0;
+      const backWidth = backLinkRef.current?.offsetWidth ?? 0;
+      const organizationWidth = Math.min(
+        organizationHeaderRef.current?.scrollWidth ?? 0,
+        360,
+      );
+      const actionsWidth =
+        (exportActionRef.current?.offsetWidth ?? 0) +
+        (secondaryActionsRef.current?.offsetWidth ?? 0) +
+        16;
+      const requiredWidth = backWidth + organizationWidth + actionsWidth + 32;
+
+      setUsesCompactHeader(headerWidth > 0 && requiredWidth > headerWidth);
+    }
+
+    updateHeaderMode();
+
+    const observer = new ResizeObserver(updateHeaderMode);
+    [
+      headerRef.current,
+      backLinkRef.current,
+      organizationHeaderRef.current,
+      exportActionRef.current,
+      secondaryActionsRef.current,
+    ].forEach((element) => {
+      if (element) observer.observe(element);
+    });
+    window.addEventListener("resize", updateHeaderMode);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateHeaderMode);
+    };
+  }, [currentOrganization?.name, currentOrganization?.department, organizationId]);
 
   const approvedCountBySlot = useMemo(() => {
     return requests.reduce<Record<string, number>>((counts, request) => {
@@ -390,8 +433,9 @@ function AdminContent() {
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <header className="border-b border-black/10 bg-white shadow-sm">
-        <div className="mx-auto grid max-w-[1248px] grid-cols-[auto_minmax(0,1fr)] items-center gap-2 px-3 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-4 sm:px-6 lg:px-0">
+        <div ref={headerRef} className="mx-auto flex max-w-[1248px] flex-wrap items-center gap-2 px-3 py-4 sm:px-6 lg:px-0">
           <Link
+            ref={backLinkRef}
             href="/manager/select-organization"
             className="inline-flex shrink-0 items-center gap-2 rounded-md px-2 py-2 text-sm font-semibold transition hover:bg-[#e9ebef] sm:px-3"
           >
@@ -399,7 +443,7 @@ function AdminContent() {
             <span className="whitespace-nowrap">組織選択へ</span>
           </Link>
 
-          <div className="flex min-w-0 items-center justify-start gap-2 sm:justify-center sm:gap-3">
+          <div ref={organizationHeaderRef} className="flex min-w-0 max-w-full flex-1 basis-[220px] items-center justify-start gap-2 lg:gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#ececf0] sm:h-11 sm:w-11">
               <BuildingIcon />
             </div>
@@ -419,35 +463,37 @@ function AdminContent() {
             </div>
           </div>
 
-          <div className="col-span-2 flex shrink-0 items-center justify-between gap-2 sm:col-span-1 sm:justify-end">
-            <ShiftExportMenu
-              formats={[
-                { format: "pdf", label: "PDF" },
-                { format: "csv", label: "CSV" },
-                { format: "excel", label: "Excel" },
-                { format: "print", label: "印刷", actionLabel: "印刷ページを開く" },
-              ]}
-              months={exportMonths}
-              selectedMonth={activeExportMonth}
-              onMonthChange={setSelectedExportMonth}
-              onExport={handleExport}
-              selectedFormat={selectedExportFormat}
-              onFormatChange={setSelectedExportFormat}
-              disabled={isLoadingRequests || isLoadingSlots}
-              hasData={hasExportData}
-              scopeOptions={[
-                { scope: "month", label: "月単位" },
-                { scope: "monthDaily", label: "月単位（一日ずつ）" },
-                { scope: "day", label: "日単位" },
-              ]}
-              selectedScope={selectedExportScope}
-              onScopeChange={setSelectedExportScope}
-              dates={exportDates}
-              selectedDate={activeExportDate}
-              onDateChange={setSelectedExportDate}
-              showMobileLabel
-            />
-            <div className="flex items-center gap-2">
+          <div className={usesCompactHeader ? "flex w-full shrink-0 items-center justify-between gap-2" : "ml-auto flex w-auto shrink-0 items-center justify-end gap-2"}>
+            <div ref={exportActionRef}>
+              <ShiftExportMenu
+                formats={[
+                  { format: "pdf", label: "PDF" },
+                  { format: "csv", label: "CSV" },
+                  { format: "excel", label: "Excel" },
+                  { format: "print", label: "印刷", actionLabel: "印刷ページを開く" },
+                ]}
+                months={exportMonths}
+                selectedMonth={activeExportMonth}
+                onMonthChange={setSelectedExportMonth}
+                onExport={handleExport}
+                selectedFormat={selectedExportFormat}
+                onFormatChange={setSelectedExportFormat}
+                disabled={isLoadingRequests || isLoadingSlots}
+                hasData={hasExportData}
+                scopeOptions={[
+                  { scope: "month", label: "月単位" },
+                  { scope: "monthDaily", label: "月単位（一日ずつ）" },
+                  { scope: "day", label: "日単位" },
+                ]}
+                selectedScope={selectedExportScope}
+                onScopeChange={setSelectedExportScope}
+                dates={exportDates}
+                selectedDate={activeExportDate}
+                onDateChange={setSelectedExportDate}
+                showMobileLabel
+              />
+            </div>
+            <div ref={secondaryActionsRef} className="flex items-center gap-2">
               <Link
                 href={`/admin/settings${organizationQuery}`}
                 aria-label="設定"
