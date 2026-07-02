@@ -1,12 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import {
   subscribeShiftRequests,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 import { subscribeShiftSlots, type ShiftSlot } from "@/lib/shiftSlots";
+import { subscribeEmployees, type EmployeeProfile } from "@/lib/people";
+import {
+  defaultPayrollSettings,
+  subscribePayrollSettings,
+  type PayrollSettings,
+} from "@/lib/payroll";
+import {
+  buildDailyShiftExportData,
+  buildMonthlyShiftExportData,
+  downloadCsv,
+  downloadDailyCsv,
+  downloadDailyRosterExcel,
+  downloadDailyRosterPdf,
+  downloadMonthDailyRosterPdf,
+  downloadRosterPdf,
+  getShiftExportDates,
+  getShiftExportMonths,
+  type ShiftExportFormat,
+  type ShiftExportScope,
+} from "@/lib/shiftExports";
+import { ShiftExportMenu } from "@/components/ui/shift-export-menu";
 import { useManagerOrganizationAccess } from "@/lib/useManagerOrganizationAccess";
 import {
   ArrowLeftIcon,
@@ -108,6 +129,14 @@ function formatHoursOnly(minutes: number) {
   })}h`;
 }
 
+function getDefaultExportDate(dates: string[], selectedDate: string, month: string) {
+  if (dates.includes(selectedDate)) return selectedDate;
+
+  const sortedDates = [...dates].sort();
+  const firstDateInMonth = sortedDates.find((date) => date.startsWith(month));
+
+  return firstDateInMonth ?? sortedDates[0] ?? selectedDate;
+}
 function AdminContent() {
   const {
     organizationId,
@@ -117,6 +146,16 @@ function AdminContent() {
   } = useManagerOrganizationAccess();
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
+  const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
+  const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(defaultPayrollSettings);
+  const [selectedExportFormat, setSelectedExportFormat] = useState<ShiftExportFormat>("pdf");
+  const [selectedExportMonth, setSelectedExportMonth] = useState(
+    () => getShiftExportMonths([])[0],
+  );
+  const [selectedExportDate, setSelectedExportDate] = useState(
+    () => getShiftExportDates([])[0],
+  );
+  const [selectedExportScope, setSelectedExportScope] = useState<ShiftExportScope>("month");
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
   const [isLoadingSlots, setIsLoadingSlots] = useState(true);
 
@@ -145,10 +184,26 @@ function AdminContent() {
       },
       organizationId,
     );
+    const unsubscribeEmployees = subscribeEmployees(
+      setEmployees,
+      (error) => {
+        console.error(error);
+      },
+      organizationId,
+    );
+    const unsubscribePayroll = subscribePayrollSettings(
+      setPayrollSettings,
+      (error) => {
+        console.error(error);
+      },
+      organizationId,
+    );
 
     return () => {
       unsubscribeRequests();
       unsubscribeSlots();
+      unsubscribeEmployees();
+      unsubscribePayroll();
     };
   }, [currentOrganization, organizationId]);
 
@@ -191,6 +246,138 @@ function AdminContent() {
       .filter((request) => isRequestInWeek(request, start, end))
       .reduce((total, request) => total + calculateWorkMinutes(request), 0);
   }, [requests]);
+  const exportMonths = useMemo(() => getShiftExportMonths(requests), [requests]);
+  const activeExportMonth = exportMonths.includes(selectedExportMonth)
+    ? selectedExportMonth
+    : exportMonths[0];
+  const exportRequests = useMemo(() => {
+    const slotsById = new Map(slots.map((slot) => [slot.id, slot]));
+
+    return requests.map((request) => {
+      const currentPositionName = request.positionName.trim();
+      if (currentPositionName && currentPositionName !== "ポジション未設定") return request;
+
+      const slot = slotsById.get(request.slotId);
+      const slotPositionName = slot?.positionName.trim() ?? "";
+      if (!slotPositionName) return request;
+
+      return {
+        ...request,
+        positionId: request.positionId || slot?.positionId || "",
+        positionName: slotPositionName,
+      };
+    });
+  }, [requests, slots]);
+  const approvedExportRequests = useMemo(
+    () => exportRequests.filter((request) => request.status === "承認済"),
+    [exportRequests],
+  );
+  const exportDateRequests = selectedExportFormat === "excel"
+    ? approvedExportRequests
+    : requests;
+  const exportDates = useMemo(
+    () =>
+      getShiftExportDates(
+        exportDateRequests,
+        selectedExportFormat === "excel" || selectedExportScope === "day"
+          ? undefined
+          : activeExportMonth,
+      ),
+    [activeExportMonth, exportDateRequests, selectedExportFormat, selectedExportScope],
+  );
+  const activeExportDate = getDefaultExportDate(
+    exportDates,
+    selectedExportDate,
+    activeExportMonth,
+  );
+  const monthlyExportData = useMemo(
+    () =>
+      buildMonthlyShiftExportData({
+        organizationName: currentOrganization?.name ?? "",
+        department: currentOrganization?.department ?? "",
+        month: activeExportMonth,
+        employees,
+        requests,
+        payrollSettings,
+      }),
+    [activeExportMonth, currentOrganization, employees, payrollSettings, requests],
+  );
+  const dailyExportRequests = selectedExportFormat === "excel" ? exportRequests : requests;
+  const dailyExportData = useMemo(
+    () =>
+      buildDailyShiftExportData({
+        organizationName: currentOrganization?.name ?? "",
+        department: currentOrganization?.department ?? "",
+        date: activeExportDate,
+        employees,
+        requests: dailyExportRequests,
+        payrollSettings,
+      }),
+    [activeExportDate, currentOrganization, dailyExportRequests, employees, payrollSettings],
+  );
+  const hasExportData =
+    selectedExportFormat === "excel" || selectedExportScope === "day"
+      ? dailyExportData.rows.length > 0
+      : monthlyExportData.rows.length > 0;
+  const handleExport = useCallback(
+    (format: ShiftExportFormat) => {
+      if (format === "print") {
+        const params = new URLSearchParams();
+        params.set("organizationId", organizationId);
+        params.set("scope", selectedExportScope);
+
+        if (selectedExportScope === "day") {
+          params.set("date", activeExportDate);
+        } else {
+          params.set("month", activeExportMonth);
+        }
+
+        window.open(
+          `/admin/shift-management/print?${params.toString()}`,
+          "_blank",
+          "noopener,noreferrer",
+        );
+        return;
+      }
+
+      if (format === "csv") {
+        if (selectedExportScope === "day") {
+          downloadDailyCsv(dailyExportData);
+          return;
+        }
+
+        downloadCsv(monthlyExportData);
+        return;
+      }
+
+      if (format === "excel") {
+        downloadDailyRosterExcel(dailyExportData);
+        return;
+      }
+
+      if (format === "pdf") {
+        if (selectedExportScope === "day") {
+          downloadDailyRosterPdf(dailyExportData);
+          return;
+        }
+
+        if (selectedExportScope === "monthDaily") {
+          downloadMonthDailyRosterPdf(monthlyExportData);
+          return;
+        }
+
+        downloadRosterPdf(monthlyExportData);
+      }
+    },
+    [
+      activeExportDate,
+      activeExportMonth,
+      dailyExportData,
+      monthlyExportData,
+      organizationId,
+      selectedExportScope,
+    ],
+  );
 
   if (isCheckingOrganization || !currentOrganization) {
     return (
@@ -203,7 +390,7 @@ function AdminContent() {
   return (
     <main className="min-h-screen bg-[#f4f7fa] text-[#030213]">
       <header className="border-b border-black/10 bg-white shadow-sm">
-        <div className="mx-auto grid max-w-[1248px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-4 sm:gap-4 sm:px-6 lg:px-0">
+        <div className="mx-auto grid max-w-[1248px] grid-cols-[auto_minmax(0,1fr)] items-center gap-2 px-3 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-4 sm:px-6 lg:px-0">
           <Link
             href="/manager/select-organization"
             className="inline-flex shrink-0 items-center gap-2 rounded-md px-2 py-2 text-sm font-semibold transition hover:bg-[#e9ebef] sm:px-3"
@@ -212,7 +399,7 @@ function AdminContent() {
             <span className="whitespace-nowrap">組織選択へ</span>
           </Link>
 
-          <div className="flex min-w-0 items-center justify-center gap-2 sm:gap-3">
+          <div className="flex min-w-0 items-center justify-start gap-2 sm:justify-center sm:gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#ececf0] sm:h-11 sm:w-11">
               <BuildingIcon />
             </div>
@@ -232,23 +419,52 @@ function AdminContent() {
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-            <Link
-              href={`/admin/settings${organizationQuery}`}
-              aria-label="設定"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-semibold transition hover:bg-[#e9ebef] sm:w-auto sm:gap-2 sm:px-3 sm:py-2"
-            >
-              <KeyIcon className="h-4 w-4" />
-              <span className="hidden sm:inline">設定</span>
-            </Link>
-            <Link
-              href="/login"
-              aria-label="ログアウト"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-semibold transition hover:bg-[#e9ebef] sm:w-auto sm:gap-2 sm:px-3 sm:py-2"
-            >
-              <LogoutIcon />
-              <span className="hidden sm:inline">ログアウト</span>
-            </Link>
+          <div className="col-span-2 flex shrink-0 items-center justify-between gap-2 sm:col-span-1 sm:justify-end">
+            <ShiftExportMenu
+              formats={[
+                { format: "pdf", label: "PDF" },
+                { format: "csv", label: "CSV" },
+                { format: "excel", label: "Excel" },
+                { format: "print", label: "印刷", actionLabel: "印刷ページを開く" },
+              ]}
+              months={exportMonths}
+              selectedMonth={activeExportMonth}
+              onMonthChange={setSelectedExportMonth}
+              onExport={handleExport}
+              selectedFormat={selectedExportFormat}
+              onFormatChange={setSelectedExportFormat}
+              disabled={isLoadingRequests || isLoadingSlots}
+              hasData={hasExportData}
+              scopeOptions={[
+                { scope: "month", label: "月単位" },
+                { scope: "monthDaily", label: "月単位（一日ずつ）" },
+                { scope: "day", label: "日単位" },
+              ]}
+              selectedScope={selectedExportScope}
+              onScopeChange={setSelectedExportScope}
+              dates={exportDates}
+              selectedDate={activeExportDate}
+              onDateChange={setSelectedExportDate}
+              showMobileLabel
+            />
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/admin/settings${organizationQuery}`}
+                aria-label="設定"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
+              >
+                <KeyIcon className="h-4 w-4" />
+                <span>設定</span>
+              </Link>
+              <Link
+                href="/login"
+                aria-label="ログアウト"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
+              >
+                <LogoutIcon />
+                <span>ログアウト</span>
+              </Link>
+            </div>
           </div>
         </div>
       </header>
