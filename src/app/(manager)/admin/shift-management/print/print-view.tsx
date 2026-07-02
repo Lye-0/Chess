@@ -128,6 +128,10 @@ function getWorkHoursLabel(minutes: number) {
   return Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
 }
 
+function getMonthlyWorkHoursLabel(minutes: number) {
+  return `${getWorkHoursLabel(minutes) || "0"}h`;
+}
+
 function getDailyTimeRange(rows: MonthlyShiftExportRow[]) {
   const ranges = rows.map((row) => getShiftStartEndMinutes(row.request));
   const defaultStart = 9 * 60;
@@ -210,6 +214,12 @@ function sortRows(rows: MonthlyShiftExportRow[]) {
   });
 }
 
+function sortEmployeesForPrint(employees: EmployeeProfile[]) {
+  return employees
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+}
+
 function getTimelineGridColumns(start: number, end: number) {
   const slotMinutes = 10;
   const slotCount = Math.ceil((end - start) / slotMinutes);
@@ -241,26 +251,6 @@ function PrintToolbar({
   );
 }
 
-function DocumentHeader({
-  title,
-  organizationName,
-  department,
-}: {
-  title: string;
-  organizationName: string;
-  department: string;
-}) {
-  return (
-    <header className="mb-5 flex items-end justify-between gap-6 border-b-2 border-slate-900 pb-3">
-      <div>
-        <p className="text-sm font-semibold text-slate-500">{organizationName}</p>
-        <h1 className="mt-1 text-2xl font-bold text-slate-950">{title}</h1>
-      </div>
-      {department && <p className="text-sm font-semibold text-slate-600">{department}</p>}
-    </header>
-  );
-}
-
 function DailyPrintSection({
   data,
   forcePageBreak = false,
@@ -281,10 +271,15 @@ function DailyPrintSection({
         new Map(sortedRows.map((row) => [
           row.request.employeeId,
           row.employee ?? {
+            id: row.request.employeeId || row.request.id,
+            organizationId: "",
             employeeId: row.request.employeeId,
+            firstName: "",
+            lastName: "",
             name: row.request.employeeName,
             email: row.request.employeeEmail,
             employmentType: row.request.employmentType,
+            organization: data.organizationName,
             department: data.department,
             workScore: 0,
           },
@@ -424,67 +419,107 @@ function DailyPrintSection({
 }
 function MonthlyPrintSection({ data }: { data: MonthlyShiftExportData }) {
   const days = getMonthDays(data.month);
-  const rowsByEmployee = data.rows.reduce<Record<string, MonthlyShiftExportRow[]>>((groups, row) => {
-    const key = row.employee?.employeeId || row.request.employeeId || row.request.employeeName;
+  const sortedRows = sortRows(data.rows);
+  const rowsByEmployee = sortedRows.reduce<Record<string, MonthlyShiftExportRow[]>>((groups, row) => {
+    const key = row.request.employeeId || row.employee?.employeeId || row.request.employeeName;
     groups[key] = [...(groups[key] ?? []), row];
     return groups;
   }, {});
-  const employeeRows = Object.values(rowsByEmployee)
-    .map((rows) => sortRows(rows))
-    .sort((a, b) => getEmployeeDisplayName(a[0]).localeCompare(getEmployeeDisplayName(b[0]), "ja"));
+  const displayEmployees = data.employees.length > 0
+    ? sortEmployeesForPrint(data.employees)
+    : Array.from(
+        new Map(sortedRows.map((row) => [
+          row.request.employeeId,
+          row.employee ?? {
+            employeeId: row.request.employeeId,
+            name: row.request.employeeName,
+            email: row.request.employeeEmail,
+            employmentType: row.request.employmentType,
+            department: data.department,
+            workScore: 0,
+          },
+        ])).values(),
+      );
 
   return (
-    <section>
-      <DocumentHeader
-        title={`${formatMonthLabel(data.month)} シフト一覧`}
-        organizationName={data.organizationName}
-        department={data.department}
-      />
-      {employeeRows.length === 0 ? (
+    <section className="monthly-print-page">
+      <div className="print-header monthly-print-header">
+        <div className="print-title">従業員シフト表</div>
+        <div className="print-date">{formatMonthLabel(data.month)}</div>
+        <div className="print-org">{data.organizationName}{data.department ? ` ${data.department}` : ""}</div>
+      </div>
+
+      {displayEmployees.length === 0 ? (
         <p className="rounded-md border border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
           この月の承認済みシフトはありません。
         </p>
       ) : (
-        <table className="w-full border-collapse text-[11px]">
-          <thead>
-            <tr>
-              <th className="w-28 border border-slate-400 bg-slate-100 px-2 py-2 text-left">氏名</th>
+        <div className="excel-roster monthly-roster overflow-x-auto print:overflow-visible">
+          <table className="monthly-roster-table text-slate-950">
+            <colgroup>
+              <col className="monthly-no-col" />
+              <col className="monthly-name-col" />
               {days.map((day) => (
-                <th
-                  key={day.date}
-                  className={`border border-slate-400 px-1 py-2 text-center ${day.isWeekend ? "bg-slate-200" : "bg-slate-100"}`}
-                >
-                  <span className="block font-bold">{day.day}</span>
-                  <span className="block text-[10px]">{day.weekday}</span>
-                </th>
+                <col key={day.date} className="monthly-day-col" />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {employeeRows.map((rows) => {
-              const rowsByDate = groupRowsByDate(rows);
-
-              return (
-                <tr key={rows[0].request.employeeId || rows[0].request.employeeName}>
-                  <th className="border border-slate-400 bg-slate-50 px-2 py-2 text-left align-top">
-                    {getEmployeeDisplayName(rows[0])}
+              <col className="monthly-total-col" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th className="monthly-header-cell">No.</th>
+                <th className="monthly-header-cell">氏名</th>
+                {days.map((day) => (
+                  <th
+                    key={day.date}
+                    className={`monthly-header-cell monthly-day-header ${day.isWeekend ? "monthly-weekend-header" : ""}`}
+                  >
+                    <span>{day.day}</span>
+                    <span>{day.weekday}</span>
                   </th>
-                  {days.map((day) => (
-                    <td key={day.date} className="border border-slate-300 px-1 py-1 align-top">
-                      {(rowsByDate[day.date] ?? []).map((row) => (
-                        <div key={row.request.id} className="leading-tight">
-                          <strong>{row.request.startTime}-{row.request.endTime}</strong>
-                          <br />
-                          {getPositionLabel(row.request)}
-                        </div>
-                      ))}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                ))}
+                <th className="monthly-header-cell monthly-total-header">合計</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayEmployees.map((employee, index) => {
+                const employeeRows = rowsByEmployee[employee.employeeId] ?? [];
+                const rowsByDate = groupRowsByDate(employeeRows);
+                const totalMinutes = employeeRows.reduce(
+                  (total, row) => total + getShiftDurationMinutes(row.request),
+                  0,
+                );
+
+                return (
+                  <tr key={employee.employeeId || `${employee.name}-${index}`}>
+                    <td className="monthly-body-cell monthly-no-cell">{index + 1}</td>
+                    <th className="monthly-body-cell monthly-name-cell">{employee.name}</th>
+                    {days.map((day) => {
+                      const dayRows = rowsByDate[day.date] ?? [];
+
+                      return (
+                        <td key={day.date} className="monthly-body-cell monthly-day-cell">
+                          <div className="monthly-shift-stack">
+                            {dayRows.map((row) => {
+                              const range = getEffectiveTimeRange(row.request);
+
+                              return (
+                                <div key={row.request.id} className="monthly-shift-block">
+                                  <span>{range.startTime}-{range.endTime}</span>
+                                  <span>{getPositionLabel(row.request)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </td>
+                      );
+                    })}
+                    <td className="monthly-body-cell monthly-total-cell">{getMonthlyWorkHoursLabel(totalMinutes)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );
@@ -629,9 +664,10 @@ export default function ShiftPrintView({
       <div className="mx-auto max-w-[1180px] px-4 py-6 print:max-w-none print:p-0">
         <style jsx global>{`
           @page {
-            size: A4 portrait;
+            size: ${scope === "month" ? "A4 landscape" : "A4 portrait"};
             margin: 6mm;
           }
+
 
           .print-header {
             align-items: end;
@@ -842,6 +878,133 @@ export default function ShiftPrintView({
           .shift-block span {
             font-size: 7px;
           }
+          .monthly-print-header {
+            grid-template-columns: 200px 1fr 200px;
+            margin-bottom: 4px;
+          }
+
+          .monthly-roster-table {
+            background: #ffffff;
+            border: 2px solid #444;
+            border-collapse: collapse;
+            table-layout: fixed;
+            width: 100%;
+          }
+
+          .monthly-no-col {
+            width: 32px;
+          }
+
+          .monthly-name-col {
+            width: 112px;
+          }
+
+          .monthly-day-col {
+            width: 39px;
+          }
+
+          .monthly-total-col {
+            width: 58px;
+          }
+
+          .monthly-header-cell,
+          .monthly-body-cell {
+            border: 1px solid #777;
+            box-sizing: border-box;
+            padding: 0;
+            text-align: center;
+            vertical-align: middle;
+          }
+
+          .monthly-header-cell {
+            background: #f3f4f6;
+            color: #111827;
+            font-size: 9px;
+            font-weight: 800;
+            height: 20px;
+            line-height: 1;
+          }
+
+          .monthly-day-header {
+            background: #f8fafc;
+            white-space: nowrap;
+          }
+
+          .monthly-day-header span + span {
+            margin-left: 5px;
+          }
+
+          .monthly-weekend-header {
+            background: #fff7ed;
+          }
+
+          .monthly-total-header,
+          .monthly-total-cell {
+            background: #ffff66;
+            color: #000000;
+            font-weight: 800;
+          }
+
+          .monthly-body-cell {
+            background: #ffffff;
+            font-size: 10px;
+            height: 42px;
+          }
+
+          .monthly-no-cell {
+            font-size: 9px;
+          }
+
+          .monthly-name-cell {
+            background: #ddebf7;
+            color: #1f4e79;
+            font-size: 10px;
+            font-weight: 700;
+            overflow: hidden;
+            padding: 0 4px;
+            text-align: left;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .monthly-day-cell {
+            padding: 2px 2px;
+          }
+
+          .monthly-shift-stack {
+            align-items: center;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            justify-content: center;
+            min-height: 39px;
+          }
+
+          .monthly-shift-block {
+            align-items: center;
+            background: #f9d8e8;
+            border: 1px solid #e58ab4;
+            color: #111827;
+            display: flex;
+            flex-direction: column;
+            font-size: 7px;
+            font-weight: 800;
+            justify-content: center;
+            line-height: 1.08;
+            min-height: 20px;
+            overflow: hidden;
+            padding: 2px 2px;
+            text-align: center;
+            width: 100%;
+          }
+
+          .monthly-shift-block span {
+            display: block;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
           @media print {
             html,
             body {
@@ -945,6 +1108,57 @@ export default function ShiftPrintView({
               border-left-color: #c4c4c4;
             }
 
+            .monthly-roster-table {
+              border-color: #444 !important;
+              width: 100% !important;
+            }
+
+            .monthly-no-col {
+              width: 8mm;
+            }
+
+            .monthly-name-col {
+              width: 26mm;
+            }
+
+            .monthly-day-col {
+              width: calc((100% - 47mm) / 31);
+            }
+
+            .monthly-total-col {
+              width: 13mm;
+            }
+
+            .monthly-header-cell {
+              background: #f3f4f6 !important;
+              color: #000000 !important;
+            }
+
+            .monthly-weekend-header {
+              background: #fff7ed !important;
+            }
+
+            .monthly-body-cell {
+              background: #ffffff !important;
+              color: #000000 !important;
+            }
+
+            .monthly-name-cell {
+              background: #ddebf7 !important;
+              color: #1f4e79 !important;
+            }
+
+            .monthly-total-header,
+            .monthly-total-cell {
+              background: #ffff66 !important;
+              color: #000000 !important;
+            }
+
+            .monthly-shift-block {
+              background: #f9d8e8 !important;
+              border-color: #e58ab4 !important;
+              color: #111827 !important;
+            }
             .print-page {
               break-after: page;
               page-break-after: always;
