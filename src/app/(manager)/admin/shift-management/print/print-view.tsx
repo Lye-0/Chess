@@ -879,7 +879,7 @@ export default function ShiftPrintView({
             font-size: 7px;
           }
           .monthly-print-header {
-            grid-template-columns: 180px 1fr 180px;
+            grid-template-columns: 200px 1fr 200px;
             margin-bottom: 4px;
           }
 
@@ -892,19 +892,19 @@ export default function ShiftPrintView({
           }
 
           .monthly-no-col {
-            width: 30px;
+            width: 32px;
           }
 
           .monthly-name-col {
-            width: 96px;
+            width: 112px;
           }
 
           .monthly-day-col {
-            width: 35px;
+            width: 39px;
           }
 
           .monthly-total-col {
-            width: 54px;
+            width: 58px;
           }
 
           .monthly-header-cell,
@@ -919,9 +919,9 @@ export default function ShiftPrintView({
           .monthly-header-cell {
             background: #f3f4f6;
             color: #111827;
-            font-size: 8px;
+            font-size: 9px;
             font-weight: 800;
-            height: 18px;
+            height: 20px;
             line-height: 1;
           }
 
@@ -947,18 +947,18 @@ export default function ShiftPrintView({
 
           .monthly-body-cell {
             background: #ffffff;
-            font-size: 9px;
-            height: 34px;
+            font-size: 10px;
+            height: 42px;
           }
 
           .monthly-no-cell {
-            font-size: 8px;
+            font-size: 9px;
           }
 
           .monthly-name-cell {
             background: #ddebf7;
             color: #1f4e79;
-            font-size: 9px;
+            font-size: 10px;
             font-weight: 700;
             overflow: hidden;
             padding: 0 4px;
@@ -968,7 +968,7 @@ export default function ShiftPrintView({
           }
 
           .monthly-day-cell {
-            padding: 1px 2px;
+            padding: 2px 2px;
           }
 
           .monthly-shift-stack {
@@ -977,7 +977,7 @@ export default function ShiftPrintView({
             flex-direction: column;
             gap: 2px;
             justify-content: center;
-            min-height: 31px;
+            min-height: 39px;
           }
 
           .monthly-shift-block {
@@ -987,13 +987,13 @@ export default function ShiftPrintView({
             color: #111827;
             display: flex;
             flex-direction: column;
-            font-size: 6px;
+            font-size: 7px;
             font-weight: 800;
             justify-content: center;
-            line-height: 1.05;
-            min-height: 14px;
+            line-height: 1.08;
+            min-height: 20px;
             overflow: hidden;
-            padding: 1px 2px;
+            padding: 2px 2px;
             text-align: center;
             width: 100%;
           }
@@ -1118,11 +1118,11 @@ export default function ShiftPrintView({
             }
 
             .monthly-name-col {
-              width: 24mm;
+              width: 26mm;
             }
 
             .monthly-day-col {
-              width: calc((100% - 45mm) / 31);
+              width: calc((100% - 47mm) / 31);
             }
 
             .monthly-total-col {
