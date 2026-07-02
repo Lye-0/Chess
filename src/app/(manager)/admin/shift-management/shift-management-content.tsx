@@ -16,7 +16,6 @@ import { MemoizedShiftSlotCard } from "./components/shift-slot-card";
 import { ShiftFormModal } from "./components/shift-form-modal";
 import { DeleteRequestModal } from "./components/delete-request-modal";
 import { DeleteSlotModal } from "./components/delete-slot-modal";
-import { ShiftExportMenu } from "@/components/ui/shift-export-menu";
 
 function getDateFromString(date: string) {
   return new Date(`${date}T00:00:00`);
@@ -59,18 +58,6 @@ function AdminShiftManagementContent() {
     monthlyRequestMinutesByEmployee,
     payrollSettings,
     positions,
-    selectedExportFormat,
-    setSelectedExportFormat,
-    exportMonths,
-    activeExportMonth,
-    setSelectedExportMonth,
-    exportDates,
-    activeExportDate,
-    setSelectedExportDate,
-    selectedExportScope,
-    setSelectedExportScope,
-    hasExportData,
-    handleExport,
     recommendationSettings,
     selectedWeights,
     isModalOpen,
@@ -243,41 +230,14 @@ function AdminShiftManagementContent() {
       <BackHeader
         backHref={`/admin${organizationQuery}`}
         right={
-          <div className="flex items-center gap-2">
-            <ShiftExportMenu
-              formats={[
-                { format: "pdf", label: "PDF" },
-                { format: "csv", label: "CSV" },
-                { format: "excel", label: "Excel" },
-              ]}
-              months={exportMonths}
-              selectedMonth={activeExportMonth}
-              onMonthChange={setSelectedExportMonth}
-              onExport={handleExport}
-              selectedFormat={selectedExportFormat}
-              onFormatChange={setSelectedExportFormat}
-              disabled={isLoading}
-              hasData={hasExportData}
-              scopeOptions={[
-                { scope: "month", label: "月単位" },
-                { scope: "monthDaily", label: "月単位（一日ずつ）" },
-                { scope: "day", label: "日単位" },
-              ]}
-              selectedScope={selectedExportScope}
-              onScopeChange={setSelectedExportScope}
-              dates={exportDates}
-              selectedDate={activeExportDate}
-              onDateChange={setSelectedExportDate}
-            />
-            <button
-              type="button"
-              onClick={openCreateModal}
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#171624]"
-            >
-              <PlusIcon />
-              シフト枠を追加
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#171624]"
+          >
+            <PlusIcon />
+            シフト枠を追加
+          </button>
         }
       />
 

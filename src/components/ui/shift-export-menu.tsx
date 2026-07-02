@@ -34,6 +34,7 @@ type ShiftExportMenuProps = {
   dates?: string[];
   selectedDate?: string;
   onDateChange?: (date: string) => void;
+  showMobileLabel?: boolean;
 };
 
 function formatMonthLabel(month: string) {
@@ -50,6 +51,7 @@ function formatDateLabel(date: string) {
 }
 
 function getDefaultActionLabel(format: ShiftExportFormat) {
+  if (format === "print") return "印刷ページを開く";
   return format === "calendarSubscription" ? "準備中" : "ダウンロード";
 }
 
@@ -70,6 +72,7 @@ export function ShiftExportMenu({
   dates = [],
   selectedDate = "",
   onDateChange,
+  showMobileLabel = false,
 }: ShiftExportMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -125,10 +128,10 @@ export function ShiftExportMenu({
         title={label}
         disabled={disabled}
         onClick={() => setIsOpen((current) => !current)}
-        className="inline-flex h-10 w-10 items-center justify-center gap-1 rounded-md border border-black/10 bg-white text-sm font-semibold text-[#030213] shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed disabled:bg-[#e9ebef] disabled:text-[#717182] sm:w-auto sm:gap-2 sm:px-4"
+        className={showMobileLabel ? "inline-flex h-10 items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3 text-sm font-semibold text-[#030213] shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed disabled:bg-[#e9ebef] disabled:text-[#717182] sm:px-4" : "inline-flex h-10 w-10 items-center justify-center gap-1 rounded-md border border-black/10 bg-white text-sm font-semibold text-[#030213] shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed disabled:bg-[#e9ebef] disabled:text-[#717182] sm:w-auto sm:gap-2 sm:px-4"}
       >
         <DownloadIcon />
-        <span className="hidden sm:inline">{label}</span>
+        <span className={showMobileLabel ? "inline" : "hidden sm:inline"}>{label}</span>
         <ChevronDownIcon />
       </button>
 

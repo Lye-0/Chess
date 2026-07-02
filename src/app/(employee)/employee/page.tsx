@@ -558,7 +558,7 @@ function EmployeeFeatureCard({
   children?: ReactNode;
 }) {
   return (
-    <section className="min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm">
+    <section className="min-h-[226px] rounded-xl border border-black/10 bg-white p-6 shadow-sm min-[560px]:flex min-[560px]:flex-col">
       <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${toneClassName}`}>
         {icon}
       </div>
@@ -568,7 +568,7 @@ function EmployeeFeatureCard({
       {href && actionLabel && (
         <Link
           href={href}
-          className="mt-5 flex rounded-md border border-black/10 bg-white px-4 py-2.5 text-center text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb]"
+          className="mt-5 flex rounded-md border border-black/10 bg-white px-4 py-2.5 text-center text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] min-[560px]:mt-auto"
         >
           <span className="w-full">{actionLabel}</span>
         </Link>
