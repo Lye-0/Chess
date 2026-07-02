@@ -448,11 +448,11 @@ function MonthlyPrintSection({ data }: { data: MonthlyShiftExportData }) {
         <table className="w-full border-collapse text-[11px]">
           <thead>
             <tr>
-              <th className="w-28 border border-slate-400 bg-slate-100 px-2 py-2 text-left">氏名</th>
+              <th className="w-28 border border-black bg-slate-100 px-2 py-2 text-left">氏名</th>
               {days.map((day) => (
                 <th
                   key={day.date}
-                  className={`border border-slate-400 px-1 py-2 text-center ${day.isWeekend ? "bg-slate-200" : "bg-slate-100"}`}
+                  className={`border border-black px-1 py-2 text-center ${day.isWeekend ? "bg-slate-200" : "bg-slate-100"}`}
                 >
                   <span className="block font-bold">{day.day}</span>
                   <span className="block text-[10px]">{day.weekday}</span>
@@ -466,11 +466,11 @@ function MonthlyPrintSection({ data }: { data: MonthlyShiftExportData }) {
 
               return (
                 <tr key={rows[0].request.employeeId || rows[0].request.employeeName}>
-                  <th className="border border-slate-400 bg-slate-50 px-2 py-2 text-left align-top">
+                  <th className="border border-black bg-slate-50 px-2 py-2 text-left align-top">
                     {getEmployeeDisplayName(rows[0])}
                   </th>
                   {days.map((day) => (
-                    <td key={day.date} className="border border-slate-300 px-1 py-1 align-top">
+                    <td key={day.date} className="border border-black px-1 py-1 align-top">
                       {(rowsByDate[day.date] ?? []).map((row) => (
                         <div key={row.request.id} className="leading-tight">
                           <strong>{row.request.startTime}-{row.request.endTime}</strong>

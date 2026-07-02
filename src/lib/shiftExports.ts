@@ -567,7 +567,7 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
   context.textAlign = "left";
 
   const calendarTop = headerHeight;
-  context.strokeStyle = "#94a3b8";
+  context.strokeStyle = "#000000";
   context.lineWidth = 1.25;
   weekdays.forEach((weekday, index) => {
     const x = marginX + index * cellWidth;
@@ -601,7 +601,7 @@ function drawEmployeeRoster(data: MonthlyShiftExportData) {
     });
     context.fillStyle = day.outside ? "#fafafa" : "#ffffff";
     context.fillRect(x, y, cellWidth, rowHeight);
-    context.strokeStyle = "#94a3b8";
+    context.strokeStyle = "#000000";
     context.strokeRect(x, y, cellWidth, rowHeight);
 
     context.fillStyle = day.outside ? "#9ca3af" : "#475569";
@@ -685,7 +685,7 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, width, height);
   context.textBaseline = "middle";
-  context.strokeStyle = "#2f3338";
+  context.strokeStyle = "#000000";
   context.lineWidth = 1;
   context.fillStyle = "#111827";
   context.font = "bold 28px Arial, sans-serif";
@@ -775,6 +775,10 @@ function drawManagerRoster(data: MonthlyShiftExportData) {
   const bottom = height - footerHeight;
   const verticalLines = [0, indexWidth, indexWidth + nameWidth, totalX, totalX + totalWidth, width];
   days.forEach((_, index) => verticalLines.push(indexWidth + nameWidth + index * dayWidth));
+  
+  context.strokeStyle = "#000000";
+  context.lineWidth = 1;
+  
   verticalLines.forEach((x) => {
     context.beginPath();
     context.moveTo(x, tableTop);
@@ -861,7 +865,7 @@ function drawDailyRoster(data: DailyShiftExportData) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, width, height);
   context.textBaseline = "middle";
-  context.strokeStyle = "#2f3338";
+  context.strokeStyle = "#000000";
   context.lineWidth = 1;
   context.fillStyle = "#111827";
   context.font = "bold 28px Arial, sans-serif";
@@ -968,7 +972,7 @@ function drawDailyRoster(data: DailyShiftExportData) {
 
   const verticalLines = [0, indexWidth, indexWidth + nameWidth, totalX, totalX + totalWidth, width];
   verticalLines.forEach((x) => {
-    context.strokeStyle = "#2f3338";
+    context.strokeStyle = "#000000";
     context.lineWidth = 1;
     context.beginPath();
     context.moveTo(x, tableTop);
@@ -976,7 +980,7 @@ function drawDailyRoster(data: DailyShiftExportData) {
     context.stroke();
   });
   [tableTop, bodyTop].forEach((lineY) => {
-    context.strokeStyle = "#2f3338";
+    context.strokeStyle = "#000000";
     context.lineWidth = 1;
     context.beginPath();
     context.moveTo(0, lineY);
@@ -986,7 +990,7 @@ function drawDailyRoster(data: DailyShiftExportData) {
   let nextLineY = bodyTop;
   rowHeights.forEach((rowHeight) => {
     nextLineY += rowHeight;
-    context.strokeStyle = "#2f3338";
+    context.strokeStyle = "#000000";
     context.lineWidth = 1;
     context.beginPath();
     context.moveTo(0, nextLineY);
