@@ -29,9 +29,10 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 
 ## 画面紹介
 
-### 1. 利用者を選択
+### 1. ログイン・組織作成
 
-従業員または管理者を選び、それぞれのログイン画面へ進みます。
+従業員または管理者を選び、それぞれのログイン画面へ進みます。  
+管理者はアカウント作成後、組織を作成・選択して管理画面へ進みます。
 
 ![利用者選択画面](./readme-screenshots/01-login-select.png)
 
@@ -52,54 +53,57 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 
 </details>
 
-### 2. 管理者ホーム
+---
 
-管理者ホームでは、シフト管理、従業員シフト表、勤務時間・給与、従業員登録へ移動できます。  
-対応待ちの希望、人員不足の枠、今週の確定時間も確認できます。
+### 2. 管理者向け画面
+
+管理者は、シフト枠、従業員、ポジション、勤務時間、給与、出力形式などをまとめて管理できます。  
+シフト作成では、相性スコア・業務スキル・公平性スコアをもとにしたおすすめ候補を確認できます。
 
 ![管理者ホーム](./readme-screenshots/09-admin-home.png)
 
-### 3. シフト管理
+<details>
+<summary><strong>管理者向け画面をすべて見る</strong></summary>
 
-シフト管理では、月間カレンダーから日付を選び、日ごとのシフト枠・希望人数・承認状況を確認できます。  
+#### シフト管理
+
+月間カレンダーから日付を選び、日ごとのシフト枠・希望人数・承認状況を確認できます。  
 管理者が作成したシフト枠だけでなく、従業員から届いた募集枠なしの希望も確認できます。
 
 ![シフト管理](./readme-screenshots/10-shift-management.png)
 
-<details>
-<summary><strong>日別シフト管理を見る</strong></summary>
+#### 日別シフト管理
+
+選択した日のシフト枠を、時間帯ビューと一覧で確認できます。  
+シフト枠ごとの希望人数、承認人数、募集人数も確認できます。
 
 ![日別シフト管理](./readme-screenshots/17-admin-shift-day.png)
 
-</details>
-
-### 4. おすすめ承認
+#### おすすめ承認
 
 希望者が複数いる場合は、相性スコア、業務スキル、公平性スコアをもとに、おすすめの承認候補を表示します。  
 おすすめ候補は一括で承認できます。
 
 ![おすすめ承認](./readme-screenshots/18-admin-recommendation.png)
 
-### 5. 設定
+#### 従業員シフト表
 
-設定画面では、おすすめ計算、公平性スコア、自動承認、従業員の自主希望、給与設定などを管理できます。
+従業員ごとの希望シフト、勤務予定、勤務済みシフトを確認できます。  
+承認済みシフトについては、実勤務時間や実給与の補正もできます。
 
-![設定画面](./readme-screenshots/19-admin-settings.png)
+![従業員シフト表](./readme-screenshots/11-employee-list.png)
 
-### 6. 勤務時間・給与管理
+#### 勤務時間・給与管理
 
 承認済みシフトをもとに、勤務時間と給与を自動で集計します。  
 平均勤務時間、平均給与、合計勤務時間、合計給与、出勤人数、従業員別の勤務時間・給与を確認できます。
 
 ![勤務時間・給与管理](./readme-screenshots/13-timesheet.png)
 
-### 7. 従業員登録・ポジション管理
+#### 従業員登録・ポジション管理
 
 管理者は従業員を登録し、雇用形態や業務スキルを設定できます。  
 また、シフト募集時に使うポジションも登録できます。
-
-<details>
-<summary><strong>従業員登録・ポジション管理を見る</strong></summary>
 
 | 従業員登録 | ポジション一覧 |
 | --- | --- |
@@ -109,76 +113,84 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 | --- | --- |
 | ![ポジション追加](./readme-screenshots/30-admin-position-add-modal.png) | ![実績給与の編集](./readme-screenshots/31-admin-actual-pay-edit.png) |
 
-</details>
+#### 設定
 
-### 8. エクスポート
+おすすめ計算、公平性スコア、自動承認、従業員の自主希望、給与設定などを管理できます。
+
+![設定画面](./readme-screenshots/19-admin-settings.png)
+
+#### エクスポート
 
 管理者は、シフト表を PDF / CSV / Excel / 印刷用ページとして出力できます。  
 出力単位は、月単位、月単位（一日ずつ）、日単位から選択できます。
 
 ![管理者エクスポート](./readme-screenshots/20-admin-export-menu.png)
 
-<details>
-<summary><strong>出力例を見る</strong></summary>
+#### 出力例
 
 | PDF | Excel |
 | --- | --- |
 | ![PDF出力](./readme-screenshots/21-admin-export-pdf.png) | ![Excel出力](./readme-screenshots/22-admin-export-excel.png) |
 
-| 印刷プレビュー |
-| --- |
-| ![印刷プレビュー](./readme-screenshots/23-admin-print-preview.png) |
+| CSV | 印刷プレビュー |
+| --- | --- |
+| ![CSV出力](./readme-screenshots/23-admin-export-csv.png) | ![印刷プレビュー](./readme-screenshots/23-admin-print-preview.png) |
 
 </details>
 
-### 9. 従業員ホーム
+---
 
-従業員ホームでは、直近のシフト、希望シフト入力、一緒に働きやすさ設定、勤務履歴・予定を確認できます。  
-自分の確定シフトはマイカレンダーでも確認できます。
+### 3. 従業員向け画面
+
+従業員はアカウント作成不要で、組織IDとメールアドレスだけで利用できます。  
+希望シフトの提出、勤務履歴の確認、相性スコアの入力、カレンダー連携ができます。
 
 ![従業員ホーム](./readme-screenshots/14-employee-home.png)
 
-### 10. 希望シフト入力
+<details>
+<summary><strong>従業員向け画面をすべて見る</strong></summary>
 
-従業員は、月間カレンダーと日別の時間ビューから希望シフトを追加できます。  
+#### 希望シフト入力
+
+月間カレンダーと日別の時間ビューから、希望シフトを追加できます。  
 送信前に追加した希望を確認し、まとめて提出できます。
 
 ![希望シフト入力](./readme-screenshots/15-shift-request.png)
 
-<details>
-<summary><strong>募集枠なしの希望を見る</strong></summary>
+#### 募集枠なしの自主希望
 
 管理者が許可している場合、従業員は募集されていない時間帯でも希望を追加できます。
 
-![募集枠なしの希望](./readme-screenshots/26-employee-generated-request.png)
+| 時間ビューから追加 | 入力フォーム |
+| --- | --- |
+| ![募集枠なしの希望](./readme-screenshots/26-employee-generated-request.png) | ![募集枠なし希望フォーム](./readme-screenshots/26-employee-generated-request-form.png) |
 
-</details>
+#### 勤務履歴・予定
 
-### 11. 勤務履歴・予定
-
-従業員は、月ごとに勤務予定、承認待ち、勤務済みのシフトを確認できます。  
+月ごとに、勤務予定、承認待ち、勤務済みのシフトを確認できます。  
 選択月・年間の勤務時間や給与も確認できます。
 
 ![勤務履歴・予定](./readme-screenshots/25-employee-work-history.png)
 
-### 12. 一緒に働きやすさ設定
+#### マイカレンダー
 
-従業員は、他の従業員との働きやすさを入力できます。  
+自分の確定シフトを月ごとに確認できます。  
+日付を選ぶと、その日のシフトがタイムライン形式で表示されます。
+
+![マイカレンダー](./readme-screenshots/24-employee-my-calendar.png)
+
+#### 一緒に働きやすさ設定
+
+他の従業員との働きやすさを入力できます。  
 入力された相性スコアは、管理者側のおすすめ承認候補の計算に使われます。
 
 ![一緒に働きやすさ設定](./readme-screenshots/16-compatibility.png)
 
-### 13. マイカレンダー・カレンダー連携
+#### エクスポート・カレンダー連携
 
-従業員は、自分の確定シフトをマイカレンダーで確認できます。  
-PNG、ICS、カレンダー購読URLとして出力することもできます。
+従業員は、自分の確定シフトを PNG / ICS / カレンダー購読URL として出力できます。
 
-![マイカレンダー](./readme-screenshots/24-employee-my-calendar.png)
-
-<details>
-<summary><strong>カレンダー連携を見る</strong></summary>
-
-| エクスポート | カレンダーアプリ |
+| 従業員エクスポート | カレンダーアプリ |
 | --- | --- |
 | ![従業員エクスポート](./readme-screenshots/27-employee-export-menu.png) | ![カレンダー連携](./readme-screenshots/28-employee-calendar-app.jpg) |
 
