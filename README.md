@@ -3,6 +3,12 @@
 Chess は、管理者のシフト作成と、従業員の希望提出をまとめて行えるシフト管理システムです。  
 従業員同士の相性、管理者による業務スキル評価、勤務時間の偏りを考慮しながら、現場に合ったシフト作成を支援します。
 
+## デプロイ
+
+以下のURLにデプロイ済みです。
+
+<https://chess-nine-xi.vercel.app>
+
 ## 特徴
 
 - 従業員はアカウント作成不要で、組織IDとメールアドレスだけで利用できます
@@ -65,6 +71,9 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 <details>
 <summary><strong>管理者向け画面をすべて見る</strong></summary>
 
+<details>
+<summary><strong>シフト管理を見る</strong></summary>
+
 #### シフト管理
 
 月間カレンダーから日付を選び、日ごとのシフト枠・希望人数・承認状況を確認できます。  
@@ -86,19 +95,17 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 
 ![おすすめ承認](./readme-screenshots/18-admin-recommendation.png)
 
+</details>
+
+<details>
+<summary><strong>従業員・ポジション管理を見る</strong></summary>
+
 #### 従業員シフト表
 
 従業員ごとの希望シフト、勤務予定、勤務済みシフトを確認できます。  
 承認済みシフトについては、実勤務時間や実給与の補正もできます。
 
 ![従業員シフト表](./readme-screenshots/11-employee-list.png)
-
-#### 勤務時間・給与管理
-
-承認済みシフトをもとに、勤務時間と給与を自動で集計します。  
-平均勤務時間、平均給与、合計勤務時間、合計給与、出勤人数、従業員別の勤務時間・給与を確認できます。
-
-![勤務時間・給与管理](./readme-screenshots/13-timesheet.png)
 
 #### 従業員登録・ポジション管理
 
@@ -113,11 +120,33 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 | --- | --- |
 | ![ポジション追加](./readme-screenshots/30-admin-position-add-modal.png) | ![実績給与の編集](./readme-screenshots/31-admin-actual-pay-edit.png) |
 
+</details>
+
+<details>
+<summary><strong>勤務時間・給与管理を見る</strong></summary>
+
+#### 勤務時間・給与管理
+
+承認済みシフトをもとに、勤務時間と給与を自動で集計します。  
+平均勤務時間、平均給与、合計勤務時間、合計給与、出勤人数、従業員別の勤務時間・給与を確認できます。
+
+![勤務時間・給与管理](./readme-screenshots/13-timesheet.png)
+
+</details>
+
+<details>
+<summary><strong>設定を見る</strong></summary>
+
 #### 設定
 
 おすすめ計算、公平性スコア、自動承認、従業員の自主希望、給与設定などを管理できます。
 
 ![設定画面](./readme-screenshots/19-admin-settings.png)
+
+</details>
+
+<details>
+<summary><strong>エクスポートを見る</strong></summary>
 
 #### エクスポート
 
@@ -138,6 +167,8 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 
 </details>
 
+</details>
+
 ---
 
 ### 3. 従業員向け画面
@@ -149,6 +180,9 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 
 <details>
 <summary><strong>従業員向け画面をすべて見る</strong></summary>
+
+<details>
+<summary><strong>希望シフト入力を見る</strong></summary>
 
 #### 希望シフト入力
 
@@ -165,12 +199,22 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 | --- | --- |
 | ![募集枠なしの希望](./readme-screenshots/26-employee-generated-request.png) | ![募集枠なし希望フォーム](./readme-screenshots/26-employee-generated-request-form.png) |
 
+</details>
+
+<details>
+<summary><strong>勤務履歴・予定を見る</strong></summary>
+
 #### 勤務履歴・予定
 
 月ごとに、勤務予定、承認待ち、勤務済みのシフトを確認できます。  
 選択月・年間の勤務時間や給与も確認できます。
 
 ![勤務履歴・予定](./readme-screenshots/25-employee-work-history.png)
+
+</details>
+
+<details>
+<summary><strong>マイカレンダーを見る</strong></summary>
 
 #### マイカレンダー
 
@@ -179,12 +223,22 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 
 ![マイカレンダー](./readme-screenshots/24-employee-my-calendar.png)
 
+</details>
+
+<details>
+<summary><strong>一緒に働きやすさ設定を見る</strong></summary>
+
 #### 一緒に働きやすさ設定
 
 他の従業員との働きやすさを入力できます。  
 入力された相性スコアは、管理者側のおすすめ承認候補の計算に使われます。
 
 ![一緒に働きやすさ設定](./readme-screenshots/16-compatibility.png)
+
+</details>
+
+<details>
+<summary><strong>エクスポート・カレンダー連携を見る</strong></summary>
 
 #### エクスポート・カレンダー連携
 
@@ -193,6 +247,8 @@ Chess は、管理者のシフト作成と、従業員の希望提出をまと�
 | 従業員エクスポート | カレンダーアプリ |
 | --- | --- |
 | ![従業員エクスポート](./readme-screenshots/27-employee-export-menu.png) | ![カレンダー連携](./readme-screenshots/28-employee-calendar-app.jpg) |
+
+</details>
 
 </details>
 
