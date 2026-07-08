@@ -425,13 +425,15 @@ src/
 | `src/components` | 共通UIコンポーネント |
 | `src/lib` | Firebase操作・計算ロジック・エクスポート処理 |
 
+
+## スクリーンショット
+
+スクリーンショットは `readme-screenshots` に保存しています。
+
+
 ## 注意事項
 
 - `.env.local` は GitHub にコミットしないでください
 - Firebase Admin の秘密鍵は公開しないでください
 - 本番環境では、Vercel などの環境変数に秘密情報を設定してください
 - Firestore Rules は本番運用前に適切に設定してください
-
-## スクリーンショット
-
-スクリーンショットは `readme-screenshots` に保存しています。
