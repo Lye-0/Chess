@@ -249,7 +249,7 @@ function AdminShiftManagementContent() {
           </p>
 
 
-          {!isLoading && slotDates.length > 0 && (
+          {!isLoading && (
             <AdminShiftCalendar
               displayMonth={displayMonth}
               days={calendarDays}
@@ -272,8 +272,8 @@ function AdminShiftManagementContent() {
               <p>シフトを読み込んでいます</p>
             </div>
           ) : slotDates.length === 0 ? (
-            <div className="flex min-h-[170px] flex-col items-center justify-center text-center text-[#717182]">
-              <p>シフトがまだ登録されていません</p>
+            <div className="mt-6 flex min-h-[170px] flex-col items-center justify-center rounded-lg border border-black/10 text-center text-[#717182]">
+              <p>この月にはシフトがありません</p>
               <p className="mt-2">右上のボタンから追加してください</p>
             </div>
           ) : selectedDate ? (
