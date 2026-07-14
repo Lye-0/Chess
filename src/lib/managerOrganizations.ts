@@ -6,14 +6,13 @@ import {
   getDocs,
   onSnapshot,
   serverTimestamp,
-  setDoc,
   writeBatch,
   type DocumentData,
   type FirestoreError,
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { auth, db } from "./firebase";
 
 export type ManagerOrganization = {
   id: string;
@@ -47,21 +46,6 @@ function getPositionsCollection(organizationId: string) {
 
 function normalizePositionName(name: string) {
   return name.trim().replace(/\s+/g, " ");
-}
-
-function createOrganizationIdCandidate() {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
-
-async function createUniqueOrganizationId() {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const organizationId = createOrganizationIdCandidate();
-    const snapshot = await getDoc(doc(db, "organizations", organizationId));
-
-    if (!snapshot.exists()) return organizationId;
-  }
-
-  throw new Error("組織IDを生成できませんでした。もう一度登録してください。");
 }
 
 function toManagerOrganization(
@@ -190,14 +174,13 @@ export async function getManagerOrganization(
 }
 
 export async function createManagerOrganization(
-  managerUid: string,
-  managerEmail: string | null,
   input: ManagerOrganizationInput,
 ): Promise<ManagerOrganization> {
   const name = input.name.trim();
   const department = input.department.trim();
+  const manager = auth.currentUser;
 
-  if (!managerUid) {
+  if (!manager) {
     throw new Error("管理者ログインが必要です。");
   }
 
@@ -205,42 +188,25 @@ export async function createManagerOrganization(
     throw new Error("組織名を入力してください。");
   }
 
-  const organizationId = await createUniqueOrganizationId();
-  const organization: ManagerOrganization = {
-    id: organizationId,
-    name,
-    department,
-    role: "owner",
+  const idToken = await manager.getIdToken();
+  const response = await fetch("/api/manager/organizations", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + idToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name, department }),
+  });
+  const result = (await response.json().catch(() => ({}))) as {
+    organization?: ManagerOrganization;
+    error?: string;
   };
 
-  await setDoc(
-    doc(db, "managers", managerUid),
-    {
-      email: managerEmail ?? "",
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
-  );
+  if (!response.ok || !result.organization) {
+    throw new Error(result.error ?? "組織の登録に失敗しました。");
+  }
 
-  await setDoc(doc(db, "organizations", organizationId), {
-    id: organizationId,
-    name,
-    department,
-    createdBy: managerUid,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-
-  await setDoc(doc(getManagerOrganizationsCollection(managerUid), organizationId), {
-    organizationId,
-    name,
-    department,
-    role: "owner",
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-
-  return organization;
+  return result.organization;
 }
 
 export async function deleteManagerOrganization(

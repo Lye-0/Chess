@@ -1,7 +1,14 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import {
+  connectFirestoreEmulator,
+  getFirestore,
+} from "firebase/firestore";
+import {
+  connectAuthEmulator,
+  getAuth,
+} from "firebase/auth";
+
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
 
@@ -20,4 +27,15 @@ const app = initializeApp(firebaseConfig);
 
 // Firestoreを使えるようにする
 export const db = getFirestore(app);
-export const auth = getAuth(app); //メール認証機能
+export const auth = getAuth(app); 
+
+// 手動でtrueにしたときだけFirestore Emulatorへ接続する
+if (
+  process.env.NODE_ENV === "development" &&
+  process.env.NEXT_PUBLIC_USE_FIRESTORE_EMULATOR === "true"
+) {
+  connectFirestoreEmulator(db, "127.0.0.1", 8080);
+  connectAuthEmulator(auth, "http://127.0.0.1:9099");
+}
+
+

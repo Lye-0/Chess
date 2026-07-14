@@ -8,8 +8,19 @@ function getPrivateKey() {
   return privateKey?.replace(/\\n/g, "\n");
 }
 
+function configureFirebaseEmulators() {
+  if (
+    process.env.NODE_ENV === "development" &&
+    process.env.NEXT_PUBLIC_USE_FIRESTORE_EMULATOR === "true"
+  ) {
+    process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:8080";
+    process.env.FIREBASE_AUTH_EMULATOR_HOST ??= "127.0.0.1:9099";
+  }
+}
+
 export async function getAdminApp(): Promise<App> {
   const { cert, getApps, initializeApp } = await import("firebase-admin/app");
+  configureFirebaseEmulators();
   const existingApp = getApps()[0];
   if (existingApp) return existingApp;
 

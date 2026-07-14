@@ -77,7 +77,7 @@ export async function POST(request: Request) {
     const organizationId = String(body.organizationId ?? "").trim();
     const email = normalizeEmail(String(body.email ?? ""));
 
-    if (!/^\d{6}$/.test(organizationId) || !email) {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(organizationId) || !email) {
       return NextResponse.json(
         { error: "組織IDとメールアドレスを確認してください。" },
         { status: 400 },
