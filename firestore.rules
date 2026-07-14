@@ -51,6 +51,10 @@ service cloud.firestore {
         allow read, write: if isManagerOrganization(organizationId);
       }
 
+      match /positions/{positionId} {
+        allow read, write: if isManagerOrganization(organizationId);
+      }
+
       match /settings/{settingId} {
         allow read, write: if isManagerOrganization(organizationId);
       }
