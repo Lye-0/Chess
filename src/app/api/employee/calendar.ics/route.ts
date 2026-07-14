@@ -90,6 +90,26 @@ export async function GET(request: Request) {
     }
 
     const employeeData = employeeSnapshot.data() ?? {};
+    const currentAuthVersion = String(employeeData.authVersion ?? "");
+    const currentCalendarToken = String(
+      employeeData.calendarSubscriptionToken ?? "",
+    );
+    const subscriptionAuthVersion = String(
+      subscriptionData.authVersion ?? "",
+    );
+
+    if (
+      !currentAuthVersion ||
+      !subscriptionAuthVersion ||
+      currentAuthVersion !== subscriptionAuthVersion ||
+      currentCalendarToken !== token
+    ) {
+      return NextResponse.json(
+        { error: "カレンダー購読URLを確認できませんでした。" },
+        { status: 404 },
+      );
+    }
+
     const employeeName = String(employeeData.name ?? "");
     const requestsSnapshot = await organizationRef
       .collection("shiftRequests")

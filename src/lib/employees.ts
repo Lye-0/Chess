@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -61,6 +62,10 @@ function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+function createEmployeeAuthVersion() {
+  return globalThis.crypto.randomUUID();
 }
 
 export function normalizeWorkScore(score: unknown) {
@@ -203,6 +208,7 @@ export async function createEmployee(
 
   await setDoc(doc(getEmployeesCollection(organizationId), employeeId), {
     ...employee,
+    authVersion: createEmployeeAuthVersion(),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -239,6 +245,17 @@ export async function updateEmployee(
     throw new Error("このメールアドレスは既に登録されています。");
   }
 
+  const existingData = employeeSnapshot.data() ?? {};
+  const identityChanged =
+    normalizeEmail(String(existingData.email ?? "")) !== email ||
+    String(existingData.firstName ?? "") !== firstName ||
+    String(existingData.lastName ?? "") !== lastName;
+  const existingAuthVersion = String(existingData.authVersion ?? "");
+  const shouldRotateAuth = identityChanged || !existingAuthVersion;
+  const authVersion = shouldRotateAuth
+    ? createEmployeeAuthVersion()
+    : existingAuthVersion;
+
   const employee: EmployeeProfile = {
     id: trimmedEmployeeId,
     organizationId,
@@ -259,6 +276,13 @@ export async function updateEmployee(
     employeeRef,
     {
       ...employee,
+      authVersion,
+      ...(shouldRotateAuth
+        ? {
+            calendarSubscriptionToken: deleteField(),
+            calendarSubscriptionTokenCreatedAt: deleteField(),
+          }
+        : {}),
       updatedAt: serverTimestamp(),
     },
     { merge: true },
