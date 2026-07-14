@@ -6,6 +6,7 @@ import {
   createEmployee,
   deleteEmployee,
   defaultWorkScore,
+  reassignEmployee,
   subscribeEmployees,
   updateEmployee,
   maxWorkScore,
@@ -180,7 +181,9 @@ function AdminEmployeeRegistrationContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingPosition, setIsSavingPosition] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isReassigning, setIsReassigning] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isReassignConfirmOpen, setIsReassignConfirmOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const canSubmit =
@@ -192,7 +195,8 @@ function AdminEmployeeRegistrationContent() {
     Boolean(editForm.lastName.trim()) &&
     Boolean(editForm.firstName.trim()) &&
     Boolean(editForm.email.trim()) &&
-    !isUpdating;
+    !isUpdating &&
+    !isReassigning;
   const canCreatePosition = Boolean(positionForm.name.trim()) && !isSavingPosition;
 
   useEffect(() => {
@@ -317,6 +321,7 @@ function AdminEmployeeRegistrationContent() {
       : employmentTypes[0];
 
     setEditingEmployee(employee);
+    setIsReassignConfirmOpen(false);
     setEditForm({
       lastName: employee.lastName,
       firstName: employee.firstName,
@@ -329,8 +334,9 @@ function AdminEmployeeRegistrationContent() {
   }
 
   function closeEditModal() {
-    if (isUpdating) return;
+    if (isUpdating || isReassigning) return;
 
+    setIsReassignConfirmOpen(false);
     setEditingEmployee(null);
     setEditForm(emptyForm);
   }
@@ -361,6 +367,52 @@ function AdminEmployeeRegistrationContent() {
       );
     } finally {
       setIsUpdating(false);
+    }
+  }
+
+  function openReassignConfirmation() {
+    if (!editingEmployee || !canUpdate) return;
+
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIsReassignConfirmOpen(true);
+  }
+
+  function closeReassignConfirmation() {
+    if (isReassigning) return;
+
+    setIsReassignConfirmOpen(false);
+  }
+
+  async function handleReassign() {
+    if (!editingEmployee || !canUpdate) return;
+
+    try {
+      setIsReassigning(true);
+      setErrorMessage(null);
+      setSuccessMessage(null);
+      const employee = await reassignEmployee(
+        editingEmployee.employeeId,
+        editForm,
+        organizationId,
+      );
+      setCreatedEmployee(null);
+      setSuccessMessage(
+        `${employee.name}さんとして再割当しました。既存のログインセッションとカレンダーURLを失効させました。`,
+      );
+      setIsReassignConfirmOpen(false);
+      setEditingEmployee(null);
+      setEditForm(emptyForm);
+    } catch (error) {
+      console.error(error);
+      setIsReassignConfirmOpen(false);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "従業員の再割当に失敗しました。",
+      );
+    } finally {
+      setIsReassigning(false);
     }
   }
 
@@ -858,7 +910,7 @@ function AdminEmployeeRegistrationContent() {
               <button
                 type="button"
                 onClick={closeEditModal}
-                disabled={isUpdating}
+                disabled={isUpdating || isReassigning}
                 className="h-10 rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed"
               >
                 キャンセル
@@ -876,10 +928,81 @@ function AdminEmployeeRegistrationContent() {
                 {isUpdating ? "更新中..." : "更新する"}
               </button>
             </div>
+            <button
+              type="button"
+              onClick={openReassignConfirmation}
+              disabled={!canUpdate}
+              className={[
+                "mt-3 h-10 w-full rounded-md border text-sm font-semibold transition",
+                canUpdate
+                  ? "border-[#db1741] bg-white text-[#db1741] hover:bg-[#fff1f4]"
+                  : "cursor-not-allowed border-black/10 bg-[#f7f8fb] text-[#8e8d95]",
+              ].join(" ")}
+            >
+              {isReassigning ? "再割当中..." : "別人へ再割当として更新"}
+            </button>
+            <p className="mt-3 text-xs leading-relaxed text-[#717182]">
+              再割当では従業員IDを維持したまま、既存のログインセッションとカレンダーURLを失効させます。既存のシフト履歴や給与記録は変更しません。
+            </p>
           </form>
         </div>
       )}
 
+      {editingEmployee && isReassignConfirmOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 px-4 py-8">
+          <section className="w-full max-w-[512px] rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <WarningIcon />
+                <h2 className="text-xl font-semibold">従業員を再割当しますか？</h2>
+              </div>
+              <button
+                type="button"
+                aria-label="閉じる"
+                onClick={closeReassignConfirmation}
+                disabled={isReassigning}
+                className="rounded-md p-1 text-[#596074] transition hover:bg-[#f0f1f4] hover:text-[#030213] disabled:cursor-not-allowed"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <p className="mt-3 text-sm leading-relaxed text-[#717182]">
+              従業員ID「{editingEmployee.employeeId}」を維持したまま再割当します。現在のセッションは401、既存のカレンダーURLは404で拒否され、新しい従業員は再ログインと新しいカレンダーURLの発行が必要になります。
+            </p>
+
+            <div className="mt-5 rounded-lg bg-[#f7f8fb] px-4 py-4 text-sm">
+              <p className="font-semibold">現在の登録</p>
+              <p className="mt-1 text-[#475569]">
+                {editingEmployee.name} / {editingEmployee.email}
+              </p>
+              <p className="mt-4 font-semibold">再割当後</p>
+              <p className="mt-1 text-[#475569]">
+                {editForm.lastName}{editForm.firstName} / {editForm.email}
+              </p>
+            </div>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={closeReassignConfirmation}
+                disabled={isReassigning}
+                className="h-10 rounded-md border border-black/10 bg-white text-sm font-semibold shadow-sm transition hover:bg-[#f7f8fb] disabled:cursor-not-allowed"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleReassign}
+                disabled={isReassigning}
+                className="h-10 rounded-md bg-[#db1741] text-sm font-semibold text-white transition hover:bg-[#c51239] disabled:cursor-not-allowed disabled:bg-[#c56c7f]"
+              >
+                {isReassigning ? "再割当中..." : "再割当を実行"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8">
           <section className="w-full max-w-[512px] rounded-xl bg-white p-6 shadow-xl">

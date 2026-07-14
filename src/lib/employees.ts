@@ -5,6 +5,7 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
+  runTransaction,
   serverTimestamp,
   setDoc,
   writeBatch,
@@ -276,9 +277,9 @@ export async function updateEmployee(
     employeeRef,
     {
       ...employee,
-      authVersion,
       ...(shouldRotateAuth
         ? {
+            authVersion,
             calendarSubscriptionToken: deleteField(),
             calendarSubscriptionTokenCreatedAt: deleteField(),
           }
@@ -304,6 +305,82 @@ export async function updateEmployee(
   return employee;
 }
 
+export async function reassignEmployee(
+  employeeId: string,
+  input: EmployeeRegistrationInput,
+  organizationId = defaultOrganizationId,
+): Promise<EmployeeProfile> {
+  const trimmedEmployeeId = employeeId.trim();
+  const firstName = input.firstName.trim();
+  const lastName = input.lastName.trim();
+  const email = normalizeEmail(input.email);
+  const employmentType = input.employmentType.trim();
+  const workScore = normalizeWorkScore(input.workScore);
+  const currentOrganization = await loadOrganizationProfile(organizationId);
+
+  if (!trimmedEmployeeId || !firstName || !lastName || !email || !employmentType) {
+    throw new Error("必須項目をすべて入力してください。");
+  }
+
+  const employeeRef = doc(getEmployeesCollection(organizationId), trimmedEmployeeId);
+  const employeeSnapshot = await getDoc(employeeRef);
+
+  if (!employeeSnapshot.exists()) {
+    throw new Error("再割当対象の従業員が見つかりません。");
+  }
+
+  const existingEmployee = await findEmployeeByEmail(organizationId, email);
+  if (existingEmployee && existingEmployee.employeeId !== trimmedEmployeeId) {
+    throw new Error("このメールアドレスは既に登録されています。");
+  }
+
+  const expectedAuthVersion = String(employeeSnapshot.data()?.authVersion ?? "");
+  const employee: EmployeeProfile = {
+    id: trimmedEmployeeId,
+    organizationId,
+    employeeId: trimmedEmployeeId,
+    firstName,
+    lastName,
+    name: `${lastName}${firstName}`,
+    email,
+    employmentType,
+    organization: currentOrganization.name,
+    department: currentOrganization.department,
+    workScore,
+  };
+
+  await runTransaction(db, async (transaction) => {
+    const currentEmployeeSnapshot = await transaction.get(employeeRef);
+
+    if (!currentEmployeeSnapshot.exists) {
+      throw new Error("再割当対象の従業員が見つかりません。");
+    }
+
+    const currentAuthVersion = String(
+      currentEmployeeSnapshot.data()?.authVersion ?? "",
+    );
+
+    if (currentAuthVersion !== expectedAuthVersion) {
+      throw new Error(
+        "従業員情報が更新されています。再読み込みしてから再割当してください。",
+      );
+    }
+
+    transaction.set(
+      employeeRef,
+      {
+        ...employee,
+        authVersion: createEmployeeAuthVersion(),
+        calendarSubscriptionToken: deleteField(),
+        calendarSubscriptionTokenCreatedAt: deleteField(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  });
+
+  return employee;
+}
 export async function deleteEmployee(
   employeeId: string,
   organizationId = defaultOrganizationId,
