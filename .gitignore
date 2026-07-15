@@ -29,8 +29,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+firestore-debug.log*
+firebase-debug.log*
 
-# Codex Security scan results
+# Codex 
 /security-reports/
 
 # env files (can opt-in for committing if needed)

@@ -156,6 +156,7 @@ function toEmployeeGeneratedSlot(request: ShiftRequest): ShiftSlot {
     employeeGenerated: true,
     capacity: 1,
     requestCount: 1,
+    approvedCount: request.status === "承認済" ? 1 : 0,
   };
 }
 

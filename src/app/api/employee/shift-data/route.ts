@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { EmployeeAuthError, verifyEmployeeRequest } from "@/lib/employeeAuthServer";
-import { normalizePayrollSettings } from "@/lib/payroll";
+import {
+  calculateShiftPayroll,
+  normalizePayrollSettings,
+  normalizePayrollSnapshot,
+  toEmployeePayrollSummary,
+} from "@/lib/payroll";
 import { normalizeShiftRequestSettings } from "@/lib/shiftRequestSettings";
 
 export const runtime = "nodejs";
@@ -46,6 +51,7 @@ function toShiftRequest(snapshot: QueryDocumentSnapshot) {
     actualPay: normalizeActualPay(data.actualPay),
     actualMemo: String(data.actualMemo ?? ""),
     actualUpdatedAt: String(data.actualUpdatedAt ?? ""),
+    payrollSnapshot: normalizePayrollSnapshot(data.payrollSnapshot) ?? undefined,
   };
 }
 
@@ -130,24 +136,37 @@ export async function GET(request: Request) {
       );
     }
 
+    const payrollSettings = normalizePayrollSettings(payrollSnapshot.data());
+    const requests = requestsSnapshot.docs
+      .map(toShiftRequest)
+      .filter((shiftRequest) => shiftRequest.employeeId === employeeAuth.employeeId)
+      .filter(
+        (shiftRequest) =>
+          !requestedRangeStart ||
+          !requestedRangeEnd ||
+          (shiftRequest.date >= requestedRangeStart &&
+            shiftRequest.date <= requestedRangeEnd),
+      )
+      .map((shiftRequest) => {
+        const payroll = calculateShiftPayroll(shiftRequest, payrollSettings);
+        const employeeRequest = { ...shiftRequest };
+
+        delete employeeRequest.payrollSnapshot;
+
+        return {
+          ...employeeRequest,
+          employeePayroll: toEmployeePayrollSummary(payroll),
+        };
+      });
+
     return NextResponse.json({
-      requests: requestsSnapshot.docs
-        .map(toShiftRequest)
-        .filter((shiftRequest) => shiftRequest.employeeId === employeeAuth.employeeId)
-        .filter(
-          (shiftRequest) =>
-            !requestedRangeStart ||
-            !requestedRangeEnd ||
-            (shiftRequest.date >= requestedRangeStart &&
-              shiftRequest.date <= requestedRangeEnd),
-        ),
+      requests,
       slots: slotsSnapshot.docs.map(toShiftSlot),
       positions: positionsSnapshot.docs
         .map((positionSnapshot) =>
           toPosition(positionSnapshot, employeeAuth.organizationId),
         )
         .sort((a, b) => a.name.localeCompare(b.name)),
-      payrollSettings: normalizePayrollSettings(payrollSnapshot.data()),
       shiftRequestSettings: normalizeShiftRequestSettings(
         shiftRequestSettingsSnapshot.data(),
       ),

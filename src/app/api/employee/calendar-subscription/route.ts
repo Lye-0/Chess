@@ -36,27 +36,62 @@ export async function POST(request: Request) {
     const existingToken = String(
       employeeSnapshot.data()?.calendarSubscriptionToken ?? "",
     );
-    const token = existingToken || createCalendarSubscriptionToken();
-
-    const subscriptionRef = adminDb
-      .collection("employeeCalendarSubscriptions")
-      .doc(token);
+    const subscriptions = adminDb.collection("employeeCalendarSubscriptions");
+    const existingSubscriptionRef = existingToken
+      ? subscriptions.doc(existingToken)
+      : null;
+    const existingSubscriptionSnapshot = existingSubscriptionRef
+      ? await existingSubscriptionRef.get()
+      : null;
+    const existingSubscriptionData = existingSubscriptionSnapshot?.data() ?? {};
+    const canReuseExistingToken =
+      Boolean(existingToken) &&
+      existingSubscriptionSnapshot?.exists === true &&
+      String(existingSubscriptionData.organizationId ?? "") ===
+        employeeAuth.organizationId &&
+      String(existingSubscriptionData.employeeId ?? "") ===
+        employeeAuth.employeeId &&
+      String(existingSubscriptionData.authVersion ?? "") ===
+        employeeAuth.authVersion;
+    const token = canReuseExistingToken
+      ? existingToken
+      : createCalendarSubscriptionToken();
+    const subscriptionRef = subscriptions.doc(token);
     const now = FieldValue.serverTimestamp();
 
     await adminDb.runTransaction(async (transaction) => {
-      if (!existingToken) {
-        transaction.update(employeeRef, {
+      const currentEmployeeSnapshot = await transaction.get(employeeRef);
+      const currentAuthVersion = String(
+        currentEmployeeSnapshot.data()?.authVersion ?? "",
+      );
+
+      if (
+        !currentEmployeeSnapshot.exists ||
+        currentAuthVersion !== employeeAuth.authVersion
+      ) {
+        throw new EmployeeAuthError("従業員ログインの有効性を確認できませんでした。");
+      }
+
+      if (existingSubscriptionRef && existingToken && existingToken !== token) {
+        transaction.delete(existingSubscriptionRef);
+      }
+
+      transaction.set(
+        employeeRef,
+        {
           calendarSubscriptionToken: token,
           calendarSubscriptionTokenCreatedAt: now,
           updatedAt: now,
-        });
-      }
+        },
+        { merge: true },
+      );
 
       transaction.set(
         subscriptionRef,
         {
           organizationId: employeeAuth.organizationId,
           employeeId: employeeAuth.employeeId,
+          authVersion: employeeAuth.authVersion,
           updatedAt: now,
           createdAt: now,
         },

@@ -6,17 +6,23 @@ import {
   getDocs,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   updateDoc,
   where,
-  writeBatch,
   type DocumentData,
+  type DocumentSnapshot,
   type FirestoreError,
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { defaultOrganizationId } from "./people";
+import {
+  normalizePayrollSnapshot,
+  type EmployeePayrollSummary,
+  type PayrollSnapshot,
+} from "./payroll";
 
 function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
   return collection(db, "organizations", organizationId, "shiftRequests");
@@ -28,6 +34,26 @@ function getShiftSlotsCollection(organizationId = defaultOrganizationId) {
 
 function getShiftSlotDocument(slotId: string, organizationId = defaultOrganizationId) {
   return doc(getShiftSlotsCollection(organizationId), slotId);
+}
+
+function getShiftRequestKeyDocument(
+  keyId: string,
+  organizationId = defaultOrganizationId,
+) {
+  return doc(
+    collection(db, "organizations", organizationId, "shiftRequestKeys"),
+    keyId,
+  );
+}
+
+function getStoredCounter(
+  data: DocumentData,
+  field: string,
+  fallback: number,
+) {
+  const value = Number(data[field]);
+
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 export type ShiftRequestStatus = "希望済" | "承認済";
@@ -52,6 +78,8 @@ export type ShiftRequest = {
   actualPay: number | null;
   actualMemo: string;
   actualUpdatedAt: string;
+  payrollSnapshot?: PayrollSnapshot;
+  employeePayroll?: EmployeePayrollSummary;
 };
 
 export type ShiftRequestInput = Omit<
@@ -65,6 +93,8 @@ export type ShiftRequestInput = Omit<
   | "actualPay"
   | "actualMemo"
   | "actualUpdatedAt"
+  | "payrollSnapshot"
+  | "employeePayroll"
 >;
 
 export type EmployeeGeneratedShiftRequestInput = Omit<
@@ -190,6 +220,7 @@ function toShiftRequest(
     actualPay: normalizeActualPay(data.actualPay),
     actualMemo: String(data.actualMemo ?? ""),
     actualUpdatedAt: String(data.actualUpdatedAt ?? ""),
+    payrollSnapshot: normalizePayrollSnapshot(data.payrollSnapshot) ?? undefined,
   };
 }
 
@@ -385,36 +416,76 @@ export async function removeShiftRequest(
   organizationId = defaultOrganizationId,
 ) {
   const requestRef = doc(getShiftRequestsCollection(organizationId), requestId);
-  const requestSnapshot = await getDoc(requestRef);
+  const preflightSnapshot = await getDoc(requestRef);
 
-  if (!requestSnapshot.exists()) return;
+  if (!preflightSnapshot.exists()) return;
 
-  const slotId = String(requestSnapshot.data().slotId ?? "");
-  const batch = writeBatch(db);
+  const preflightData = preflightSnapshot.data();
+  const preflightSlotId = String(preflightData.slotId ?? "");
+  const legacyApprovedCount =
+    preflightSlotId &&
+    normalizeShiftRequestStatus(preflightData.status) === "承認済"
+      ? await countApprovedShiftRequestsBySlot(
+          preflightSlotId,
+          organizationId,
+        )
+      : 0;
 
-  batch.delete(requestRef);
+  await runTransaction(db, async (transaction) => {
+    const requestSnapshot = await transaction.get(requestRef);
+    if (!requestSnapshot.exists()) return;
 
-  if (slotId) {
-    const slotRef = getShiftSlotDocument(slotId, organizationId);
-    const slotSnapshot = await getDoc(slotRef);
+    const requestData = requestSnapshot.data();
+    const slotId = String(requestData.slotId ?? "");
+    const isApproved =
+      normalizeShiftRequestStatus(requestData.status) === "承認済";
+    const dedupeKeyId = String(requestData.dedupeKeyId ?? "");
+    const slotRef = slotId
+      ? getShiftSlotDocument(slotId, organizationId)
+      : null;
+    const keyRef = dedupeKeyId
+      ? getShiftRequestKeyDocument(dedupeKeyId, organizationId)
+      : null;
+    const slotSnapshot = slotRef
+      ? await transaction.get(slotRef)
+      : null;
+    const keySnapshot = keyRef
+      ? await transaction.get(keyRef)
+      : null;
 
-    if (slotSnapshot.exists()) {
-      const currentRequestsSnapshot = await getDocs(
-        getShiftRequestsCollection(organizationId),
-      );
-      const currentCount = currentRequestsSnapshot.docs.filter(
-        (currentRequestSnapshot) =>
-          currentRequestSnapshot.data().slotId === slotId,
-      ).length;
+    transaction.delete(requestRef);
 
-      batch.update(slotRef, {
-        requestCount: Math.max(0, currentCount - 1),
-        updatedAt: serverTimestamp(),
-      });
+    if (
+      keyRef &&
+      keySnapshot?.exists() &&
+      String(keySnapshot.data()?.requestId ?? "") === requestId
+    ) {
+      transaction.delete(keyRef);
     }
-  }
 
-  await batch.commit();
+    if (slotRef && slotSnapshot?.exists()) {
+      const slotData = slotSnapshot.data() ?? {};
+      const requestCount = Math.max(
+        0,
+        Number(slotData.requestCount ?? 0) - 1,
+      );
+      const approvedCount = getStoredCounter(
+        slotData,
+        "approvedCount",
+        legacyApprovedCount,
+      );
+      const update: DocumentData = {
+        requestCount,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (isApproved) {
+        update.approvedCount = Math.max(0, approvedCount - 1);
+      }
+
+      transaction.update(slotRef, update);
+    }
+  });
 }
 
 export async function approveShiftRequest(
@@ -422,74 +493,87 @@ export async function approveShiftRequest(
   organizationId = defaultOrganizationId,
 ) {
   const requestRef = doc(getShiftRequestsCollection(organizationId), requestId);
-  const requestSnapshot = await getDoc(requestRef);
+  const preflightSnapshot = await getDoc(requestRef);
 
-  if (!requestSnapshot.exists()) return;
-  if (normalizeShiftRequestStatus(requestSnapshot.data().status) === "承認済") return;
+  if (!preflightSnapshot.exists()) return;
 
-  const requestData = requestSnapshot.data();
-  const slotId = String(requestData.slotId ?? "");
+  const preflightData = preflightSnapshot.data();
+  const preflightSlotId = String(preflightData.slotId ?? "");
+  const legacyApprovedCount = preflightSlotId
+    ? await countApprovedShiftRequestsBySlot(preflightSlotId, organizationId)
+    : 0;
 
-  if (!slotId) {
-    if (isShiftEnded({
-      date: String(requestData.date ?? ""),
-      startTime: String(requestData.startTime ?? ""),
-      endTime: String(requestData.endTime ?? ""),
-    })) {
-      throw new Error("Shift request has already ended.");
+  await runTransaction(db, async (transaction) => {
+    const requestSnapshot = await transaction.get(requestRef);
+    if (!requestSnapshot.exists()) return;
+
+    const requestData = requestSnapshot.data();
+    if (normalizeShiftRequestStatus(requestData.status) === "承認済") return;
+
+    const slotId = String(requestData.slotId ?? "");
+
+    if (!slotId) {
+      const requestShift = {
+        date: String(requestData.date ?? ""),
+        startTime: String(requestData.startTime ?? ""),
+        endTime: String(requestData.endTime ?? ""),
+      };
+
+      if (isShiftEnded(requestShift)) {
+        throw new Error("Shift request has already ended.");
+      }
+
+      const slotRef = doc(getShiftSlotsCollection(organizationId));
+
+      transaction.set(slotRef, {
+        date: requestShift.date,
+        startTime: requestShift.startTime,
+        endTime: requestShift.endTime,
+        positionId: String(requestData.positionId ?? ""),
+        positionName: String(requestData.positionName ?? ""),
+        employeeGenerated: true,
+        capacity: 1,
+        requestCount: 1,
+        approvedCount: 1,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      transaction.update(requestRef, {
+        slotId: slotRef.id,
+        employeeGenerated: true,
+        status: "承認済",
+        approvedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      return;
     }
 
-    const slotRef = doc(getShiftSlotsCollection(organizationId));
-    const batch = writeBatch(db);
+    const slotRef = getShiftSlotDocument(slotId, organizationId);
+    const slotSnapshot = await transaction.get(slotRef);
+    if (!slotSnapshot.exists()) {
+      throw new Error("Shift slot is not available.");
+    }
 
-    batch.set(slotRef, {
-      date: String(requestData.date ?? ""),
-      startTime: String(requestData.startTime ?? ""),
-      endTime: String(requestData.endTime ?? ""),
-      positionId: String(requestData.positionId ?? ""),
-      positionName: String(requestData.positionName ?? ""),
-      employeeGenerated: true,
-      capacity: 1,
-      requestCount: 1,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    batch.update(requestRef, {
-      slotId: slotRef.id,
-      employeeGenerated: true,
+    const capacity = normalizeShiftSlotCapacity(slotSnapshot.data()?.capacity);
+    const approvedCount = getStoredCounter(
+      slotSnapshot.data() ?? {},
+      "approvedCount",
+      legacyApprovedCount,
+    );
+
+    if (approvedCount >= capacity) {
+      throw new Error("Shift slot approval capacity reached.");
+    }
+
+    transaction.update(requestRef, {
       status: "承認済",
       approvedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
-
-    await batch.commit();
-    return;
-  }
-
-  const slotSnapshot = await getDoc(getShiftSlotDocument(slotId, organizationId));
-  if (!slotSnapshot.exists()) throw new Error("Shift slot is not available.");
-
-  const capacity = normalizeShiftSlotCapacity(slotSnapshot.data().capacity);
-  const currentRequestsSnapshot = await getDocs(
-    getShiftRequestsCollection(organizationId),
-  );
-  const approvedCount = currentRequestsSnapshot.docs.filter((currentSnapshot) => {
-    const data = currentSnapshot.data();
-    return (
-      currentSnapshot.id !== requestId &&
-      data.slotId === slotId &&
-      normalizeShiftRequestStatus(data.status) === "承認済"
-    );
-  }).length;
-
-  if (approvedCount >= capacity) {
-    throw new Error("Shift slot approval capacity reached.");
-  }
-
-  await updateDoc(requestRef, {
-    status: "承認済",
-    approvedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    transaction.update(slotRef, {
+      approvedCount: approvedCount + 1,
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 
@@ -528,53 +612,145 @@ export async function approveShiftRequests(
     },
     {},
   );
-  const currentRequestsSnapshot = await getDocs(
-    getShiftRequestsCollection(organizationId),
-  );
+  const legacyApprovedCounts = Object.fromEntries(
+    await Promise.all(
+      Object.keys(approvableIdsBySlot).map(async (slotId) => [
+        slotId,
+        await countApprovedShiftRequestsBySlot(slotId, organizationId),
+      ]),
+    ),
+  ) as Record<string, number>;
 
-  await Promise.all(
-    Object.entries(approvableIdsBySlot).map(async ([slotId, slotRequestIds]) => {
-      const slotSnapshot = await getDoc(getShiftSlotDocument(slotId, organizationId));
-      if (!slotSnapshot.exists()) throw new Error("Shift slot is not available.");
+  await runTransaction(db, async (transaction) => {
+    const slotSnapshots = new Map<string, DocumentSnapshot<DocumentData>>();
+    for (const slotId of Object.keys(approvableIdsBySlot)) {
+      const slotSnapshot = await transaction.get(
+        getShiftSlotDocument(slotId, organizationId),
+      );
+      if (!slotSnapshot.exists()) {
+        throw new Error("Shift slot is not available.");
+      }
+      slotSnapshots.set(slotId, slotSnapshot);
+    }
 
-      const capacity = normalizeShiftSlotCapacity(slotSnapshot.data().capacity);
-      const approvingRequestIds = new Set(slotRequestIds);
-      const approvedCount = currentRequestsSnapshot.docs.filter((currentSnapshot) => {
-        const data = currentSnapshot.data();
+    const currentRequestSnapshots = new Map<
+      string,
+      DocumentSnapshot<DocumentData>
+    >();
+    for (const requestId of uniqueRequestIds) {
+      currentRequestSnapshots.set(
+        requestId,
+        await transaction.get(
+          doc(getShiftRequestsCollection(organizationId), requestId),
+        ),
+      );
+    }
+
+    const approvingIdsBySlot: Record<string, string[]> = {};
+
+    for (const [slotId, slotRequestIds] of Object.entries(approvableIdsBySlot)) {
+      const pendingIds = slotRequestIds.filter((requestId) => {
+        const requestSnapshot = currentRequestSnapshots.get(requestId);
         return (
-          !approvingRequestIds.has(currentSnapshot.id) &&
-          data.slotId === slotId &&
-          normalizeShiftRequestStatus(data.status) === "承認済"
+          requestSnapshot?.exists() &&
+          normalizeShiftRequestStatus(requestSnapshot.data().status) !== "承認済" &&
+          String(requestSnapshot.data().slotId ?? "") === slotId
         );
-      }).length;
+      });
 
-      if (approvedCount + slotRequestIds.length > capacity) {
+      if (pendingIds.length === 0) continue;
+
+      const slotSnapshot = slotSnapshots.get(slotId)!;
+      const approvedCount = getStoredCounter(
+        slotSnapshot.data() ?? {},
+        "approvedCount",
+        legacyApprovedCounts[slotId] ?? 0,
+      );
+      const capacity = normalizeShiftSlotCapacity(slotSnapshot.data()?.capacity);
+
+      if (approvedCount + pendingIds.length > capacity) {
         throw new Error("Shift slot approval capacity reached.");
       }
-    }),
-  );
 
-  const batch = writeBatch(db);
+      approvingIdsBySlot[slotId] = pendingIds;
+    }
 
-  approvableRequests.forEach((request) => {
-    batch.update(doc(getShiftRequestsCollection(organizationId), request.id), {
-      status: "承認済",
-      approvedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    for (const requestIdsForSlot of Object.values(approvingIdsBySlot)) {
+      requestIdsForSlot.forEach((requestId) => {
+        transaction.update(
+          doc(getShiftRequestsCollection(organizationId), requestId),
+          {
+            status: "承認済",
+            approvedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+        );
+      });
+    }
+
+    for (const [slotId, requestIdsForSlot] of Object.entries(approvingIdsBySlot)) {
+      const slotSnapshot = slotSnapshots.get(slotId)!;
+      const approvedCount = getStoredCounter(
+        slotSnapshot.data() ?? {},
+        "approvedCount",
+        legacyApprovedCounts[slotId] ?? 0,
+      );
+
+      transaction.update(getShiftSlotDocument(slotId, organizationId), {
+        approvedCount: approvedCount + requestIdsForSlot.length,
+        updatedAt: serverTimestamp(),
+      });
+    }
   });
-
-  await batch.commit();
 }
 
 export async function resetShiftRequestApproval(
   requestId: string,
   organizationId = defaultOrganizationId,
 ) {
-  await updateDoc(doc(getShiftRequestsCollection(organizationId), requestId), {
-    status: "希望済",
-    approvedAt: deleteField(),
-    updatedAt: serverTimestamp(),
+  const requestRef = doc(getShiftRequestsCollection(organizationId), requestId);
+  const preflightSnapshot = await getDoc(requestRef);
+
+  if (!preflightSnapshot.exists()) return;
+
+  const preflightData = preflightSnapshot.data();
+  const preflightSlotId = String(preflightData.slotId ?? "");
+  const legacyApprovedCount = preflightSlotId
+    ? await countApprovedShiftRequestsBySlot(preflightSlotId, organizationId)
+    : 0;
+
+  await runTransaction(db, async (transaction) => {
+    const requestSnapshot = await transaction.get(requestRef);
+    if (!requestSnapshot.exists()) return;
+    if (normalizeShiftRequestStatus(requestSnapshot.data().status) !== "承認済") {
+      return;
+    }
+
+    const slotId = String(requestSnapshot.data().slotId ?? "");
+    const slotRef = slotId
+      ? getShiftSlotDocument(slotId, organizationId)
+      : null;
+    const slotSnapshot = slotRef
+      ? await transaction.get(slotRef)
+      : null;
+
+    transaction.update(requestRef, {
+      status: "希望済",
+      approvedAt: deleteField(),
+      updatedAt: serverTimestamp(),
+    });
+
+    if (slotRef && slotSnapshot?.exists()) {
+      const approvedCount = getStoredCounter(
+        slotSnapshot.data() ?? {},
+        "approvedCount",
+        legacyApprovedCount,
+      );
+      transaction.update(slotRef, {
+        approvedCount: Math.max(0, approvedCount - 1),
+        updatedAt: serverTimestamp(),
+      });
+    }
   });
 }
 
@@ -655,7 +831,12 @@ export async function countApprovedShiftRequestsBySlot(
   slotId: string,
   organizationId = defaultOrganizationId,
 ) {
-  const snapshot = await getDocs(getShiftRequestsCollection(organizationId));
+  const snapshot = await getDocs(
+    query(
+      getShiftRequestsCollection(organizationId),
+      where("slotId", "==", slotId),
+    ),
+  );
 
   return snapshot.docs.filter((requestSnapshot) => {
     const data = requestSnapshot.data();
@@ -671,20 +852,88 @@ export async function removeShiftRequestsBySlot(
   slotId: string,
   organizationId = defaultOrganizationId,
 ) {
-  const snapshot = await getDocs(getShiftRequestsCollection(organizationId));
-  const batch = writeBatch(db);
-  let deleteCount = 0;
+  const requestCollection = getShiftRequestsCollection(organizationId);
+  const preflightSnapshot = await getDocs(requestCollection);
+  const matchingRequests = preflightSnapshot.docs.filter(
+    (requestSnapshot) => String(requestSnapshot.data().slotId ?? "") === slotId,
+  );
 
-  snapshot.docs.forEach((requestSnapshot) => {
-    if (requestSnapshot.data().slotId === slotId) {
-      batch.delete(
-        doc(getShiftRequestsCollection(organizationId), requestSnapshot.id),
+  if (matchingRequests.length === 0) return;
+
+  const legacyApprovedCount = matchingRequests.filter(
+    (requestSnapshot) =>
+      normalizeShiftRequestStatus(requestSnapshot.data().status) === "承認済",
+  ).length;
+
+  await runTransaction(db, async (transaction) => {
+    const slotRef = getShiftSlotDocument(slotId, organizationId);
+    const slotSnapshot = await transaction.get(slotRef);
+    const requestsToDelete: Array<{
+      requestRef: ReturnType<typeof doc>;
+      keyRef: ReturnType<typeof doc> | null;
+      keySnapshot: DocumentSnapshot<DocumentData> | null;
+      isApproved: boolean;
+    }> = [];
+
+    for (const preflightRequest of matchingRequests) {
+      const requestRef = doc(requestCollection, preflightRequest.id);
+      const requestSnapshot = await transaction.get(requestRef);
+      if (!requestSnapshot.exists()) continue;
+
+      const requestData = requestSnapshot.data();
+      if (String(requestData.slotId ?? "") !== slotId) continue;
+
+      const dedupeKeyId = String(requestData.dedupeKeyId ?? "");
+      const keyRef = dedupeKeyId
+        ? getShiftRequestKeyDocument(dedupeKeyId, organizationId)
+        : null;
+      const keySnapshot = keyRef
+        ? await transaction.get(keyRef)
+        : null;
+
+      requestsToDelete.push({
+        requestRef,
+        keyRef,
+        keySnapshot,
+        isApproved:
+          normalizeShiftRequestStatus(requestData.status) === "承認済",
+      });
+    }
+
+    if (requestsToDelete.length === 0) return;
+
+    requestsToDelete.forEach(({ requestRef, keyRef, keySnapshot }) => {
+      transaction.delete(requestRef);
+
+      if (
+        keyRef &&
+        keySnapshot?.exists() &&
+        String(keySnapshot.data()?.requestId ?? "") === requestRef.id
+      ) {
+        transaction.delete(keyRef);
+      }
+    });
+
+    if (slotSnapshot.exists()) {
+      const slotData = slotSnapshot.data();
+      const requestCount = Math.max(
+        0,
+        Number(slotData.requestCount ?? 0) - requestsToDelete.length,
       );
-      deleteCount += 1;
+      const approvedCount = getStoredCounter(
+        slotData,
+        "approvedCount",
+        legacyApprovedCount,
+      );
+      const approvedDeleteCount = requestsToDelete.filter(
+        (request) => request.isApproved,
+      ).length;
+
+      transaction.update(slotRef, {
+        requestCount,
+        approvedCount: Math.max(0, approvedCount - approvedDeleteCount),
+        updatedAt: serverTimestamp(),
+      });
     }
   });
-
-  if (deleteCount === 0) return;
-
-  await batch.commit();
 }

@@ -276,6 +276,7 @@ function toEmployeeGeneratedRequestSlot(request: ShiftRequest): ShiftSlot {
     employeeGenerated: true,
     capacity: 1,
     requestCount: 1,
+    approvedCount: request.status === "承認済" ? 1 : 0,
   };
 }
 function getTimelineRange(timelineSlots: ReturnType<typeof toTimelineSlot>[]) {
@@ -1003,6 +1004,7 @@ function EmployeeShiftRequestContent() {
       employeeGenerated: true,
       capacity: 1,
       requestCount: 0,
+      approvedCount: 0,
       isEmployeeGenerated: true,
     };
 
@@ -1071,6 +1073,7 @@ function EmployeeShiftRequestContent() {
         employeeGenerated: true,
         capacity: 1,
         requestCount: 0,
+        approvedCount: 0,
         isEmployeeGenerated: true,
       }))
       .filter((draft) => isShiftStartInFuture(draft, now))

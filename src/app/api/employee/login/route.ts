@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
-import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  type Firestore,
+  type QueryDocumentSnapshot,
+} from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import {
+  createEmployeeAuthVersion,
   createEmployeeSessionToken,
   employeeSessionCookieName,
   getEmployeeSessionCookieOptions,
@@ -72,7 +77,7 @@ export async function POST(request: Request) {
     const organizationId = String(body.organizationId ?? "").trim();
     const email = normalizeEmail(String(body.email ?? ""));
 
-    if (!/^\d{6}$/.test(organizationId) || !email) {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(organizationId) || !email) {
       return NextResponse.json(
         { error: "組織IDとメールアドレスを確認してください。" },
         { status: 400 },
@@ -95,13 +100,43 @@ export async function POST(request: Request) {
       );
     }
 
+    const employeeRef = adminDb
+      .collection("organizations")
+      .doc(organizationId)
+      .collection("employees")
+      .doc(employeeSnapshot.id);
+    const authVersion = await adminDb.runTransaction(async (transaction) => {
+      const currentEmployeeSnapshot = await transaction.get(employeeRef);
+
+      if (!currentEmployeeSnapshot.exists) {
+        throw new Error("従業員情報を確認できませんでした。");
+      }
+
+      const currentAuthVersion = String(
+        currentEmployeeSnapshot.data()?.authVersion ?? "",
+      );
+
+      if (currentAuthVersion) return currentAuthVersion;
+
+      const nextAuthVersion = createEmployeeAuthVersion();
+      transaction.update(employeeRef, {
+        authVersion: nextAuthVersion,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return nextAuthVersion;
+    });
+
     const organization = await loadOrganizationProfile(adminDb, organizationId);
     const employee = toEmployeeProfile(employeeSnapshot, organizationId, organization);
     const response = NextResponse.json({ employee });
 
     response.cookies.set(
       employeeSessionCookieName,
-      createEmployeeSessionToken(organizationId, employee.employeeId),
+      createEmployeeSessionToken(
+        organizationId,
+        employee.employeeId,
+        authVersion,
+      ),
       getEmployeeSessionCookieOptions(),
     );
 

@@ -1,19 +1,21 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
   onSnapshot,
   serverTimestamp,
-  setDoc,
   writeBatch,
   type DocumentData,
+  type DocumentReference,
   type FirestoreError,
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { auth, db } from "./firebase";
+import { deleteManagerCalendarSubscriptions } from "./managerCalendarSubscriptions";
 
 export type ManagerOrganization = {
   id: string;
@@ -41,27 +43,30 @@ function getManagerOrganizationsCollection(managerUid: string) {
   return collection(db, "managers", managerUid, "organizations");
 }
 
+const organizationDeleteBatchSize = 400;
+
+async function deleteDocumentReferencesInBatches(
+  documentReferences: DocumentReference[],
+) {
+  for (
+    let index = 0;
+    index < documentReferences.length;
+    index += organizationDeleteBatchSize
+  ) {
+    const batch = writeBatch(db);
+    documentReferences
+      .slice(index, index + organizationDeleteBatchSize)
+      .forEach((documentReference) => batch.delete(documentReference));
+    await batch.commit();
+  }
+}
+
 function getPositionsCollection(organizationId: string) {
   return collection(db, "organizations", organizationId, "positions");
 }
 
 function normalizePositionName(name: string) {
   return name.trim().replace(/\s+/g, " ");
-}
-
-function createOrganizationIdCandidate() {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
-
-async function createUniqueOrganizationId() {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const organizationId = createOrganizationIdCandidate();
-    const snapshot = await getDoc(doc(db, "organizations", organizationId));
-
-    if (!snapshot.exists()) return organizationId;
-  }
-
-  throw new Error("組織IDを生成できませんでした。もう一度登録してください。");
 }
 
 function toManagerOrganization(
@@ -190,14 +195,13 @@ export async function getManagerOrganization(
 }
 
 export async function createManagerOrganization(
-  managerUid: string,
-  managerEmail: string | null,
   input: ManagerOrganizationInput,
 ): Promise<ManagerOrganization> {
   const name = input.name.trim();
   const department = input.department.trim();
+  const manager = auth.currentUser;
 
-  if (!managerUid) {
+  if (!manager) {
     throw new Error("管理者ログインが必要です。");
   }
 
@@ -205,42 +209,25 @@ export async function createManagerOrganization(
     throw new Error("組織名を入力してください。");
   }
 
-  const organizationId = await createUniqueOrganizationId();
-  const organization: ManagerOrganization = {
-    id: organizationId,
-    name,
-    department,
-    role: "owner",
+  const idToken = await manager.getIdToken();
+  const response = await fetch("/api/manager/organizations", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + idToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name, department }),
+  });
+  const result = (await response.json().catch(() => ({}))) as {
+    organization?: ManagerOrganization;
+    error?: string;
   };
 
-  await setDoc(
-    doc(db, "managers", managerUid),
-    {
-      email: managerEmail ?? "",
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
-  );
+  if (!response.ok || !result.organization) {
+    throw new Error(result.error ?? "組織の登録に失敗しました。");
+  }
 
-  await setDoc(doc(db, "organizations", organizationId), {
-    id: organizationId,
-    name,
-    department,
-    createdBy: managerUid,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-
-  await setDoc(doc(getManagerOrganizationsCollection(managerUid), organizationId), {
-    organizationId,
-    name,
-    department,
-    role: "owner",
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-
-  return organization;
+  return result.organization;
 }
 
 export async function deleteManagerOrganization(
@@ -265,11 +252,16 @@ export async function deleteManagerOrganization(
     throw new Error("削除対象の組織が見つかりません。");
   }
 
+  await deleteManagerCalendarSubscriptions({
+    organizationId: trimmedOrganizationId,
+  });
+
   const deletableCollectionNames = [
     "employees",
     "positions",
     "shiftSlots",
     "shiftRequests",
+    "shiftRequestKeys",
     "compatibilities",
   ];
   const snapshots = await Promise.all(
@@ -277,19 +269,19 @@ export async function deleteManagerOrganization(
       getDocs(collection(db, "organizations", trimmedOrganizationId, collectionName)),
     ),
   );
-  const batch = writeBatch(db);
+  const documentReferences = snapshots.flatMap((snapshot) =>
+    snapshot.docs.map((documentSnapshot) => documentSnapshot.ref),
+  );
+  documentReferences.push(
+    doc(db, "organizations", trimmedOrganizationId, "settings", "payroll"),
+    doc(db, "organizations", trimmedOrganizationId, "settings", "recommendation"),
+    doc(db, "organizations", trimmedOrganizationId, "settings", "shiftRequests"),
+    doc(db, "organizations", trimmedOrganizationId),
+  );
 
-  snapshots.forEach((snapshot) => {
-    snapshot.docs.forEach((documentSnapshot) => {
-      batch.delete(documentSnapshot.ref);
-    });
-  });
+  await deleteDocumentReferencesInBatches(documentReferences);
 
-  batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "payroll"));
-  batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "recommendation"));
-  batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "shiftRequests"));
-  batch.delete(doc(db, "organizations", trimmedOrganizationId));
-  batch.delete(doc(getManagerOrganizationsCollection(managerUid), trimmedOrganizationId));
-
-  await batch.commit();
+  await deleteDoc(
+    doc(getManagerOrganizationsCollection(managerUid), trimmedOrganizationId),
+  );
 }

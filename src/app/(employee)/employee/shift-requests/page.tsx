@@ -15,13 +15,7 @@ import {
   withdrawEmployeeShiftRequest,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
-import {
-  calculateShiftPayroll,
-  defaultPayrollSettings,
-  formatCurrency,
-  sumShiftPay,
-  type PayrollSettings,
-} from "@/lib/payroll";
+import { formatCurrency } from "@/lib/payroll";
 import {
   defaultShiftRequestSettings,
   type ShiftRequestSettings,
@@ -183,9 +177,25 @@ function isRequestInYear(request: ShiftRequest, yearValue: string) {
   return request.date.startsWith(`${yearValue}-`);
 }
 
-function sumWorkMinutes(requests: ShiftRequest[], payrollSettings: PayrollSettings) {
+function calculateScheduledWorkMinutes(request: ShiftRequest) {
+  const startAt = getRequestStartAt(request);
+  const endAt = getRequestEndAt(request);
+  const diff = endAt.getTime() - startAt.getTime();
+
+  return Number.isFinite(diff) && diff >= 0 ? Math.round(diff / 60000) : 0;
+}
+
+function sumWorkMinutes(requests: ShiftRequest[]) {
   return requests.reduce(
-    (total, request) => total + calculateShiftPayroll(request, payrollSettings).totalMinutes,
+    (total, request) =>
+      total + (request.employeePayroll?.totalMinutes ?? calculateScheduledWorkMinutes(request)),
+    0,
+  );
+}
+
+function sumEmployeePay(requests: ShiftRequest[]) {
+  return requests.reduce(
+    (total, request) => total + (request.employeePayroll?.totalPay ?? 0),
     0,
   );
 }
@@ -237,22 +247,24 @@ function RequestStatusBadge({ status }: { status: ShiftRequest["status"] }) {
 
 function ShiftRequestRow({
   request,
-  payrollSettings,
   showActualAdjustments,
   onWithdraw,
   isWithdrawing = false,
 }: {
   request: ShiftRequest;
-  payrollSettings: PayrollSettings;
   showActualAdjustments: boolean;
   onWithdraw?: (request: ShiftRequest) => void;
   isWithdrawing?: boolean;
 }) {
   const parsedDate = new Date(`${request.date}T00:00:00`);
-  const payroll = calculateShiftPayroll(request, payrollSettings);
+  const payroll = request.employeePayroll;
   const shouldShowActuals = showActualAdjustments && request.status === "承認済";
-  const hasActualTime = shouldShowActuals && payroll.usesActualTime;
-  const hasActualPay = shouldShowActuals && payroll.totalPay !== payroll.scheduledPay;
+  const hasActualTime = Boolean(shouldShowActuals && payroll?.usesActualTime);
+  const hasActualPay = Boolean(
+    shouldShowActuals &&
+      payroll &&
+      payroll.totalPay !== payroll.scheduledPay,
+  );
   const hasActualMemo = shouldShowActuals && request.actualMemo.trim();
 
   return (
@@ -288,14 +300,16 @@ function ShiftRequestRow({
               </span>
             )}
           </p>
-          <p className="mt-1 text-sm font-semibold text-[#00a63e]">
-            {hasActualPay && (
-              <span className="mr-2 text-xs text-[#94a3b8] line-through">
-                {formatCurrency(payroll.scheduledPay)}
-              </span>
-            )}
-            {formatCurrency(payroll.totalPay)}
-          </p>
+          {payroll && (
+            <p className="mt-1 text-sm font-semibold text-[#00a63e]">
+              {hasActualPay && (
+                <span className="mr-2 text-xs text-[#94a3b8] line-through">
+                  {formatCurrency(payroll.scheduledPay)}
+                </span>
+              )}
+              {formatCurrency(payroll.totalPay)}
+            </p>
+          )}
           {hasActualMemo && (
             <p className="mt-1 rounded-md bg-[#f7f8fb] px-3 py-2 text-xs text-[#475569]">
               {request.actualMemo}
@@ -350,9 +364,6 @@ function EmployeeShiftRequestsContent() {
   const [selectedFilter, setSelectedFilter] = useState<RequestFilter>("upcoming");
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [slots, setSlots] = useState<ShiftSlot[]>([]);
-  const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
-    defaultPayrollSettings,
-  );
   const [shiftRequestSettings, setShiftRequestSettings] = useState<ShiftRequestSettings>(
     defaultShiftRequestSettings,
   );
@@ -378,7 +389,6 @@ function EmployeeShiftRequestsContent() {
 
       setRequests(data.requests);
       setSlots(data.slots);
-      setPayrollSettings(data.payrollSettings);
       setShiftRequestSettings(data.shiftRequestSettings);
       setLoadedYearValue(selectedYearValue);
     } catch (error) {
@@ -399,7 +409,6 @@ function EmployeeShiftRequestsContent() {
 
         setRequests(data.requests);
         setSlots(data.slots);
-        setPayrollSettings(data.payrollSettings);
         setShiftRequestSettings(data.shiftRequestSettings);
       setLoadedYearValue(selectedYearValue);
       })
@@ -470,20 +479,20 @@ function EmployeeShiftRequestsContent() {
     [displayRequests, now, selectedYearValue],
   );
   const monthlyWorkMinutes = useMemo(
-    () => sumWorkMinutes(completedMonthRequests, payrollSettings),
-    [completedMonthRequests, payrollSettings],
+    () => sumWorkMinutes(completedMonthRequests),
+    [completedMonthRequests],
   );
   const monthlyPay = useMemo(
-    () => sumShiftPay(completedMonthRequests, payrollSettings),
-    [completedMonthRequests, payrollSettings],
+    () => sumEmployeePay(completedMonthRequests),
+    [completedMonthRequests],
   );
   const yearlyWorkMinutes = useMemo(
-    () => sumWorkMinutes(completedYearRequests, payrollSettings),
-    [completedYearRequests, payrollSettings],
+    () => sumWorkMinutes(completedYearRequests),
+    [completedYearRequests],
   );
   const yearlyPay = useMemo(
-    () => sumShiftPay(completedYearRequests, payrollSettings),
-    [completedYearRequests, payrollSettings],
+    () => sumEmployeePay(completedYearRequests),
+    [completedYearRequests],
   );
   const selectedFilterLabel = requestFilterLabels[activeFilter];
   const isDataLoading = isLoading || loadedYearValue !== selectedYearValue;
@@ -659,7 +668,6 @@ function EmployeeShiftRequestsContent() {
                 <ShiftRequestRow
                   key={request.id}
                   request={request}
-                  payrollSettings={payrollSettings}
                   showActualAdjustments={shiftRequestSettings.employeeActualShiftAdjustmentsVisible}
                   onWithdraw={activeFilter === "pending" ? handleWithdrawRequest : undefined}
                   isWithdrawing={withdrawingRequestId === request.id}

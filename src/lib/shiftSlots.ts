@@ -3,10 +3,11 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
-  updateDoc,
   where,
   type DocumentData,
   type FirestoreError,
@@ -35,9 +36,10 @@ export type ShiftSlot = {
   employeeGenerated: boolean;
   capacity: number;
   requestCount: number;
+  approvedCount: number;
 };
 
-export type ShiftSlotInput = Omit<ShiftSlot, "id" | "requestCount" | "employeeGenerated"> & {
+export type ShiftSlotInput = Omit<ShiftSlot, "id" | "requestCount" | "approvedCount" | "employeeGenerated"> & {
   employeeGenerated?: boolean;
 };
 
@@ -133,6 +135,7 @@ function assertValidShiftSlotInput(input: ShiftSlotInput) {
 function toShiftSlot(snapshot: QueryDocumentSnapshot<DocumentData>): ShiftSlot {
   const data = snapshot.data();
   const requestCount = Number(data.requestCount ?? 0);
+  const approvedCount = Number(data.approvedCount ?? 0);
 
   return {
     id: snapshot.id,
@@ -145,6 +148,8 @@ function toShiftSlot(snapshot: QueryDocumentSnapshot<DocumentData>): ShiftSlot {
     capacity: Number(data.capacity ?? 0),
     requestCount:
       Number.isFinite(requestCount) && requestCount > 0 ? requestCount : 0,
+    approvedCount:
+      Number.isFinite(approvedCount) && approvedCount > 0 ? approvedCount : 0,
   };
 }
 
@@ -205,6 +210,7 @@ export async function createShiftSlot(
   await addDoc(getShiftSlotsCollection(organizationId), {
     ...input,
     requestCount: 0,
+    approvedCount: 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -216,15 +222,42 @@ export async function updateShiftSlot(
   organizationId = defaultOrganizationId,
 ) {
   assertValidShiftSlotInput(input);
-  const approvedCount = await countApprovedShiftRequestsBySlot(id, organizationId);
+  const slotRef = doc(getShiftSlotsCollection(organizationId), id);
 
-  if (input.capacity < approvedCount) {
-    throw new Error("Shift slot capacity cannot be less than approved requests.");
+  const preflightSlotSnapshot = await getDoc(slotRef);
+
+  if (!preflightSlotSnapshot.exists()) {
+    throw new Error("Shift slot is not available.");
   }
 
-  await updateDoc(doc(getShiftSlotsCollection(organizationId), id), {
-    ...input,
-    updatedAt: serverTimestamp(),
+  const storedApprovedCount = Number(preflightSlotSnapshot.data().approvedCount);
+  const legacyApprovedCount =
+    Number.isFinite(storedApprovedCount) && storedApprovedCount >= 0
+      ? storedApprovedCount
+      : await countApprovedShiftRequestsBySlot(id, organizationId);
+
+  await runTransaction(db, async (transaction) => {
+    const slotSnapshot = await transaction.get(slotRef);
+
+    if (!slotSnapshot.exists()) {
+      throw new Error("Shift slot is not available.");
+    }
+
+    const storedApprovedCount = Number(slotSnapshot.data().approvedCount);
+    const approvedCount =
+      Number.isFinite(storedApprovedCount) && storedApprovedCount >= 0
+        ? storedApprovedCount
+        : legacyApprovedCount;
+
+    if (input.capacity < approvedCount) {
+      throw new Error("Shift slot capacity cannot be less than approved requests.");
+    }
+
+    transaction.update(slotRef, {
+      ...input,
+      approvedCount,
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 

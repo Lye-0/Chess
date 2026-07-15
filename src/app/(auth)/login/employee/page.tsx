@@ -7,7 +7,7 @@ import { ArrowLeftIcon, BadgeIcon, BuildingIcon, MailIcon } from "@/components/i
 import { saveEmployeeSession, type EmployeeProfile } from "@/lib/people";
 
 function normalizeOrganizationId(value: string) {
-  return value.replace(/\D/g, "").slice(0, 6);
+  return value.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
 }
 
 type EmployeeLoginResponse = {
@@ -47,8 +47,8 @@ export default function EmployeeLoginPage() {
     const trimmedOrganizationId = organizationId.trim();
     const trimmedEmail = email.trim();
 
-    if (!/^\d{6}$/.test(trimmedOrganizationId)) {
-      setError("組織IDは6桁の数字で入力してください。");
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(trimmedOrganizationId)) {
+      setError("組織IDを入力してください。");
       return;
     }
 
@@ -123,11 +123,10 @@ export default function EmployeeLoginPage() {
                   setOrganizationId(normalizeOrganizationId(event.target.value))
                 }
                 required
-                inputMode="numeric"
-                maxLength={6}
-                pattern="\d{6}"
+                maxLength={64}
+                pattern="[A-Za-z0-9_-]{1,64}"
                 autoComplete="organization"
-                placeholder="例: 123456"
+                placeholder="例: AbC123xYz456"
                 className="h-full min-w-0 flex-1 bg-transparent outline-none"
               />
             </span>

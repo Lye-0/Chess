@@ -15,13 +15,7 @@ import {
   getShiftRequestPositionLabel,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
-import {
-  calculateShiftPayroll,
-  defaultPayrollSettings,
-  formatCurrency,
-  sumShiftPay,
-  type PayrollSettings,
-} from "@/lib/payroll";
+import { formatCurrency } from "@/lib/payroll";
 import {
   defaultShiftRequestSettings,
   type ShiftRequestSettings,
@@ -380,7 +374,11 @@ function formatWorkHours(minutes: number) {
 }
 
 function sumWorkMinutes(requests: ShiftRequest[]) {
-  return requests.reduce((total, request) => total + calculateWorkMinutes(request), 0);
+  return requests.reduce(
+    (total, request) =>
+      total + (request.employeePayroll?.totalMinutes ?? calculateWorkMinutes(request)),
+    0,
+  );
 }
 
 function isRequestInMonth(request: ShiftRequest, date: Date) {
@@ -451,22 +449,24 @@ function PayCard({
 
 function ShiftRequestRow({
   request,
-  payrollSettings,
   showActualAdjustments,
   onWithdraw,
   isWithdrawing = false,
 }: {
   request: ShiftRequest;
-  payrollSettings: PayrollSettings;
   showActualAdjustments: boolean;
   onWithdraw?: (request: ShiftRequest) => void;
   isWithdrawing?: boolean;
 }) {
   const parsedDate = new Date(`${request.date}T00:00:00`);
-  const payroll = calculateShiftPayroll(request, payrollSettings);
+  const payroll = request.employeePayroll;
   const shouldShowActuals = showActualAdjustments && request.status === "承認済";
-  const hasActualTime = shouldShowActuals && payroll.usesActualTime;
-  const hasActualPay = shouldShowActuals && payroll.totalPay !== payroll.scheduledPay;
+  const hasActualTime = Boolean(shouldShowActuals && payroll?.usesActualTime);
+  const hasActualPay = Boolean(
+    shouldShowActuals &&
+      payroll &&
+      payroll.totalPay !== payroll.scheduledPay,
+  );
   const hasActualMemo = shouldShowActuals && request.actualMemo.trim();
 
   return (
@@ -502,14 +502,16 @@ function ShiftRequestRow({
               </span>
             )}
           </p>
-          <p className="mt-1 text-sm font-semibold text-[#00a63e]">
-            {hasActualPay && (
-              <span className="mr-2 text-xs text-[#94a3b8] line-through">
-                {formatCurrency(payroll.scheduledPay)}
-              </span>
-            )}
-            {formatCurrency(payroll.totalPay)}
-          </p>
+          {payroll && (
+            <p className="mt-1 text-sm font-semibold text-[#00a63e]">
+              {hasActualPay && (
+                <span className="mr-2 text-xs text-[#94a3b8] line-through">
+                  {formatCurrency(payroll.scheduledPay)}
+                </span>
+              )}
+              {formatCurrency(payroll.totalPay)}
+            </p>
+          )}
           {hasActualMemo && (
             <p className="mt-1 rounded-md bg-[#f7f8fb] px-3 py-2 text-xs text-[#475569]">
               {request.actualMemo}
@@ -681,12 +683,10 @@ function EmployeeMyCalendar({
 function SelectedDayTimeline({
   date,
   requests,
-  payrollSettings,
   showActualAdjustments,
 }: {
   date: string;
   requests: ShiftRequest[];
-  payrollSettings: PayrollSettings;
   showActualAdjustments: boolean;
 }) {
   const timelineItems = useMemo(
@@ -829,7 +829,6 @@ function SelectedDayTimeline({
                 <ShiftRequestRow
                   key={request.id}
                   request={request}
-                  payrollSettings={payrollSettings}
                   showActualAdjustments={showActualAdjustments}
                 />
               ))}
@@ -857,9 +856,6 @@ function EmployeePageContent() {
   const [currentSlots, setCurrentSlots] = useState<ShiftSlot[]>([]);
   const [calendarRequests, setCalendarRequests] = useState<ShiftRequest[]>([]);
   const [calendarSlots, setCalendarSlots] = useState<ShiftSlot[]>([]);
-  const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>(
-    defaultPayrollSettings,
-  );
   const [shiftRequestSettings, setShiftRequestSettings] = useState<ShiftRequestSettings>(
     defaultShiftRequestSettings,
   );
@@ -915,7 +911,6 @@ function EmployeePageContent() {
         setCurrentSlots(currentMonthData.slots);
         setCalendarRequests(calendarMonthData.requests);
         setCalendarSlots(calendarMonthData.slots);
-        setPayrollSettings(currentMonthData.payrollSettings);
         setShiftRequestSettings(currentMonthData.shiftRequestSettings);
       } catch (error) {
         console.error(error);
@@ -1024,17 +1019,15 @@ function EmployeePageContent() {
   );
   const monthlyPay = useMemo(
     () =>
-      sumShiftPay(
-        completedApprovedRequests.filter((request) =>
-          isRequestInMonth(request, currentDate),
+      completedApprovedRequests
+        .filter((request) => isRequestInMonth(request, currentDate))
+        .reduce(
+          (total, request) => total + (request.employeePayroll?.totalPay ?? 0),
+          0,
         ),
-        payrollSettings,
-      ),
-    [completedApprovedRequests, currentDate, payrollSettings],
+    [completedApprovedRequests, currentDate],
   );
-  const nearestRequestPayroll = nearestRequest
-    ? calculateShiftPayroll(nearestRequest, payrollSettings)
-    : null;
+  const nearestRequestPayroll = nearestRequest?.employeePayroll ?? null;
   const showNearestActuals =
     Boolean(nearestRequestPayroll) &&
     shiftRequestSettings.employeeActualShiftAdjustmentsVisible;
@@ -1102,13 +1095,22 @@ function EmployeePageContent() {
     try {
       const exportData = await fetchEmployeeShiftData(activeExportMonth);
       const exportRequests = applySlotPositionNames(exportData.requests, exportData.slots);
+      const payrollByRequestId = exportRequests.reduce<
+        Record<string, NonNullable<ShiftRequest["employeePayroll"]>>
+      >((payrolls, request) => {
+        if (request.employeePayroll) {
+          payrolls[request.id] = request.employeePayroll;
+        }
+
+        return payrolls;
+      }, {});
       const monthlyExportData = buildMonthlyShiftExportData({
         organizationName: employee.organization,
         department: employee.department,
         month: activeExportMonth,
         employees: [employee],
         requests: exportRequests,
-        payrollSettings: exportData.payrollSettings,
+        payrollByRequestId,
         employeeId: employee.employeeId,
       });
 
@@ -1340,7 +1342,6 @@ function EmployeePageContent() {
           <SelectedDayTimeline
             date={selectedDate}
             requests={selectedDateRequests}
-            payrollSettings={payrollSettings}
             showActualAdjustments={shiftRequestSettings.employeeActualShiftAdjustmentsVisible}
           />
         </section>

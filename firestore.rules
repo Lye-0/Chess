@@ -20,10 +20,6 @@ service cloud.firestore {
 
       match /organizations/{organizationId} {
         allow read: if isVerifiedManager() && request.auth.uid == managerUid;
-        allow create: if isVerifiedManager() &&
-          request.auth.uid == managerUid &&
-          request.resource.data.organizationId == organizationId &&
-          getAfter(/databases/$(database)/documents/organizations/$(organizationId)).data.createdBy == request.auth.uid;
         allow update, delete: if isVerifiedManager() &&
           request.auth.uid == managerUid &&
           isManagerOrganization(organizationId);
@@ -31,8 +27,6 @@ service cloud.firestore {
     }
 
     match /organizations/{organizationId} {
-      allow create: if isVerifiedManager() &&
-        request.resource.data.createdBy == request.auth.uid;
       allow read, update, delete: if isManagerOrganization(organizationId);
 
       match /employees/{employeeId} {
@@ -44,6 +38,10 @@ service cloud.firestore {
       }
 
       match /shiftRequests/{requestId} {
+        allow read, write: if isManagerOrganization(organizationId);
+      }
+
+      match /shiftRequestKeys/{keyId} {
         allow read, write: if isManagerOrganization(organizationId);
       }
 

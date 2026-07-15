@@ -10,10 +10,12 @@ import { getShiftRequestPositionLabel, type ShiftRequest } from "./shiftRequests
 export type ShiftExportFormat = "ics" | "png" | "pdf" | "csv" | "excel" | "print" | "calendarSubscription";
 export type ShiftExportScope = "month" | "monthDaily" | "day";
 
+type ShiftExportPayroll = Pick<ShiftPayroll, "totalMinutes" | "totalPay">;
+
 export type MonthlyShiftExportRow = {
   employee: EmployeeProfile | null;
   request: ShiftRequest;
-  payroll: ShiftPayroll;
+  payroll: ShiftExportPayroll;
 };
 
 export type MonthlyShiftExportData = {
@@ -42,7 +44,8 @@ type BuildMonthlyShiftExportDataInput = {
   month: string;
   employees: EmployeeProfile[];
   requests: ShiftRequest[];
-  payrollSettings: PayrollSettings;
+  payrollSettings?: PayrollSettings;
+  payrollByRequestId?: Record<string, ShiftExportPayroll>;
   employeeId?: string;
 };
 
@@ -290,8 +293,14 @@ function formatHours(minutes: number) {
 
 function escapeCsvValue(value: string | number) {
   const text = String(value);
+  const isFormulaLikeString =
+    typeof value === "string" &&
+    (/^\s*[=+\-@]/.test(text) || /^[\t\r\n]/.test(text));
+  const safeText = isFormulaLikeString ? "'" + text : text;
 
-  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  return /[",\r\n]/.test(safeText)
+    ? '"' + safeText.replaceAll('"', '""') + '"'
+    : safeText;
 }
 
 function escapeIcsText(value: string) {
@@ -1130,6 +1139,7 @@ export function buildMonthlyShiftExportData({
   employees,
   requests,
   payrollSettings,
+  payrollByRequestId,
   employeeId,
 }: BuildMonthlyShiftExportDataInput): MonthlyShiftExportData {
   const employeesById = new Map(employees.map((employee) => [employee.employeeId, employee]));
@@ -1142,11 +1152,21 @@ export function buildMonthlyShiftExportData({
       if (a.startTime !== b.startTime) return a.startTime.localeCompare(b.startTime);
       return a.employeeName.localeCompare(b.employeeName);
     })
-    .map((request) => ({
-      employee: employeesById.get(request.employeeId) ?? null,
-      request,
-      payroll: calculateShiftPayroll(request, payrollSettings),
-    }));
+    .map((request) => {
+      const payroll = payrollByRequestId?.[request.id] ??
+        (payrollSettings
+          ? calculateShiftPayroll(request, payrollSettings)
+          : null);
+
+      if (!payroll) return null;
+
+      return {
+        employee: employeesById.get(request.employeeId) ?? null,
+        request,
+        payroll,
+      };
+    })
+    .filter((row): row is MonthlyShiftExportRow => row !== null);
   const scopedEmployees = employeeId
     ? employees.filter((employee) => employee.employeeId === employeeId)
     : employees;
@@ -1167,6 +1187,7 @@ export function buildDailyShiftExportData({
   employees,
   requests,
   payrollSettings,
+  payrollByRequestId,
   employeeId,
 }: BuildDailyShiftExportDataInput): DailyShiftExportData {
   const monthlyData = buildMonthlyShiftExportData({
@@ -1176,6 +1197,7 @@ export function buildDailyShiftExportData({
     employees,
     requests,
     payrollSettings,
+    payrollByRequestId,
     employeeId,
   });
 

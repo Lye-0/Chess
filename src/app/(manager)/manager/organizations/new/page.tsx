@@ -45,14 +45,10 @@ export default function NewOrganizationPage() {
 
     try {
       setIsSubmitting(true);
-      const organization = await createManagerOrganization(
-        currentUser.uid,
-        currentUser.email,
-        {
-          name: organizationName,
-          department,
-        },
-      );
+      const organization = await createManagerOrganization({
+        name: organizationName,
+        department,
+      });
       router.push(`/admin?organizationId=${encodeURIComponent(organization.id)}`);
     } catch (createError) {
       console.error(createError);
@@ -118,7 +114,7 @@ export default function NewOrganizationPage() {
           </label>
 
           <p className="rounded-xl bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-500">
-            組織IDは6桁の数字で自動発行されます。従業員ログインに使う組織IDは、作成後の管理者ホームに表示されます。
+            組織IDはFirestoreが自動生成します。従業員ログインに使う組織IDは、作成後の管理者ホームに表示されます。
           </p>
 
           {error && (
