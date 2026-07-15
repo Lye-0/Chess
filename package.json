@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "security:emulator": "node scripts/security/emulator-dynamic-verify.mjs"
+    "security:emulator": "node scripts/security/emulator-dynamic-verify.mjs",
+    "security:csv": "node scripts/security/csv-export-regression.mjs"
   },
   "dependencies": {
     "firebase": "^12.14.0",

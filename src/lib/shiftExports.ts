@@ -293,8 +293,14 @@ function formatHours(minutes: number) {
 
 function escapeCsvValue(value: string | number) {
   const text = String(value);
+  const isFormulaLikeString =
+    typeof value === "string" &&
+    (/^\s*[=+\-@]/.test(text) || /^[\t\r\n]/.test(text));
+  const safeText = isFormulaLikeString ? "'" + text : text;
 
-  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  return /[",\r\n]/.test(safeText)
+    ? '"' + safeText.replaceAll('"', '""') + '"'
+    : safeText;
 }
 
 function escapeIcsText(value: string) {
