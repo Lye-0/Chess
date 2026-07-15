@@ -1,4 +1,3 @@
-import type { PayrollSettings } from "./payroll";
 import type { ShiftRequest } from "./shiftRequests";
 import type { ShiftRequestSettings } from "./shiftRequestSettings";
 import type { ShiftSlot } from "./shiftSlots";
@@ -9,7 +8,6 @@ export type EmployeeShiftData = {
   requests: ShiftRequest[];
   slots: ShiftSlot[];
   positions: OrganizationPosition[];
-  payrollSettings: PayrollSettings;
   shiftRequestSettings: ShiftRequestSettings;
 };
 

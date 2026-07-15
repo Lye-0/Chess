@@ -17,6 +17,11 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { defaultOrganizationId } from "./people";
+import {
+  normalizePayrollSnapshot,
+  type EmployeePayrollSummary,
+  type PayrollSnapshot,
+} from "./payroll";
 
 function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
   return collection(db, "organizations", organizationId, "shiftRequests");
@@ -52,6 +57,8 @@ export type ShiftRequest = {
   actualPay: number | null;
   actualMemo: string;
   actualUpdatedAt: string;
+  payrollSnapshot?: PayrollSnapshot;
+  employeePayroll?: EmployeePayrollSummary;
 };
 
 export type ShiftRequestInput = Omit<
@@ -65,6 +72,8 @@ export type ShiftRequestInput = Omit<
   | "actualPay"
   | "actualMemo"
   | "actualUpdatedAt"
+  | "payrollSnapshot"
+  | "employeePayroll"
 >;
 
 export type EmployeeGeneratedShiftRequestInput = Omit<
@@ -190,6 +199,7 @@ function toShiftRequest(
     actualPay: normalizeActualPay(data.actualPay),
     actualMemo: String(data.actualMemo ?? ""),
     actualUpdatedAt: String(data.actualUpdatedAt ?? ""),
+    payrollSnapshot: normalizePayrollSnapshot(data.payrollSnapshot) ?? undefined,
   };
 }
 

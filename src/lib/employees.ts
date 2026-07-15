@@ -295,7 +295,6 @@ export async function updateEmployee(
     batch.update(doc(getShiftRequestsCollection(organizationId), requestDocument.id), {
       employeeName: employee.name,
       employeeEmail: employee.email,
-      employmentType: employee.employmentType,
       updatedAt: serverTimestamp(),
     });
   });

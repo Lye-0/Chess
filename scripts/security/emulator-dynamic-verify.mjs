@@ -391,6 +391,171 @@ async function verifyCompatibility(db, appUrl) {
   }
 }
 
+async function verifyPayroll(db, appUrl) {
+  const organizationId = "security-payroll-" + Date.now();
+  const employeeId = "employee-payroll";
+  const firstSlotId = "payroll-slot-before";
+  const secondSlotId = "payroll-slot-after";
+  const positionId = "position-payroll";
+  const date = (() => {
+    const value = new Date();
+    value.setDate(value.getDate() + 7);
+    return [
+      value.getFullYear(),
+      String(value.getMonth() + 1).padStart(2, "0"),
+      String(value.getDate()).padStart(2, "0"),
+    ].join("-");
+  })();
+  const organization = db.collection("organizations").doc(organizationId);
+  const payrollSettings = {
+    hourlyRates: { 正社員: 4000, アルバイト: 1000 },
+    nightStartTime: "22:00",
+    nightEndTime: "05:00",
+    nightMultiplier: 1.25,
+  };
+
+  async function fetchShiftData(cookie) {
+    const response = await fetch(
+      appUrl + "/api/employee/shift-data?month=" + date.slice(0, 7),
+      {
+        headers: { cookie },
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      },
+    );
+    assert(response.status === 200, "shift-dataがstatus=" + response.status);
+    return json(response);
+  }
+
+  try {
+    await organization.set({ name: "Security payroll verification organization" });
+    await organization.collection("settings").doc("payroll").set(payrollSettings);
+    await organization.collection("settings").doc("shiftRequests").set({
+      employeeGeneratedRequestsEnabled: false,
+    });
+    await organization.collection("positions").doc(positionId).set({
+      name: "検証ポジション",
+    });
+    await organization.collection("employees").doc(employeeId).set({
+      employeeId,
+      email: "payroll@example.test",
+      name: "給与検証従業員",
+      firstName: "従業員",
+      lastName: "給与検証",
+      employmentType: "アルバイト",
+      department: "検証部門",
+      workScore: 0,
+      authVersion: "security-payroll-auth-version",
+    });
+    await organization.collection("shiftSlots").doc(firstSlotId).set({
+      date,
+      startTime: "09:00",
+      endTime: "11:00",
+      positionId,
+      positionName: "検証ポジション",
+      capacity: 1,
+      requestCount: 0,
+    });
+
+    const login = await fetch(appUrl + "/api/employee/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        organizationId,
+        email: "payroll@example.test",
+      }),
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    });
+    assert(login.status === 200, "給与検証用ログインがstatus=" + login.status);
+    const setCookie = login.headers.getSetCookie?.()[0] ?? login.headers.get("set-cookie") ?? "";
+    const cookie = setCookie.split(";")[0];
+    assert(cookie.startsWith("chess-employee-session="), "給与検証用セッションCookieが発行されていません。");
+
+    const firstSubmit = await fetch(appUrl + "/api/employee/shift-requests", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ slotIds: [firstSlotId] }),
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    });
+    assert(firstSubmit.status === 200, "初回シフト希望がstatus=" + firstSubmit.status);
+
+    const firstRequestSnapshot = await organization
+      .collection("shiftRequests")
+      .where("employeeId", "==", employeeId)
+      .get();
+    assert(firstRequestSnapshot.size === 1, "初回シフト希望が1件作成されていません。");
+    const firstRequestData = firstRequestSnapshot.docs[0].data();
+    assert(firstRequestData.payrollSnapshot?.employmentType === "アルバイト", "給与スナップショットの雇用区分が不正です。");
+    assert(firstRequestData.payrollSnapshot?.hourlyRate === 1000, "給与スナップショットの時給が不正です。");
+
+    const initialBody = await fetchShiftData(cookie);
+    assert(!Object.hasOwn(initialBody, "payrollSettings"), "従業員APIが組織の給与設定を返しています。");
+    const initialRequest = initialBody.requests.find((request) => request.slotId === firstSlotId);
+    assert(initialRequest, "初回シフト希望が従業員APIに含まれていません。");
+    const allowedPayrollKeys = [
+      "actualPay",
+      "calculatedPay",
+      "scheduledPay",
+      "totalMinutes",
+      "totalPay",
+      "usesActualPay",
+      "usesActualTime",
+    ].sort();
+    assert(
+      JSON.stringify(Object.keys(initialRequest.employeePayroll).sort()) ===
+        JSON.stringify(allowedPayrollKeys),
+      "従業員向け給与結果に不要なキーがあります。",
+    );
+    assert(initialRequest.employeePayroll.totalPay === 2000, "初回給与が申請時点の時給で計算されていません。");
+
+    await organization.collection("settings").doc("payroll").set({
+      hourlyRates: { 正社員: 4000, アルバイト: 3000 },
+    }, { merge: true });
+    await organization.collection("employees").doc(employeeId).set({
+      employmentType: "正社員",
+    }, { merge: true });
+
+    const afterChangeBody = await fetchShiftData(cookie);
+    const unchangedRequest = afterChangeBody.requests.find((request) => request.slotId === firstSlotId);
+    assert(unchangedRequest, "設定変更後に既存シフト希望が見つかりません。");
+    assert(unchangedRequest.employeePayroll.totalPay === 2000, "既存シフトの給与が後から変更されています。");
+
+    await organization.collection("shiftSlots").doc(secondSlotId).set({
+      date,
+      startTime: "13:00",
+      endTime: "15:00",
+      positionId,
+      positionName: "検証ポジション",
+      capacity: 1,
+      requestCount: 0,
+    });
+    const secondSubmit = await fetch(appUrl + "/api/employee/shift-requests", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ slotIds: [secondSlotId] }),
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    });
+    assert(secondSubmit.status === 200, "設定変更後の新規シフト希望がstatus=" + secondSubmit.status);
+
+    const finalBody = await fetchShiftData(cookie);
+    const newRequest = finalBody.requests.find((request) => request.slotId === secondSlotId);
+    assert(newRequest, "設定変更後の新規シフト希望が従業員APIに含まれていません。");
+    assert(newRequest.employeePayroll.totalPay === 8000, "新規シフトに変更後の給与条件が適用されていません。");
+
+    console.log("[security:emulator] payroll snapshot and employee payroll minimization: PASS");
+  } finally {
+    const requestSnapshots = await organization.collection("shiftRequests").get();
+    await Promise.all([
+      ...requestSnapshots.docs.map((snapshot) => snapshot.ref.delete()),
+      organization.collection("employees").doc(employeeId).delete(),
+      organization.collection("shiftSlots").doc(firstSlotId).delete(),
+      organization.collection("shiftSlots").doc(secondSlotId).delete(),
+      organization.collection("positions").doc(positionId).delete(),
+      organization.collection("settings").doc("payroll").delete(),
+      organization.collection("settings").doc("shiftRequests").delete(),
+    ]);
+    await organization.delete();
+  }
+}
 async function main() {
   const project = projectId();
   const firestore = parseHost(firestoreHost, "FIRESTORE_EMULATOR_HOST");
@@ -437,6 +602,7 @@ async function main() {
     const { getFirestore } = await import("firebase-admin/firestore");
     adminApp = initializeApp({ projectId: project }, "security-dynamic-" + Date.now());
     await verifyCompatibility(getFirestore(adminApp), appUrl);
+    await verifyPayroll(getFirestore(adminApp), appUrl);
     await deleteApp(adminApp);
     adminApp = null;
   } finally {

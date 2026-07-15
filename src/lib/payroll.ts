@@ -20,6 +20,14 @@ export type PayrollSettings = {
   nightMultiplier: number;
 };
 
+export type PayrollSnapshot = {
+  employmentType: string;
+  hourlyRate: number;
+  nightStartTime: string;
+  nightEndTime: string;
+  nightMultiplier: number;
+};
+
 export type ShiftPayroll = {
   hourlyRate: number;
   totalMinutes: number;
@@ -33,9 +41,24 @@ export type ShiftPayroll = {
   usesActualPay: boolean;
 };
 
+export type EmployeePayrollSummary = Pick<
+  ShiftPayroll,
+  | "totalMinutes"
+  | "scheduledPay"
+  | "calculatedPay"
+  | "actualPay"
+  | "totalPay"
+  | "usesActualTime"
+  | "usesActualPay"
+>;
+
 type ShiftPayrollRequest = Pick<
   ShiftRequest,
-  "date" | "startTime" | "endTime" | "employmentType"
+  | "date"
+  | "startTime"
+  | "endTime"
+  | "employmentType"
+  | "payrollSnapshot"
 > &
   Partial<
     Pick<
@@ -61,6 +84,59 @@ export const defaultPayrollSettings: PayrollSettings = {
   nightEndTime: "05:00",
   nightMultiplier: 1.25,
 };
+
+export function normalizePayrollSnapshot(data: unknown): PayrollSnapshot | null {
+  if (!data || typeof data !== "object") return null;
+
+  const snapshot = data as Record<string, unknown>;
+  const employmentType = String(snapshot.employmentType ?? "").trim();
+  const hourlyRate = Number(snapshot.hourlyRate);
+  const nightStartTime = String(snapshot.nightStartTime ?? "").trim();
+  const nightEndTime = String(snapshot.nightEndTime ?? "").trim();
+  const nightMultiplier = Number(snapshot.nightMultiplier);
+
+  if (
+    !employmentType ||
+    !Number.isFinite(hourlyRate) ||
+    hourlyRate < 0 ||
+    !/^\d{2}:\d{2}$/.test(nightStartTime) ||
+    !/^\d{2}:\d{2}$/.test(nightEndTime) ||
+    !Number.isFinite(nightMultiplier) ||
+    nightMultiplier < 1
+  ) {
+    return null;
+  }
+
+  return {
+    employmentType,
+    hourlyRate,
+    nightStartTime,
+    nightEndTime,
+    nightMultiplier,
+  };
+}
+
+export function createPayrollSnapshot(
+  employmentType: string,
+  settings: PayrollSettings,
+): PayrollSnapshot {
+  const normalizedEmploymentType = employmentType.trim();
+  const hourlyRate = Number(
+    settings.hourlyRates[normalizedEmploymentType] ?? 0,
+  );
+
+  return {
+    employmentType: normalizedEmploymentType,
+    hourlyRate:
+      Number.isFinite(hourlyRate) && hourlyRate >= 0 ? hourlyRate : 0,
+    nightStartTime: settings.nightStartTime,
+    nightEndTime: settings.nightEndTime,
+    nightMultiplier:
+      Number.isFinite(settings.nightMultiplier) && settings.nightMultiplier >= 1
+        ? settings.nightMultiplier
+        : defaultPayrollSettings.nightMultiplier,
+  };
+}
 
 function getPayrollSettingsDocument(organizationId = defaultOrganizationId) {
   return doc(db, "organizations", organizationId, "settings", "payroll");
@@ -211,11 +287,41 @@ function calculateBaseShiftPayroll(
   };
 }
 
+function resolvePayrollCalculationContext(
+  request: ShiftPayrollRequest,
+  settings: PayrollSettings,
+) {
+  const snapshot = request.payrollSnapshot;
+
+  if (!snapshot) {
+    return { request, settings };
+  }
+
+  return {
+    request: {
+      ...request,
+      employmentType: snapshot.employmentType,
+    },
+    settings: {
+      hourlyRates: {
+        [snapshot.employmentType]: snapshot.hourlyRate,
+      },
+      nightStartTime: snapshot.nightStartTime,
+      nightEndTime: snapshot.nightEndTime,
+      nightMultiplier: snapshot.nightMultiplier,
+    },
+  };
+}
+
 export function calculateScheduledShiftPayroll(
   request: ShiftPayrollRequest,
   settings: PayrollSettings,
 ): ShiftPayroll {
-  const scheduledPayroll = calculateBaseShiftPayroll(request, settings);
+  const context = resolvePayrollCalculationContext(request, settings);
+  const scheduledPayroll = calculateBaseShiftPayroll(
+    context.request,
+    context.settings,
+  );
 
   return {
     ...scheduledPayroll,
@@ -283,13 +389,17 @@ export function calculateShiftPayroll(
   request: ShiftPayrollRequest,
   settings: PayrollSettings,
 ): ShiftPayroll {
-  const scheduledPayroll = calculateBaseShiftPayroll(request, settings);
-  const effectiveTimeRange = getEffectiveShiftTimeRange(request);
-  const calculatedPayroll = calculateBaseShiftPayroll(
-    { ...request, ...effectiveTimeRange },
-    settings,
+  const context = resolvePayrollCalculationContext(request, settings);
+  const scheduledPayroll = calculateBaseShiftPayroll(
+    context.request,
+    context.settings,
   );
-  const actualPay = normalizeActualPay(request.actualPay);
+  const effectiveTimeRange = getEffectiveShiftTimeRange(context.request);
+  const calculatedPayroll = calculateBaseShiftPayroll(
+    { ...context.request, ...effectiveTimeRange },
+    context.settings,
+  );
+  const actualPay = normalizeActualPay(context.request.actualPay);
 
   return {
     ...calculatedPayroll,
@@ -297,8 +407,22 @@ export function calculateShiftPayroll(
     scheduledPay: scheduledPayroll.totalPay,
     calculatedPay: calculatedPayroll.totalPay,
     actualPay,
-    usesActualTime: hasActualTimeRange(request),
+    usesActualTime: hasActualTimeRange(context.request),
     usesActualPay: actualPay !== null,
+  };
+}
+
+export function toEmployeePayrollSummary(
+  payroll: ShiftPayroll,
+): EmployeePayrollSummary {
+  return {
+    totalMinutes: payroll.totalMinutes,
+    scheduledPay: payroll.scheduledPay,
+    calculatedPay: payroll.calculatedPay,
+    actualPay: payroll.actualPay,
+    totalPay: payroll.totalPay,
+    usesActualTime: payroll.usesActualTime,
+    usesActualPay: payroll.usesActualPay,
   };
 }
 

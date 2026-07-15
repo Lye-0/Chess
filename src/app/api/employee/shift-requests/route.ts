@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { EmployeeAuthError, verifyEmployeeRequest } from "@/lib/employeeAuthServer";
+import {
+  createPayrollSnapshot,
+  normalizePayrollSettings,
+} from "@/lib/payroll";
 import { normalizeShiftRequestSettings } from "@/lib/shiftRequestSettings";
 
 export const runtime = "nodejs";
@@ -120,10 +124,18 @@ export async function POST(request: Request) {
     const employeeRef = organizationRef
       .collection("employees")
       .doc(employeeAuth.employeeId);
-    const [employeeSnapshot, shiftRequestSettingsSnapshot] = await Promise.all([
+    const [
+      employeeSnapshot,
+      payrollSettingsSnapshot,
+      shiftRequestSettingsSnapshot,
+    ] = await Promise.all([
       employeeRef.get(),
+      organizationRef.collection("settings").doc("payroll").get(),
       organizationRef.collection("settings").doc("shiftRequests").get(),
     ]);
+    const payrollSettings = normalizePayrollSettings(
+      payrollSettingsSnapshot.data(),
+    );
     const shiftRequestSettings = normalizeShiftRequestSettings(
       shiftRequestSettingsSnapshot.data(),
     );
@@ -272,6 +284,11 @@ export async function POST(request: Request) {
       );
     }
     const employee = employeeSnapshot.data() ?? {};
+    const employmentType = String(employee.employmentType ?? "");
+    const payrollSnapshot = createPayrollSnapshot(
+      employmentType,
+      payrollSettings,
+    );
     const submittedDate = getTodayString();
     const batch = adminDb.batch();
 
@@ -282,7 +299,8 @@ export async function POST(request: Request) {
         employeeId: employeeAuth.employeeId,
         employeeName: String(employee.name ?? ""),
         employeeEmail: String(employee.email ?? ""),
-        employmentType: String(employee.employmentType ?? ""),
+        employmentType,
+        payrollSnapshot,
         slotId: slot.id,
         date: slot.date,
         startTime: slot.startTime,
@@ -306,7 +324,8 @@ export async function POST(request: Request) {
         employeeId: employeeAuth.employeeId,
         employeeName: String(employee.name ?? ""),
         employeeEmail: String(employee.email ?? ""),
-        employmentType: String(employee.employmentType ?? ""),
+        employmentType,
+        payrollSnapshot,
         slotId: "",
         employeeGenerated: true,
         date: generatedRequest.date,
