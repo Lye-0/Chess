@@ -9,6 +9,7 @@ import {
   serverTimestamp,
   writeBatch,
   type DocumentData,
+  type DocumentReference,
   type FirestoreError,
   type QueryDocumentSnapshot,
   type Unsubscribe,
@@ -40,6 +41,24 @@ export type PositionInput = {
 
 function getManagerOrganizationsCollection(managerUid: string) {
   return collection(db, "managers", managerUid, "organizations");
+}
+
+const organizationDeleteBatchSize = 400;
+
+async function deleteDocumentReferencesInBatches(
+  documentReferences: DocumentReference[],
+) {
+  for (
+    let index = 0;
+    index < documentReferences.length;
+    index += organizationDeleteBatchSize
+  ) {
+    const batch = writeBatch(db);
+    documentReferences
+      .slice(index, index + organizationDeleteBatchSize)
+      .forEach((documentReference) => batch.delete(documentReference));
+    await batch.commit();
+  }
 }
 
 function getPositionsCollection(organizationId: string) {
@@ -250,20 +269,17 @@ export async function deleteManagerOrganization(
       getDocs(collection(db, "organizations", trimmedOrganizationId, collectionName)),
     ),
   );
-  const batch = writeBatch(db);
+  const documentReferences = snapshots.flatMap((snapshot) =>
+    snapshot.docs.map((documentSnapshot) => documentSnapshot.ref),
+  );
+  documentReferences.push(
+    doc(db, "organizations", trimmedOrganizationId, "settings", "payroll"),
+    doc(db, "organizations", trimmedOrganizationId, "settings", "recommendation"),
+    doc(db, "organizations", trimmedOrganizationId, "settings", "shiftRequests"),
+    doc(db, "organizations", trimmedOrganizationId),
+  );
 
-  snapshots.forEach((snapshot) => {
-    snapshot.docs.forEach((documentSnapshot) => {
-      batch.delete(documentSnapshot.ref);
-    });
-  });
-
-  batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "payroll"));
-  batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "recommendation"));
-  batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "shiftRequests"));
-  batch.delete(doc(db, "organizations", trimmedOrganizationId));
-
-  await batch.commit();
+  await deleteDocumentReferencesInBatches(documentReferences);
 
   await deleteDoc(
     doc(getManagerOrganizationsCollection(managerUid), trimmedOrganizationId),
