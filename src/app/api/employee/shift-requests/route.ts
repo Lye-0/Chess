@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { Timestamp } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { EmployeeAuthError, verifyEmployeeRequest } from "@/lib/employeeAuthServer";
 import {
@@ -24,6 +25,14 @@ type EmployeeGeneratedRequestData = {
   startTime: string;
   endTime: string;
   positionId: string;
+};
+
+type ShiftRequestCandidate = {
+  kind: "slot" | "generated";
+  dedupeKey: string;
+  requestKeyId: string;
+  slot?: ShiftSlotData;
+  generated?: EmployeeGeneratedRequestData & { positionName: string };
 };
 
 function getTodayString() {
@@ -78,16 +87,30 @@ function isValidShiftTimeRange(startTime: string, endTime: string) {
 function normalizeEmployeeGeneratedRequests(value: unknown): EmployeeGeneratedRequestData[] {
   if (!Array.isArray(value)) return [];
 
-  return value.map((request) => {
-    const candidate = request as Record<string, unknown>;
+  const seen = new Set<string>();
+  const normalized: EmployeeGeneratedRequestData[] = [];
 
-    return {
+  value.forEach((request) => {
+    const candidate = request as Record<string, unknown>;
+    const normalizedRequest = {
       date: String(candidate.date ?? "").trim(),
       startTime: String(candidate.startTime ?? "").trim(),
       endTime: String(candidate.endTime ?? "").trim(),
       positionId: String(candidate.positionId ?? "").trim(),
     };
+    const duplicateKey = [
+      normalizedRequest.date,
+      normalizedRequest.startTime,
+      normalizedRequest.endTime,
+      normalizedRequest.positionId,
+    ].join("|");
+
+    if (seen.has(duplicateKey)) return;
+    seen.add(duplicateKey);
+    normalized.push(normalizedRequest);
   });
+
+  return normalized;
 }
 
 function normalizeRequestId(value: unknown) {
@@ -97,6 +120,38 @@ function normalizeRequestId(value: unknown) {
 function normalizeShiftRequestStatus(status: unknown) {
   return status === "承認済" ? "承認済" : "希望済";
 }
+
+function getRequestDedupeKey(data: Record<string, unknown>) {
+  const storedKey = String(data.dedupeKey ?? "").trim();
+  if (storedKey) return storedKey;
+
+  const slotId = String(data.slotId ?? "").trim();
+  if (slotId) return "slot:" + slotId;
+
+  if (data.employeeGenerated === true) {
+    return [
+      "generated:",
+      String(data.date ?? ""),
+      String(data.startTime ?? ""),
+      String(data.endTime ?? ""),
+      String(data.positionId ?? ""),
+    ].join("|");
+  }
+
+  return "";
+}
+
+function createRequestKeyId(
+  organizationId: string,
+  employeeId: string,
+  dedupeKey: string,
+) {
+  return createHash("sha256")
+    .update([organizationId, employeeId, dedupeKey].join("\u0000"))
+    .digest("hex");
+}
+
+class ShiftSlotUnavailableError extends Error {}
 
 export async function POST(request: Request) {
   try {
@@ -161,24 +216,22 @@ export async function POST(request: Request) {
       .collection("shiftRequests")
       .where("employeeId", "==", employeeAuth.employeeId)
       .get();
-    const requestedSlotIds = new Set(
-      existingRequestsSnapshot.docs.map((requestSnapshot) =>
-        String(requestSnapshot.data().slotId ?? ""),
-      ),
-    );
-    const requestedGeneratedKeys = new Set(
-      existingRequestsSnapshot.docs.map((requestSnapshot) => {
-        const data = requestSnapshot.data();
-        return [
-          String(data.date ?? ""),
-          String(data.startTime ?? ""),
-          String(data.endTime ?? ""),
-          String(data.positionId ?? ""),
-        ].join("|");
-      }),
-    );
+    const existingRequestByDedupeKey = new Map();
+
+    existingRequestsSnapshot.docs.forEach((requestSnapshot) => {
+      const dedupeKey = getRequestDedupeKey(
+        requestSnapshot.data() as Record<string, unknown>,
+      );
+
+      if (dedupeKey && !existingRequestByDedupeKey.has(dedupeKey)) {
+        existingRequestByDedupeKey.set(dedupeKey, requestSnapshot);
+      }
+    });
+
     const slotSnapshots = await Promise.all(
-      slotIds.map((slotId) => organizationRef.collection("shiftSlots").doc(slotId).get()),
+      slotIds.map((slotId) =>
+        organizationRef.collection("shiftSlots").doc(slotId).get(),
+      ),
     );
     const now = new Date();
     const slots = slotSnapshots.map<ShiftSlotData>((slotSnapshot) => {
@@ -205,13 +258,6 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "過去または開始済みのシフトには希望を提出できません。" },
         { status: 400 },
-      );
-    }
-
-    if (slots.some((slot) => requestedSlotIds.has(slot.id))) {
-      return NextResponse.json(
-        { error: "既に希望済みのシフトが含まれています。" },
-        { status: 409 },
       );
     }
 
@@ -245,7 +291,10 @@ export async function POST(request: Request) {
 
     const positionSnapshots = await Promise.all(
       employeeGeneratedRequests.map((generatedRequest) =>
-        organizationRef.collection("positions").doc(generatedRequest.positionId).get(),
+        organizationRef
+          .collection("positions")
+          .doc(generatedRequest.positionId)
+          .get(),
       ),
     );
     const generatedRequestsWithPositions = employeeGeneratedRequests.map(
@@ -273,16 +322,6 @@ export async function POST(request: Request) {
       );
     }
 
-    if (
-      generatedRequestsWithPositions.some((generatedRequest) =>
-        requestedGeneratedKeys.has(generatedRequest.duplicateKey),
-      )
-    ) {
-      return NextResponse.json(
-        { error: "既に希望済みのシフトが含まれています。" },
-        { status: 409 },
-      );
-    }
     const employee = employeeSnapshot.data() ?? {};
     const employmentType = String(employee.employmentType ?? "");
     const payrollSnapshot = createPayrollSnapshot(
@@ -290,60 +329,212 @@ export async function POST(request: Request) {
       payrollSettings,
     );
     const submittedDate = getTodayString();
-    const batch = adminDb.batch();
+    const submittedAt = Timestamp.now();
 
-    slots.forEach((slot) => {
-      const requestRef = organizationRef.collection("shiftRequests").doc();
+    const candidates: ShiftRequestCandidate[] = [
+      ...slots.map((slot) => ({
+        kind: "slot" as const,
+        dedupeKey: "slot:" + slot.id,
+        requestKeyId: createRequestKeyId(
+          employeeAuth.organizationId,
+          employeeAuth.employeeId,
+          "slot:" + slot.id,
+        ),
+        slot,
+      })),
+      ...generatedRequestsWithPositions.map((generatedRequest) => ({
+        kind: "generated" as const,
+        dedupeKey: [
+          "generated:",
+          generatedRequest.date,
+          generatedRequest.startTime,
+          generatedRequest.endTime,
+          generatedRequest.positionId,
+        ].join("|"),
+        requestKeyId: createRequestKeyId(
+          employeeAuth.organizationId,
+          employeeAuth.employeeId,
+          [
+            "generated:",
+            generatedRequest.date,
+            generatedRequest.startTime,
+            generatedRequest.endTime,
+            generatedRequest.positionId,
+          ].join("|"),
+        ),
+        generated: generatedRequest,
+      })),
+    ];
 
-      batch.set(requestRef, {
-        employeeId: employeeAuth.employeeId,
-        employeeName: String(employee.name ?? ""),
-        employeeEmail: String(employee.email ?? ""),
-        employmentType,
-        payrollSnapshot,
-        slotId: slot.id,
-        date: slot.date,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        positionId: slot.positionId,
-        positionName: slot.positionName,
-        status: "希望済",
-        submittedDate,
-        submittedAt: Timestamp.now(),
-      });
-      batch.update(organizationRef.collection("shiftSlots").doc(slot.id), {
-        requestCount: FieldValue.increment(1),
-        updatedAt: Timestamp.now(),
-      });
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const keyStates = new Map();
+      const slotStates = new Map();
+
+      // Read every uniqueness key and every affected slot before any write.
+      for (const candidate of candidates) {
+        const keyRef = organizationRef
+          .collection("shiftRequestKeys")
+          .doc(candidate.requestKeyId);
+        const keySnapshot = await transaction.get(keyRef);
+        let requestId = "";
+        let requestSnapshot = null;
+
+        if (keySnapshot.exists) {
+          requestId = String(keySnapshot.data()?.requestId ?? "");
+          if (requestId) {
+            requestSnapshot = await transaction.get(
+              organizationRef.collection("shiftRequests").doc(requestId),
+            );
+          }
+        } else {
+          const legacyRequestSnapshot = existingRequestByDedupeKey.get(
+            candidate.dedupeKey,
+          );
+          if (legacyRequestSnapshot) {
+            requestId = legacyRequestSnapshot.id;
+            requestSnapshot = await transaction.get(legacyRequestSnapshot.ref);
+          }
+        }
+
+        keyStates.set(candidate.dedupeKey, {
+          keyRef,
+          keySnapshot,
+          requestId,
+          requestSnapshot,
+        });
+      }
+
+      for (const candidate of candidates) {
+        if (candidate.kind !== "slot") continue;
+        if (slotStates.has(candidate.slot!.id)) continue;
+
+        const slotRef = organizationRef
+          .collection("shiftSlots")
+          .doc(candidate.slot!.id);
+        const slotSnapshot = await transaction.get(slotRef);
+
+        if (!slotSnapshot.exists) {
+          throw new ShiftSlotUnavailableError();
+        }
+
+        slotStates.set(candidate.slot!.id, { slotRef, slotSnapshot });
+      }
+
+      const requestCountBySlot = new Map<string, number>();
+      let createdCount = 0;
+      let skippedCount = 0;
+
+      for (const candidate of candidates) {
+        const state = keyStates.get(candidate.dedupeKey);
+
+        if (state.keySnapshot.exists && state.requestSnapshot?.exists) {
+          skippedCount += 1;
+          continue;
+        }
+
+        const markerData = {
+          employeeId: employeeAuth.employeeId,
+          requestId: state.requestId,
+          dedupeKey: candidate.dedupeKey,
+          createdAt: submittedAt,
+          updatedAt: submittedAt,
+        };
+
+        if (!state.keySnapshot.exists && state.requestSnapshot?.exists) {
+          // Backfill the marker for a request created before this protection.
+          transaction.create(state.keyRef, markerData);
+          skippedCount += 1;
+          continue;
+        }
+
+        const requestRef = organizationRef.collection("shiftRequests").doc();
+        const commonData = {
+          employeeId: employeeAuth.employeeId,
+          employeeName: String(employee.name ?? ""),
+          employeeEmail: String(employee.email ?? ""),
+          employmentType,
+          payrollSnapshot,
+          status: "希望済",
+          submittedDate,
+          submittedAt,
+          dedupeKey: candidate.dedupeKey,
+          dedupeKeyId: candidate.requestKeyId,
+        };
+        const requestData =
+          candidate.kind === "slot"
+            ? {
+                ...commonData,
+                slotId: candidate.slot!.id,
+                date: candidate.slot!.date,
+                startTime: candidate.slot!.startTime,
+                endTime: candidate.slot!.endTime,
+                positionId: candidate.slot!.positionId,
+                positionName: candidate.slot!.positionName,
+              }
+            : {
+                ...commonData,
+                slotId: "",
+                employeeGenerated: true,
+                date: candidate.generated!.date,
+                startTime: candidate.generated!.startTime,
+                endTime: candidate.generated!.endTime,
+                positionId: candidate.generated!.positionId,
+                positionName: candidate.generated!.positionName,
+              };
+
+        transaction.create(requestRef, requestData);
+        const newMarkerData = {
+          ...markerData,
+          requestId: requestRef.id,
+        };
+
+        if (state.keySnapshot.exists) {
+          // Repair a stale marker whose request was already removed.
+          transaction.set(state.keyRef, newMarkerData);
+        } else {
+          transaction.create(state.keyRef, newMarkerData);
+        }
+
+        if (candidate.kind === "slot") {
+          const slotId = candidate.slot!.id;
+          requestCountBySlot.set(
+            slotId,
+            (requestCountBySlot.get(slotId) ?? 0) + 1,
+          );
+        }
+        createdCount += 1;
+      }
+
+      for (const [slotId, createdForSlot] of requestCountBySlot) {
+        const slotState = slotStates.get(slotId);
+        const storedRequestCount = Number(
+          slotState.slotSnapshot.data()?.requestCount ?? 0,
+        );
+        const requestCount =
+          Number.isFinite(storedRequestCount) && storedRequestCount >= 0
+            ? storedRequestCount
+            : 0;
+
+        transaction.update(slotState.slotRef, {
+          requestCount: requestCount + createdForSlot,
+          updatedAt: submittedAt,
+        });
+      }
+
+      return { createdCount, skippedCount };
     });
 
-    generatedRequestsWithPositions.forEach((generatedRequest) => {
-      const requestRef = organizationRef.collection("shiftRequests").doc();
-
-      batch.set(requestRef, {
-        employeeId: employeeAuth.employeeId,
-        employeeName: String(employee.name ?? ""),
-        employeeEmail: String(employee.email ?? ""),
-        employmentType,
-        payrollSnapshot,
-        slotId: "",
-        employeeGenerated: true,
-        date: generatedRequest.date,
-        startTime: generatedRequest.startTime,
-        endTime: generatedRequest.endTime,
-        positionId: generatedRequest.positionId,
-        positionName: generatedRequest.positionName,
-        status: "希望済",
-        submittedDate,
-        submittedAt: Timestamp.now(),
-      });
-    });
-    await batch.commit();
-
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     if (error instanceof EmployeeAuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ShiftSlotUnavailableError) {
+      return NextResponse.json(
+        { error: "選択されたシフト枠が見つかりません。" },
+        { status: 404 },
+      );
     }
 
     console.error(error);
@@ -353,11 +544,14 @@ export async function POST(request: Request) {
     );
   }
 }
+
 export async function DELETE(request: Request) {
   try {
     const employeeAuth = await verifyEmployeeRequest(request);
     const adminDb = await getAdminDb();
-    const body = (await request.json().catch(() => ({}))) as { requestId?: unknown };
+    const body = (await request.json().catch(() => ({}))) as {
+      requestId?: unknown;
+    };
     const requestId = normalizeRequestId(body.requestId);
 
     if (!requestId) {
@@ -372,50 +566,87 @@ export async function DELETE(request: Request) {
       .doc(employeeAuth.organizationId);
     const requestRef = organizationRef.collection("shiftRequests").doc(requestId);
 
-    const requestSnapshot = await requestRef.get();
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const requestSnapshot = await transaction.get(requestRef);
 
-    if (!requestSnapshot.exists) {
+      if (!requestSnapshot.exists) {
+        return { found: false, forbidden: false, approved: false };
+      }
+
+      const requestData = requestSnapshot.data() ?? {};
+      const requestEmployeeId = String(requestData.employeeId ?? "");
+
+      if (requestEmployeeId !== employeeAuth.employeeId) {
+        return { found: true, forbidden: true, approved: false };
+      }
+
+      if (normalizeShiftRequestStatus(requestData.status) === "承認済") {
+        return { found: true, forbidden: false, approved: true };
+      }
+
+      const slotId = String(requestData.slotId ?? "");
+      const dedupeKeyId = String(requestData.dedupeKeyId ?? "");
+      const slotRef = slotId
+        ? organizationRef.collection("shiftSlots").doc(slotId)
+        : null;
+      const keyRef = dedupeKeyId
+        ? organizationRef.collection("shiftRequestKeys").doc(dedupeKeyId)
+        : null;
+      const slotSnapshot = slotRef
+        ? await transaction.get(slotRef)
+        : null;
+      const keySnapshot = keyRef
+        ? await transaction.get(keyRef)
+        : null;
+
+      transaction.delete(requestRef);
+
+      if (
+        keyRef &&
+        keySnapshot?.exists &&
+        String(keySnapshot.data()?.requestId ?? "") === requestId
+      ) {
+        transaction.delete(keyRef);
+      }
+
+      if (slotRef && slotSnapshot?.exists) {
+        const storedRequestCount = Number(
+          slotSnapshot.data()?.requestCount ?? 0,
+        );
+        const requestCount =
+          Number.isFinite(storedRequestCount) && storedRequestCount > 0
+            ? storedRequestCount - 1
+            : 0;
+
+        transaction.update(slotRef, {
+          requestCount,
+          updatedAt: Timestamp.now(),
+        });
+      }
+
+      return { found: true, forbidden: false, approved: false };
+    });
+
+    if (!result.found) {
       return NextResponse.json(
         { error: "シフト希望が見つかりません。" },
         { status: 404 },
       );
     }
 
-    const requestData = requestSnapshot.data() ?? {};
-    const requestEmployeeId = String(requestData.employeeId ?? "");
-
-    if (requestEmployeeId !== employeeAuth.employeeId) {
+    if (result.forbidden) {
       return NextResponse.json(
         { error: "このシフト希望は撤回できません。" },
         { status: 403 },
       );
     }
 
-    if (normalizeShiftRequestStatus(requestData.status) === "承認済") {
+    if (result.approved) {
       return NextResponse.json(
         { error: "承認済みのシフトは撤回できません。" },
         { status: 409 },
       );
     }
-
-    const slotId = String(requestData.slotId ?? "");
-    const slotRef = slotId
-      ? organizationRef.collection("shiftSlots").doc(slotId)
-      : null;
-    const slotSnapshot = slotRef ? await slotRef.get() : null;
-    const batch = adminDb.batch();
-
-    batch.delete(requestRef);
-
-    if (slotRef && slotSnapshot?.exists) {
-      batch.update(slotRef, {
-        requestCount: FieldValue.increment(-1),
-        updatedAt: Timestamp.now(),
-      });
-    }
-
-    await batch.commit();
-
 
     return NextResponse.json({ ok: true });
   } catch (error) {

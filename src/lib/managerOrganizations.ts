@@ -236,6 +236,7 @@ export async function deleteManagerOrganization(
     "positions",
     "shiftSlots",
     "shiftRequests",
+    "shiftRequestKeys",
     "compatibilities",
   ];
   const snapshots = await Promise.all(

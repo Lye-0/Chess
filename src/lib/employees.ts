@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   deleteField,
   doc,
   getDoc,
@@ -59,6 +60,16 @@ function getEmployeesCollection(organizationId = defaultOrganizationId) {
 
 function getShiftRequestsCollection(organizationId = defaultOrganizationId) {
   return collection(db, "organizations", organizationId, "shiftRequests");
+}
+
+function getShiftRequestKeyDocument(
+  keyId: string,
+  organizationId = defaultOrganizationId,
+) {
+  return doc(
+    collection(db, "organizations", organizationId, "shiftRequestKeys"),
+    keyId,
+  );
 }
 
 function normalizeEmail(email: string) {
@@ -391,19 +402,99 @@ export async function deleteEmployee(
   }
 
   const requestSnapshot = await getDocs(getShiftRequestsCollection(organizationId));
-  const batch = writeBatch(db);
+  const matchingRequests = requestSnapshot.docs.filter(
+    (requestDocument) =>
+      String(requestDocument.data().employeeId ?? "") === trimmedEmployeeId,
+  );
+  const requestCountBySlot = new Map<string, number>();
+  const approvedCountBySlot = new Map<string, number>();
 
-  batch.delete(doc(getEmployeesCollection(organizationId), trimmedEmployeeId));
+  for (const requestDocument of matchingRequests) {
+    const requestData = requestDocument.data();
+    const slotId = String(requestData.slotId ?? "");
 
-  requestSnapshot.docs.forEach((requestDocument) => {
-    if (requestDocument.data().employeeId !== trimmedEmployeeId) return;
+    if (!slotId) continue;
 
-    batch.delete(doc(getShiftRequestsCollection(organizationId), requestDocument.id));
-  });
+    requestCountBySlot.set(slotId, (requestCountBySlot.get(slotId) ?? 0) + 1);
 
-  await batch.commit();
+    if (String(requestData.status ?? "") === "承認済") {
+      approvedCountBySlot.set(
+        slotId,
+        (approvedCountBySlot.get(slotId) ?? 0) + 1,
+      );
+    }
+  }
+
+  await Promise.all(
+    matchingRequests.map(async (requestDocument) => {
+      const requestRef = doc(
+        getShiftRequestsCollection(organizationId),
+        requestDocument.id,
+      );
+
+      await runTransaction(db, async (transaction) => {
+        const currentRequestSnapshot = await transaction.get(requestRef);
+
+        if (!currentRequestSnapshot.exists()) return;
+
+        const requestData = currentRequestSnapshot.data() ?? {};
+        if (String(requestData.employeeId ?? "") !== trimmedEmployeeId) return;
+
+        const slotId = String(requestData.slotId ?? "");
+        const slotRef = slotId
+          ? doc(
+              collection(db, "organizations", organizationId, "shiftSlots"),
+              slotId,
+            )
+          : null;
+        const dedupeKeyId = String(requestData.dedupeKeyId ?? "");
+        const keyRef = dedupeKeyId
+          ? getShiftRequestKeyDocument(dedupeKeyId, organizationId)
+          : null;
+        const slotSnapshot = slotRef
+          ? await transaction.get(slotRef)
+          : null;
+        const keySnapshot = keyRef
+          ? await transaction.get(keyRef)
+          : null;
+
+        transaction.delete(requestRef);
+
+        if (
+          keyRef &&
+          keySnapshot?.exists() &&
+          String(keySnapshot.data()?.requestId ?? "") === requestRef.id
+        ) {
+          transaction.delete(keyRef);
+        }
+
+        if (slotRef && slotSnapshot?.exists()) {
+          const slotData = slotSnapshot.data() ?? {};
+          const storedRequestCount = Number(slotData.requestCount);
+          const requestCount = Number.isFinite(storedRequestCount)
+            ? Math.max(0, storedRequestCount - 1)
+            : Math.max(0, (requestCountBySlot.get(slotId) ?? 1) - 1);
+          const storedApprovedCount = Number(slotData.approvedCount);
+          const approvedCountBase = Number.isFinite(storedApprovedCount)
+            ? storedApprovedCount
+            : approvedCountBySlot.get(slotId) ?? 0;
+          const approvedCount =
+            String(requestData.status ?? "") === "承認済"
+              ? Math.max(0, approvedCountBase - 1)
+              : approvedCountBase;
+
+          transaction.update(slotRef, {
+            requestCount,
+            approvedCount,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      });
+    }),
+  );
+
+  await deleteDoc(doc(getEmployeesCollection(organizationId), trimmedEmployeeId));
 }
-
 export async function findEmployeeByEmail(
   organizationId: string,
   email: string,

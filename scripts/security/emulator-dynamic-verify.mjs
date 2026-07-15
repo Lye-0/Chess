@@ -544,8 +544,10 @@ async function verifyPayroll(db, appUrl) {
     console.log("[security:emulator] payroll snapshot and employee payroll minimization: PASS");
   } finally {
     const requestSnapshots = await organization.collection("shiftRequests").get();
+    const keySnapshots = await organization.collection("shiftRequestKeys").get();
     await Promise.all([
       ...requestSnapshots.docs.map((snapshot) => snapshot.ref.delete()),
+      ...keySnapshots.docs.map((snapshot) => snapshot.ref.delete()),
       organization.collection("employees").doc(employeeId).delete(),
       organization.collection("shiftSlots").doc(firstSlotId).delete(),
       organization.collection("shiftSlots").doc(secondSlotId).delete(),
@@ -556,6 +558,194 @@ async function verifyPayroll(db, appUrl) {
     await organization.delete();
   }
 }
+async function verifyShiftAtomicity(db, appUrl) {
+  const organizationId = "security-atomicity-" + Date.now();
+  const employeeId = "employee-atomicity";
+  const slotId = "atomicity-slot";
+  const payloadSlotId = "atomicity-payload-slot";
+  const positionId = "position-atomicity";
+  const organization = db.collection("organizations").doc(organizationId);
+  const date = (() => {
+    const value = new Date();
+    value.setDate(value.getDate() + 7);
+    return [
+      value.getFullYear(),
+      String(value.getMonth() + 1).padStart(2, "0"),
+      String(value.getDate()).padStart(2, "0"),
+    ].join("-");
+  })();
+  const generatedDate = (() => {
+    const value = new Date();
+    value.setDate(value.getDate() + 8);
+    return [
+      value.getFullYear(),
+      String(value.getMonth() + 1).padStart(2, "0"),
+      String(value.getDate()).padStart(2, "0"),
+    ].join("-");
+  })();
+
+  async function submit(cookie, body) {
+    return fetch(appUrl + "/api/employee/shift-requests", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    });
+  }
+
+  try {
+    await organization.set({
+      name: "Security shift atomicity verification organization",
+    });
+    await organization.collection("settings").doc("payroll").set({
+      hourlyRates: { 正社員: 3000, アルバイト: 1200 },
+      nightStartTime: "22:00",
+      nightEndTime: "05:00",
+      nightMultiplier: 1.25,
+    });
+    await organization.collection("settings").doc("shiftRequests").set({
+      employeeGeneratedRequestsEnabled: true,
+    });
+    await organization.collection("positions").doc(positionId).set({
+      name: "原子性検証ポジション",
+    });
+    await organization.collection("employees").doc(employeeId).set({
+      employeeId,
+      email: "atomicity@example.test",
+      name: "原子性検証従業員",
+      firstName: "原子性",
+      lastName: "検証",
+      employmentType: "アルバイト",
+      department: "検証部門",
+      workScore: 0,
+      authVersion: "security-atomicity-auth-version",
+    });
+    await Promise.all([
+      organization.collection("shiftSlots").doc(slotId).set({
+        date,
+        startTime: "09:00",
+        endTime: "10:00",
+        positionId,
+        positionName: "原子性検証ポジション",
+        capacity: 1,
+        requestCount: 0,
+      }),
+      organization.collection("shiftSlots").doc(payloadSlotId).set({
+        date,
+        startTime: "11:00",
+        endTime: "12:00",
+        positionId,
+        positionName: "原子性検証ポジション",
+        capacity: 1,
+        requestCount: 0,
+      }),
+    ]);
+
+    const login = await fetch(appUrl + "/api/employee/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        organizationId,
+        email: "atomicity@example.test",
+      }),
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    });
+    assert(login.status === 200, "原子性検証用ログインがstatus=" + login.status);
+    const setCookie =
+      login.headers.getSetCookie?.()[0] ??
+      login.headers.get("set-cookie") ??
+      "";
+    const cookie = setCookie.split(";")[0];
+
+    const concurrentResponses = await Promise.all([
+      submit(cookie, { slotIds: [slotId] }),
+      submit(cookie, { slotIds: [slotId] }),
+    ]);
+    assert(
+      concurrentResponses.every((response) => response.status === 200),
+      "同時申請のどちらかがstatus=" +
+        concurrentResponses.map((response) => response.status).join(","),
+    );
+
+    const firstRequests = await organization
+      .collection("shiftRequests")
+      .where("employeeId", "==", employeeId)
+      .get();
+    assert(firstRequests.size === 1, "同一枠への同時申請が重複しました。");
+    assert(
+      (await organization.collection("shiftSlots").doc(slotId).get()).data()
+        ?.requestCount === 1,
+      "同一枠のrequestCountが1へ収束していません。",
+    );
+    assert(
+      (await organization.collection("shiftRequestKeys").get()).size === 1,
+      "同時申請の一意キーが1件へ収束していません。",
+    );
+
+    const duplicatePayloadResponse = await submit(cookie, {
+      slotIds: [payloadSlotId, payloadSlotId],
+    });
+    assert(
+      duplicatePayloadResponse.status === 200,
+      "同一payload内の重複申請がstatus=" + duplicatePayloadResponse.status,
+    );
+
+    const generatedPayloadResponse = await submit(cookie, {
+      employeeGeneratedRequests: [
+        {
+          date: generatedDate,
+          startTime: "13:00",
+          endTime: "14:00",
+          positionId,
+        },
+        {
+          date: generatedDate,
+          startTime: "13:00",
+          endTime: "14:00",
+          positionId,
+        },
+      ],
+    });
+    assert(
+      generatedPayloadResponse.status === 200,
+      "同一payload内の募集枠なし重複がstatus=" +
+        generatedPayloadResponse.status,
+    );
+
+    const finalRequests = await organization
+      .collection("shiftRequests")
+      .where("employeeId", "==", employeeId)
+      .get();
+    assert(finalRequests.size === 3, "重複排除後の申請件数が3件ではありません。");
+    assert(
+      (await organization.collection("shiftSlots").doc(payloadSlotId).get())
+        .data()?.requestCount === 1,
+      "同一payload内の重複slotIdsが1件へ収束していません。",
+    );
+    assert(
+      (await organization.collection("shiftRequestKeys").get()).size === 3,
+      "申請3件に対する一意キー3件が作成されていません。",
+    );
+
+    console.log("[security:emulator] shift request atomic deduplication: PASS");
+  } finally {
+    const requestSnapshots = await organization.collection("shiftRequests").get();
+    const keySnapshots = await organization.collection("shiftRequestKeys").get();
+    await Promise.all([
+      ...requestSnapshots.docs.map((snapshot) => snapshot.ref.delete()),
+      ...keySnapshots.docs.map((snapshot) => snapshot.ref.delete()),
+      organization.collection("employees").doc(employeeId).delete(),
+      organization.collection("shiftSlots").doc(slotId).delete(),
+      organization.collection("shiftSlots").doc(payloadSlotId).delete(),
+      organization.collection("positions").doc(positionId).delete(),
+      organization.collection("settings").doc("payroll").delete(),
+      organization.collection("settings").doc("shiftRequests").delete(),
+    ]);
+    await organization.delete();
+  }
+}
+
+
 async function main() {
   const project = projectId();
   const firestore = parseHost(firestoreHost, "FIRESTORE_EMULATOR_HOST");
@@ -603,6 +793,7 @@ async function main() {
     adminApp = initializeApp({ projectId: project }, "security-dynamic-" + Date.now());
     await verifyCompatibility(getFirestore(adminApp), appUrl);
     await verifyPayroll(getFirestore(adminApp), appUrl);
+    await verifyShiftAtomicity(getFirestore(adminApp), appUrl);
     await deleteApp(adminApp);
     adminApp = null;
   } finally {
