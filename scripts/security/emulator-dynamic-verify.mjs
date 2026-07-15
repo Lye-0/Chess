@@ -746,6 +746,182 @@ async function verifyShiftAtomicity(db, appUrl) {
 }
 
 
+async function verifyCalendarSubscriptionCleanup(db, adminAuth, appUrl, authUrl) {
+  const organizationId = "security-calendar-cleanup-" + Date.now();
+  const employeeId = "employee-calendar-delete";
+  const otherEmployeeId = "employee-calendar-keep";
+  const otherOrganizationId = organizationId + "-other";
+  const managerEmail = "security-manager-" + Date.now() + "@example.test";
+  const managerPassword = "SecurityPassw0rd!";
+  const organization = db.collection("organizations").doc(organizationId);
+  const otherOrganization = db.collection("organizations").doc(otherOrganizationId);
+  const subscriptions = db.collection("employeeCalendarSubscriptions");
+  const targetTokens = [
+    "calendar-cleanup-target-current-" + Date.now(),
+    "calendar-cleanup-target-stale-" + Date.now(),
+  ];
+  const otherToken = "calendar-cleanup-other-" + Date.now();
+  const otherOrganizationToken = "calendar-cleanup-other-org-" + Date.now();
+  let managerUser = null;
+
+  async function getManagerIdToken() {
+    const response = await fetch(
+      authUrl +
+        "/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=fake-api-key",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: managerEmail,
+          password: managerPassword,
+          returnSecureToken: true,
+        }),
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      },
+    );
+    assert(response.status === 200, "管理者ログインがstatus=" + response.status);
+    const body = await json(response);
+    assert(typeof body.idToken === "string", "管理者IDトークンが発行されていません。");
+    return body.idToken;
+  }
+
+  async function deleteSubscriptions(idToken, body) {
+    return fetch(appUrl + "/api/manager/calendar-subscriptions", {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer " + idToken,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    });
+  }
+
+  try {
+    managerUser = await adminAuth.createUser({
+      email: managerEmail,
+      password: managerPassword,
+      emailVerified: true,
+    });
+    await Promise.all([
+      organization.set({ name: "Security calendar cleanup verification organization" }),
+      otherOrganization.set({ name: "Security calendar cleanup other organization" }),
+      db.collection("managers").doc(managerUser.uid).set({
+        email: managerEmail,
+        updatedAt: new Date(),
+      }),
+      db
+        .collection("managers")
+        .doc(managerUser.uid)
+        .collection("organizations")
+        .doc(organizationId)
+        .set({
+          organizationId,
+          name: "Security calendar cleanup verification organization",
+          role: "owner",
+        }),
+    ]);
+    await Promise.all([
+      organization.collection("employees").doc(employeeId).set({
+        employeeId,
+        authVersion: "calendar-cleanup-auth-version",
+      }),
+      organization.collection("employees").doc(otherEmployeeId).set({
+        employeeId: otherEmployeeId,
+        authVersion: "calendar-cleanup-other-auth-version",
+      }),
+      ...targetTokens.map((token) =>
+        subscriptions.doc(token).set({
+          organizationId,
+          employeeId,
+          authVersion: "calendar-cleanup-auth-version",
+        }),
+      ),
+      subscriptions.doc(otherToken).set({
+        organizationId,
+        employeeId: otherEmployeeId,
+        authVersion: "calendar-cleanup-other-auth-version",
+      }),
+      subscriptions.doc(otherOrganizationToken).set({
+        organizationId: otherOrganizationId,
+        employeeId,
+        authVersion: "calendar-cleanup-other-org-auth-version",
+      }),
+    ]);
+
+    const idToken = await getManagerIdToken();
+    const employeeDeleteResponse = await deleteSubscriptions(idToken, {
+      organizationId,
+      employeeId,
+    });
+    assert(
+      employeeDeleteResponse.status === 200,
+      "従業員削除相当の購読情報削除がstatus=" + employeeDeleteResponse.status,
+    );
+    const employeeDeleteBody = await json(employeeDeleteResponse);
+    assert(
+      employeeDeleteBody.deletedCount === targetTokens.length,
+      "従業員単位の購読情報削除件数が不正です。",
+    );
+    const targetSnapshotsAfterEmployeeDelete = await Promise.all(
+      targetTokens.map((token) => subscriptions.doc(token).get()),
+    );
+    assert(
+      targetSnapshotsAfterEmployeeDelete.every((snapshot) => !snapshot.exists),
+      "削除対象従業員の古い購読情報が残っています。",
+    );
+    assert(
+      (await subscriptions.doc(otherToken).get()).exists,
+      "別従業員の購読情報まで削除されています。",
+    );
+    assert(
+      (await subscriptions.doc(otherOrganizationToken).get()).exists,
+      "別組織の購読情報まで削除されています。",
+    );
+
+    const organizationDeleteResponse = await deleteSubscriptions(idToken, {
+      organizationId,
+    });
+    assert(
+      organizationDeleteResponse.status === 200,
+      "組織削除相当の購読情報削除がstatus=" + organizationDeleteResponse.status,
+    );
+    const organizationDeleteBody = await json(organizationDeleteResponse);
+    assert(organizationDeleteBody.deletedCount === 1, "組織単位の購読情報削除件数が不正です。");
+    assert(
+      !(await subscriptions.doc(otherToken).get()).exists,
+      "組織削除相当の処理後も組織内購読情報が残っています。",
+    );
+    assert(
+      (await subscriptions.doc(otherOrganizationToken).get()).exists,
+      "組織削除相当の処理が別組織へ影響しています。",
+    );
+
+    console.log("[security:emulator] calendar subscription deletion cleanup: PASS");
+  } finally {
+    await Promise.all([
+      ...targetTokens.map((token) => subscriptions.doc(token).delete()),
+      subscriptions.doc(otherToken).delete(),
+      subscriptions.doc(otherOrganizationToken).delete(),
+      organization.collection("employees").doc(employeeId).delete(),
+      organization.collection("employees").doc(otherEmployeeId).delete(),
+      organization.delete(),
+      otherOrganization.delete(),
+      ...(managerUser
+        ? [
+            db
+              .collection("managers")
+              .doc(managerUser.uid)
+              .collection("organizations")
+              .doc(organizationId)
+              .delete(),
+            db.collection("managers").doc(managerUser.uid).delete(),
+            adminAuth.deleteUser(managerUser.uid),
+          ]
+        : []),
+    ]);
+  }
+}
 async function main() {
   const project = projectId();
   const firestore = parseHost(firestoreHost, "FIRESTORE_EMULATOR_HOST");
@@ -789,11 +965,19 @@ async function main() {
     process.env.FIREBASE_ADMIN_PROJECT_ID = project;
 
     const { deleteApp, initializeApp } = await import("firebase-admin/app");
+    const { getAuth } = await import("firebase-admin/auth");
     const { getFirestore } = await import("firebase-admin/firestore");
     adminApp = initializeApp({ projectId: project }, "security-dynamic-" + Date.now());
-    await verifyCompatibility(getFirestore(adminApp), appUrl);
-    await verifyPayroll(getFirestore(adminApp), appUrl);
-    await verifyShiftAtomicity(getFirestore(adminApp), appUrl);
+    const adminDb = getFirestore(adminApp);
+    await verifyCompatibility(adminDb, appUrl);
+    await verifyPayroll(adminDb, appUrl);
+    await verifyShiftAtomicity(adminDb, appUrl);
+    await verifyCalendarSubscriptionCleanup(
+      adminDb,
+      getAuth(adminApp),
+      appUrl,
+      urlFor(auth),
+    );
     await deleteApp(adminApp);
     adminApp = null;
   } finally {

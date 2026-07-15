@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -13,6 +14,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
+import { deleteManagerCalendarSubscriptions } from "./managerCalendarSubscriptions";
 
 export type ManagerOrganization = {
   id: string;
@@ -231,6 +233,10 @@ export async function deleteManagerOrganization(
     throw new Error("削除対象の組織が見つかりません。");
   }
 
+  await deleteManagerCalendarSubscriptions({
+    organizationId: trimmedOrganizationId,
+  });
+
   const deletableCollectionNames = [
     "employees",
     "positions",
@@ -256,7 +262,13 @@ export async function deleteManagerOrganization(
   batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "recommendation"));
   batch.delete(doc(db, "organizations", trimmedOrganizationId, "settings", "shiftRequests"));
   batch.delete(doc(db, "organizations", trimmedOrganizationId));
-  batch.delete(doc(getManagerOrganizationsCollection(managerUid), trimmedOrganizationId));
 
   await batch.commit();
+
+  await deleteManagerCalendarSubscriptions({
+    organizationId: trimmedOrganizationId,
+  });
+  await deleteDoc(
+    doc(getManagerOrganizationsCollection(managerUid), trimmedOrganizationId),
+  );
 }

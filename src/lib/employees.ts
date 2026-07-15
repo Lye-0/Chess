@@ -17,6 +17,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { deleteManagerCalendarSubscriptions } from "./managerCalendarSubscriptions";
 
 export const managedOrganizations = [
   { id: "nagoya-engineering", name: "名古屋エンジニアリング", department: "開発部" },
@@ -401,6 +402,11 @@ export async function deleteEmployee(
     throw new Error("削除対象の従業員が見つかりません。");
   }
 
+  await deleteManagerCalendarSubscriptions({
+    organizationId,
+    employeeId: trimmedEmployeeId,
+  });
+
   const requestSnapshot = await getDocs(getShiftRequestsCollection(organizationId));
   const matchingRequests = requestSnapshot.docs.filter(
     (requestDocument) =>
@@ -494,6 +500,12 @@ export async function deleteEmployee(
   );
 
   await deleteDoc(doc(getEmployeesCollection(organizationId), trimmedEmployeeId));
+
+  await deleteManagerCalendarSubscriptions({
+    organizationId,
+    employeeId: trimmedEmployeeId,
+  });
+
 }
 export async function findEmployeeByEmail(
   organizationId: string,
