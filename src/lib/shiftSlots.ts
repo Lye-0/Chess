@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   query,
   runTransaction,
@@ -221,11 +222,19 @@ export async function updateShiftSlot(
   organizationId = defaultOrganizationId,
 ) {
   assertValidShiftSlotInput(input);
-  const legacyApprovedCount = await countApprovedShiftRequestsBySlot(
-    id,
-    organizationId,
-  );
   const slotRef = doc(getShiftSlotsCollection(organizationId), id);
+
+  const preflightSlotSnapshot = await getDoc(slotRef);
+
+  if (!preflightSlotSnapshot.exists()) {
+    throw new Error("Shift slot is not available.");
+  }
+
+  const storedApprovedCount = Number(preflightSlotSnapshot.data().approvedCount);
+  const legacyApprovedCount =
+    Number.isFinite(storedApprovedCount) && storedApprovedCount >= 0
+      ? storedApprovedCount
+      : await countApprovedShiftRequestsBySlot(id, organizationId);
 
   await runTransaction(db, async (transaction) => {
     const slotSnapshot = await transaction.get(slotRef);

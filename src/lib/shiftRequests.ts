@@ -831,7 +831,12 @@ export async function countApprovedShiftRequestsBySlot(
   slotId: string,
   organizationId = defaultOrganizationId,
 ) {
-  const snapshot = await getDocs(getShiftRequestsCollection(organizationId));
+  const snapshot = await getDocs(
+    query(
+      getShiftRequestsCollection(organizationId),
+      where("slotId", "==", slotId),
+    ),
+  );
 
   return snapshot.docs.filter((requestSnapshot) => {
     const data = requestSnapshot.data();
