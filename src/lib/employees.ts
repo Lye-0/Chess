@@ -500,12 +500,6 @@ export async function deleteEmployee(
   );
 
   await deleteDoc(doc(getEmployeesCollection(organizationId), trimmedEmployeeId));
-
-  await deleteManagerCalendarSubscriptions({
-    organizationId,
-    employeeId: trimmedEmployeeId,
-  });
-
 }
 export async function findEmployeeByEmail(
   organizationId: string,
