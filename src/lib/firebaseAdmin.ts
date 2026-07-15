@@ -20,9 +20,19 @@ function configureFirebaseEmulators() {
 
 function isLoopbackEmulatorHost(value: string | undefined) {
   const normalized = value?.replace(/^https?:\/\//, "").trim() ?? "";
-  const host = normalized.startsWith("[")
-    ? normalized.slice(1, normalized.indexOf("]"))
-    : normalized.slice(0, normalized.lastIndexOf(":"));
+  if (!normalized) return false;
+
+  let host = normalized;
+  if (normalized.startsWith("[")) {
+    const closingBracketIndex = normalized.indexOf("]");
+    if (closingBracketIndex === -1) return false;
+    host = normalized.slice(1, closingBracketIndex);
+  } else if (normalized !== "::1") {
+    const portSeparatorIndex = normalized.lastIndexOf(":");
+    if (portSeparatorIndex !== -1) {
+      host = normalized.slice(0, portSeparatorIndex);
+    }
+  }
 
   return ["127.0.0.1", "localhost", "::1"].includes(host);
 }
