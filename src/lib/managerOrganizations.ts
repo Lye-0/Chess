@@ -265,9 +265,6 @@ export async function deleteManagerOrganization(
 
   await batch.commit();
 
-  await deleteManagerCalendarSubscriptions({
-    organizationId: trimmedOrganizationId,
-  });
   await deleteDoc(
     doc(getManagerOrganizationsCollection(managerUid), trimmedOrganizationId),
   );
