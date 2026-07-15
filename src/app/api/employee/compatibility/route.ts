@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { EmployeeAuthError, verifyEmployeeRequest } from "@/lib/employeeAuthServer";
-import { normalizeWorkScore } from "@/lib/people";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type CompatibilityScores = Record<string, number>;
+type CompatibilityDirectoryEntry = {
+  employeeId: string;
+  name: string;
+  displayName: string;
+};
 
 function normalizeScore(score: unknown) {
   const numericScore = Number(score);
@@ -32,44 +36,71 @@ function toCompatibilityScores(data: Record<string, unknown> | undefined) {
   );
 }
 
-function toEmployeeProfile(
-  snapshot: QueryDocumentSnapshot,
-  organizationId: string,
-  organization: { name: string; department: string },
-) {
+function getEmployeeName(snapshot: QueryDocumentSnapshot) {
   const data = snapshot.data() ?? {};
-  const employeeId = String(data.employeeId ?? data.id ?? snapshot.id);
   const firstName = String(data.firstName ?? "");
   const lastName = String(data.lastName ?? "");
-  const name = String(data.name ?? `${lastName}${firstName}`);
+  const configuredName = String(data.name ?? "").trim();
+  const composedName = (lastName + firstName).trim();
 
-  return {
-    id: employeeId,
-    organizationId,
-    employeeId,
-    firstName,
-    lastName,
-    name,
-    email: String(data.email ?? ""),
-    employmentType: String(data.employmentType ?? ""),
-    organization: String(data.organization ?? organization.name),
-    department: String(data.department ?? organization.department),
-    workScore: normalizeWorkScore(data.workScore),
-  };
+  return configuredName || composedName || "名前未設定";
 }
 
-async function loadOrganizationProfile(
-  organizationRef: FirebaseFirestore.DocumentReference,
-  organizationId: string,
-) {
-  const snapshot = await organizationRef.get();
-  const data = snapshot.data() ?? {};
+function buildCompatibilityDirectory(
+  snapshots: QueryDocumentSnapshot[],
+): CompatibilityDirectoryEntry[] {
+  const entries = snapshots
+    .map((snapshot) => {
+      const data = snapshot.data() ?? {};
+      return {
+        employeeId: String(data.employeeId ?? data.id ?? snapshot.id),
+        name: getEmployeeName(snapshot),
+      };
+    })
+    .sort((a, b) => a.employeeId.localeCompare(b.employeeId));
+  const totals = new Map<string, number>();
+  const occurrences = new Map<string, number>();
 
-  return {
-    id: organizationId,
-    name: String(data.name ?? organizationId),
-    department: String(data.department ?? ""),
-  };
+  for (const entry of entries) {
+    totals.set(entry.name, (totals.get(entry.name) ?? 0) + 1);
+  }
+
+  return entries.map((entry) => {
+    const occurrence = (occurrences.get(entry.name) ?? 0) + 1;
+    occurrences.set(entry.name, occurrence);
+
+    return {
+      ...entry,
+      displayName:
+        (totals.get(entry.name) ?? 0) > 1
+          ? entry.name + " (" + occurrence + ")"
+          : entry.name,
+    };
+  });
+}
+
+function toDisplayCompatibilityScores(
+  scores: CompatibilityScores,
+  directory: CompatibilityDirectoryEntry[],
+  currentEmployeeId: string,
+) {
+  const displayNameByEmployeeId = new Map(
+    directory.map((entry) => [entry.employeeId, entry.displayName]),
+  );
+
+  return Object.entries(scores).reduce<CompatibilityScores>(
+    (displayScores, [employeeId, score]) => {
+      const displayName = displayNameByEmployeeId.get(employeeId);
+
+      if (!displayName || employeeId === currentEmployeeId) {
+        return displayScores;
+      }
+
+      displayScores[displayName] = score;
+      return displayScores;
+    },
+    {},
+  );
 }
 
 export async function GET(request: Request) {
@@ -79,13 +110,11 @@ export async function GET(request: Request) {
     const organizationRef = adminDb
       .collection("organizations")
       .doc(employeeAuth.organizationId);
-    const [organization, employeeSnapshot, employeesSnapshot, scoresSnapshot] =
-      await Promise.all([
-        loadOrganizationProfile(organizationRef, employeeAuth.organizationId),
-        organizationRef.collection("employees").doc(employeeAuth.employeeId).get(),
-        organizationRef.collection("employees").get(),
-        organizationRef.collection("compatibilities").doc(employeeAuth.employeeId).get(),
-      ]);
+    const [employeeSnapshot, employeesSnapshot, scoresSnapshot] = await Promise.all([
+      organizationRef.collection("employees").doc(employeeAuth.employeeId).get(),
+      organizationRef.collection("employees").get(),
+      organizationRef.collection("compatibilities").doc(employeeAuth.employeeId).get(),
+    ]);
 
     if (!employeeSnapshot.exists) {
       return NextResponse.json(
@@ -94,13 +123,18 @@ export async function GET(request: Request) {
       );
     }
 
+    const directory = buildCompatibilityDirectory(employeesSnapshot.docs);
+    const normalizedScores = toCompatibilityScores(scoresSnapshot.data());
+
     return NextResponse.json({
-      employees: employeesSnapshot.docs
-        .map((employeeSnapshot) =>
-          toEmployeeProfile(employeeSnapshot, employeeAuth.organizationId, organization),
-        )
-        .sort((a, b) => a.employeeId.localeCompare(b.employeeId)),
-      scores: toCompatibilityScores(scoresSnapshot.data()),
+      employees: directory
+        .filter((entry) => entry.employeeId !== employeeAuth.employeeId)
+        .map(({ displayName }) => ({ name: displayName })),
+      scores: toDisplayCompatibilityScores(
+        normalizedScores,
+        directory,
+        employeeAuth.employeeId,
+      ),
     });
   } catch (error) {
     if (error instanceof EmployeeAuthError) {
@@ -135,25 +169,26 @@ export async function POST(request: Request) {
       );
     }
 
-    const validEmployeeIds = new Set(
-      employeesSnapshot.docs.map((employeeSnapshot) => employeeSnapshot.id),
+    const directory = buildCompatibilityDirectory(employeesSnapshot.docs);
+    const employeeByDisplayName = new Map(
+      directory.map((entry) => [entry.displayName, entry]),
     );
     const rawScores =
       body.scores && typeof body.scores === "object" && !Array.isArray(body.scores)
         ? (body.scores as Record<string, unknown>)
         : {};
     const normalizedScores = Object.entries(rawScores).reduce<CompatibilityScores>(
-      (scores, [targetEmployeeId, score]) => {
-        const trimmedTargetEmployeeId = targetEmployeeId.trim();
+      (scores, [targetEmployeeName, score]) => {
+        const targetEmployee = employeeByDisplayName.get(targetEmployeeName.trim());
+
         if (
-          !trimmedTargetEmployeeId ||
-          trimmedTargetEmployeeId === employeeAuth.employeeId ||
-          !validEmployeeIds.has(trimmedTargetEmployeeId)
+          !targetEmployee ||
+          targetEmployee.employeeId === employeeAuth.employeeId
         ) {
           return scores;
         }
 
-        scores[trimmedTargetEmployeeId] = normalizeScore(score);
+        scores[targetEmployee.employeeId] = normalizeScore(score);
         return scores;
       },
       {},
@@ -169,7 +204,13 @@ export async function POST(request: Request) {
       { merge: true },
     );
 
-    return NextResponse.json({ scores: normalizedScores });
+    return NextResponse.json({
+      scores: toDisplayCompatibilityScores(
+        normalizedScores,
+        directory,
+        employeeAuth.employeeId,
+      ),
+    });
   } catch (error) {
     if (error instanceof EmployeeAuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });

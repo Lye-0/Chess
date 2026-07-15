@@ -18,6 +18,25 @@ function configureFirebaseEmulators() {
   }
 }
 
+function isLoopbackEmulatorHost(value: string | undefined) {
+  const normalized = value?.replace(/^https?:\/\//, "").trim() ?? "";
+  const host = normalized.startsWith("[")
+    ? normalized.slice(1, normalized.indexOf("]"))
+    : normalized.slice(0, normalized.lastIndexOf(":"));
+
+  return ["127.0.0.1", "localhost", "::1"].includes(host);
+}
+
+function isFirebaseEmulatorConfigured() {
+  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST;
+  const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+
+  return (
+    isLoopbackEmulatorHost(firestoreHost) &&
+    (!authHost || isLoopbackEmulatorHost(authHost))
+  );
+}
+
 export async function getAdminApp(): Promise<App> {
   const { cert, getApps, initializeApp } = await import("firebase-admin/app");
   configureFirebaseEmulators();
@@ -30,7 +49,18 @@ export async function getAdminApp(): Promise<App> {
   const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
   const privateKey = getPrivateKey();
 
-  if (!projectId || !clientEmail || !privateKey) {
+  if (!projectId) {
+    throw new Error("Firebase Admin SDKの環境変数が設定されていません。");
+  }
+
+  // Emulator requests are local-only and do not require a production service
+  // account. This also lets security verification run in an isolated clone
+  // where .env.local and its credentials are intentionally unavailable.
+  if (isFirebaseEmulatorConfigured()) {
+    return initializeApp({ projectId });
+  }
+
+  if (!clientEmail || !privateKey) {
     throw new Error("Firebase Admin SDKの環境変数が設定されていません。");
   }
 

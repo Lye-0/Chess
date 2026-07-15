@@ -3,14 +3,17 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { fetchEmployeeCompatibilityData, saveEmployeeCompatibilityScores } from "@/lib/employeeApi";
+import {
+  fetchEmployeeCompatibilityData,
+  saveEmployeeCompatibilityScores,
+  type EmployeeCompatibilityTarget,
+} from "@/lib/employeeApi";
 import {
   getEmployeeSessionServerSnapshot,
   getEmployeeSessionSnapshot,
   loadEmployeeSession,
   parseEmployeeSessionSnapshot,
   subscribeEmployeeSession,
-  type EmployeeProfile,
 } from "@/lib/people";
 
 function BackIcon() {
@@ -51,7 +54,7 @@ function formatScore(score: number) {
 
 function EmployeeCompatibilityContent() {
   const router = useRouter();
-  const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
+  const [employees, setEmployees] = useState<EmployeeCompatibilityTarget[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [isEmployeesLoading, setIsEmployeesLoading] = useState(true);
   const [isScoresLoading, setIsScoresLoading] = useState(true);
@@ -113,17 +116,12 @@ function EmployeeCompatibilityContent() {
     };
   }, [employee]);
 
-  const targetEmployees = useMemo(() => {
-    if (!employee) return [];
-    return employees.filter(
-      (targetEmployee) => targetEmployee.employeeId !== employee.employeeId,
-    );
-  }, [employee, employees]);
+  const targetEmployees = employees;
 
-  function updateScore(employeeId: string, value: number) {
+  function updateScore(employeeName: string, value: number) {
     setScores((currentScores) => ({
       ...currentScores,
-      [employeeId]: value,
+      [employeeName]: value,
     }));
     setSuccessMessage(null);
   }
@@ -133,8 +131,7 @@ function EmployeeCompatibilityContent() {
 
     const nextScores = targetEmployees.reduce<Record<string, number>>(
       (currentScores, targetEmployee) => {
-        currentScores[targetEmployee.employeeId] =
-          scores[targetEmployee.employeeId] ?? 0;
+        currentScores[targetEmployee.name] = scores[targetEmployee.name] ?? 0;
         return currentScores;
       },
       {},
@@ -215,22 +212,16 @@ function EmployeeCompatibilityContent() {
               </div>
             ) : (
               targetEmployees.map((targetEmployee) => {
-                const score = scores[targetEmployee.employeeId] ?? 0;
+                const score = scores[targetEmployee.name] ?? 0;
 
                 return (
                   <section
-                    key={targetEmployee.employeeId}
+                    key={targetEmployee.name}
                     className="rounded-lg border border-black/10 p-4"
                   >
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
                         <p className="font-semibold">{targetEmployee.name}</p>
-                        <p className="mt-1 text-sm text-[#717182]">
-                          {targetEmployee.employmentType}
-                          <span className="ml-4 font-mono">
-                            {targetEmployee.employeeId}
-                          </span>
-                        </p>
                       </div>
                       <span className="inline-flex h-10 min-w-16 items-center justify-center rounded-md bg-[#eef2ff] px-3 font-mono text-lg font-semibold text-[#1d4ed8]">
                         {formatScore(score)}
@@ -246,12 +237,12 @@ function EmployeeCompatibilityContent() {
                         value={score}
                         onChange={(event) =>
                           updateScore(
-                            targetEmployee.employeeId,
+                            targetEmployee.name,
                             Number(event.target.value),
                           )
                         }
                         className="w-full accent-[#00a63e]"
-                        aria-label={`${targetEmployee.name}さんとの働きやすさ`}
+                        aria-label={targetEmployee.name + "さんとの働きやすさ"}
                       />
                       <div className="mt-2 flex justify-between text-xs font-semibold text-[#717182]">
                         <span>-5</span>

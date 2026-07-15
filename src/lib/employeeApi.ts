@@ -1,4 +1,3 @@
-import type { EmployeeProfile } from "./people";
 import type { PayrollSettings } from "./payroll";
 import type { ShiftRequest } from "./shiftRequests";
 import type { ShiftRequestSettings } from "./shiftRequestSettings";
@@ -15,8 +14,12 @@ export type EmployeeShiftData = {
 };
 
 export type EmployeeCompatibilityData = {
-  employees: EmployeeProfile[];
+  employees: EmployeeCompatibilityTarget[];
   scores: CompatibilityScores;
+};
+
+export type EmployeeCompatibilityTarget = {
+  name: string;
 };
 
 async function readApiResponse<T>(response: Response, fallbackMessage: string) {

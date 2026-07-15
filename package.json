@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "security:emulator": "node scripts/security/emulator-dynamic-verify.mjs"
   },
   "dependencies": {
     "firebase": "^12.14.0",
