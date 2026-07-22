@@ -1,2 +1,4 @@
 [tools]
+java = "temurin-21"  #Firebase Emulator用
 node = "24.16.0"
+"npm:firebase-tools" = "15.22.0"
