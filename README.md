@@ -326,10 +326,42 @@ Chess の機能は、大きく分けて「管理者向け」「従業員向け�
 | おすすめ計算設定 | おすすめ計算の重み、公平性スコアの有効・無効、自動承認ルールを設定できます。 |
 | 組織削除 | 管理者は組織を削除できます。削除時には、組織に紐づく従業員、シフト枠、シフト希望、相性スコアなども削除対象になります。 |
 
+## セキュリティ・データ整合性
+
+認証情報や同時操作によるデータ不整合を防ぐため、以下の対策を実装しています。
+
+| 対策 | 内容 |
+| --- | --- |
+| 従業員セッション | 署名付きHTTPOnly Cookieを使用します。従業員の氏名・メールアドレス変更や再割当時には認証バージョンを更新し、既存セッションを無効化します。 |
+| カレンダー購読情報 | 従業員の再割当・削除、組織削除時に古いカレンダー購読情報を削除します。購読URLも従業員の認証バージョンと紐づけて管理します。 |
+| シフト申請・承認 | Firestoreトランザクションと重複排除キーを使い、同時申請や同一内容の重複送信による二重登録・定員超過を防ぎます。 |
+| 給与スナップショット | シフト希望の提出時点の雇用形態・時給を保存します。後から給与設定を変更しても、既存のシフト希望の給与計算は変わりません。 |
+| CSV出力 | `=`, `+`, `-`, `@` などで始まる数式形式の値を無害化し、CSVを表計算ソフトで開いた際の数式インジェクションを防止します。 |
+| Firestore Rules | メール認証済みで対象組織に所属する管理者だけが、組織の管理データを操作できるように制限しています。 |
+
 ## ローカルで起動
 
+### 開発環境の準備
+
+開発ツールは `mise.toml` で管理しています。Firebase Emulatorを使うためのJavaを含め、以下のバージョンを揃えます。
+
+- Java: Temurin 21
+- Node.js: 24.16.0
+- Firebase CLI: 15.22.0
+
+初回は、プロジェクトのルートで以下を実行してください。
+
 ```bash
+mise trust
+mise install
 npm install
+```
+
+`mise trust` は、環境によって不要な場合があります。
+
+### アプリを起動する
+
+```bash
 npm run dev
 ```
 
@@ -360,6 +392,22 @@ npm run lint
 ```
 
 ESLint を実行します。
+
+```bash
+npm run security:emulator
+```
+
+Firestore EmulatorとAuth Emulatorをローカルで起動し、本番ビルドしたNext.jsアプリを使って動的検証を実行します。デフォルトではFirestoreを `8080`、Authを `9099`、Emulator UIを `4000`、検証用のNext.jsを `3099` で起動します。検証データは終了時に削除され、外部のFirebaseプロジェクトには接続しません。
+
+このコマンドでは、従業員の互換性情報、給与スナップショット、シフト申請の重複排除、カレンダー購読情報の削除を検証します。Java、Firebase CLI、子プロセス起動、ループバック通信が必要です。
+
+```bash
+npm run security:csv
+```
+
+CSV出力の数式インジェクション対策を確認する回帰テストを実行します。Firebase Emulatorは使用しません。
+
+詳細な検証方針は [`SECURITY.md`](./SECURITY.md) を参照してください。
 
 ## 環境変数
 
@@ -392,6 +440,8 @@ EMPLOYEE_SESSION_SECRET=
 - Firebase Authentication
 - Cloud Firestore
 - Firebase Admin SDK
+- Firebase Emulator Suite（Firestore / Auth）
+- mise（Java / Node.js / Firebase CLIの管理）
 
 ## ディレクトリ構成
 
@@ -412,6 +462,8 @@ src/
       employee/
   components/
   lib/
+scripts/
+  security/
 ```
 
 ### 主な役割
@@ -424,6 +476,7 @@ src/
 | `src/app/api` | APIルート |
 | `src/components` | 共通UIコンポーネント |
 | `src/lib` | Firebase操作・計算ロジック・エクスポート処理 |
+| `scripts/security` | Emulatorを使った動的検証・CSV出力の回帰テスト |
 
 
 ## スクリーンショット
@@ -437,3 +490,4 @@ src/
 - Firebase Admin の秘密鍵は公開しないでください
 - 本番環境では、Vercel などの環境変数に秘密情報を設定してください
 - Firestore Rules は本番運用前に適切に設定してください
+- テキストファイルの改行コードは `.gitattributes` によりLFに統一しています
