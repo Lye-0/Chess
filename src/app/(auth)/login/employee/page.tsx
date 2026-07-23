@@ -2,9 +2,24 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import {
+  FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { ArrowLeftIcon, BadgeIcon, BuildingIcon, MailIcon } from "@/components/icons";
 import { saveEmployeeSession, type EmployeeProfile } from "@/lib/people";
+import {
+  clearRememberedEmployeeLogin,
+  employeeLoginRememberDays,
+  getRememberedEmployeeLoginSnapshot,
+  getRememberedLoginServerSnapshot,
+  parseRememberedEmployeeLoginSnapshot,
+  rememberEmployeeLogin,
+  subscribeRememberedLogin,
+} from "@/lib/rememberedLogin";
 
 function normalizeOrganizationId(value: string) {
   return value.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
@@ -35,10 +50,34 @@ async function readEmployeeLoginResponse(
 
 export default function EmployeeLoginPage() {
   const router = useRouter();
-  const [organizationId, setOrganizationId] = useState("");
-  const [email, setEmail] = useState("");
+  const rememberedLoginSnapshot = useSyncExternalStore(
+    subscribeRememberedLogin,
+    getRememberedEmployeeLoginSnapshot,
+    getRememberedLoginServerSnapshot,
+  );
+  const rememberedLogin = useMemo(
+    () => parseRememberedEmployeeLoginSnapshot(rememberedLoginSnapshot),
+    [rememberedLoginSnapshot],
+  );
+  const [organizationIdOverride, setOrganizationIdOverride] = useState<string | null>(
+    null,
+  );
+  const [emailOverride, setEmailOverride] = useState<string | null>(null);
+  const [shouldRememberLoginOverride, setShouldRememberLoginOverride] =
+    useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const organizationId =
+    organizationIdOverride ?? rememberedLogin?.organizationId ?? "";
+  const email = emailOverride ?? rememberedLogin?.email ?? "";
+  const shouldRememberLogin =
+    shouldRememberLoginOverride ?? rememberedLogin !== null;
+
+  useEffect(() => {
+    if (rememberedLoginSnapshot && !rememberedLogin) {
+      clearRememberedEmployeeLogin();
+    }
+  }, [rememberedLogin, rememberedLoginSnapshot]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -80,6 +119,14 @@ export default function EmployeeLoginPage() {
       }
 
       saveEmployeeSession(result.employee);
+      if (shouldRememberLogin) {
+        rememberEmployeeLogin({
+          organizationId: trimmedOrganizationId,
+          email: trimmedEmail,
+        });
+      } else {
+        clearRememberedEmployeeLogin();
+      }
       router.push("/employee");
     } catch (loginError) {
       console.error(loginError);
@@ -120,7 +167,9 @@ export default function EmployeeLoginPage() {
                 type="text"
                 value={organizationId}
                 onChange={(event) =>
-                  setOrganizationId(normalizeOrganizationId(event.target.value))
+                  setOrganizationIdOverride(
+                    normalizeOrganizationId(event.target.value),
+                  )
                 }
                 required
                 maxLength={64}
@@ -139,13 +188,31 @@ export default function EmployeeLoginPage() {
               <input
                 type="email"
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) => setEmailOverride(event.target.value)}
                 required
                 autoComplete="email"
                 placeholder="例: tanaka@example.com"
                 className="h-full min-w-0 flex-1 bg-transparent outline-none"
               />
             </span>
+          </label>
+
+          <label className="flex items-center gap-3 text-sm font-semibold text-slate-600">
+            <input
+              type="checkbox"
+              checked={shouldRememberLogin}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setShouldRememberLoginOverride(checked);
+                if (!checked) {
+                  setOrganizationIdOverride(organizationId);
+                  setEmailOverride(email);
+                  clearRememberedEmployeeLogin();
+                }
+              }}
+              className="size-4 accent-green-600"
+            />
+            ログイン情報を保存する（{employeeLoginRememberDays}日間）
           </label>
 
           {error && (
