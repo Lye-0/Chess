@@ -176,9 +176,6 @@ function ManagerLoginContent() {
             />
             ログイン情報を保存する（メールアドレスのみ・{managerLoginRememberDays}日間）
           </label>
-          <p className="-mt-2 text-xs text-slate-500">
-            パスワードはブラウザのパスワード管理機能で管理されます。
-          </p>
 
           {displayMessage && (
             <p className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-700">
