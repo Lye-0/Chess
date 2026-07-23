@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useState } from "react";
+import {
+  FormEvent,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   getIdTokenResult,
   signInWithEmailAndPassword,
@@ -10,20 +17,46 @@ import {
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { ArrowLeftIcon, BuildingIcon, KeyIcon, MailIcon } from "@/components/icons";
+import {
+  clearRememberedManagerLogin,
+  managerLoginRememberDays,
+  getRememberedLoginServerSnapshot,
+  getRememberedManagerLoginSnapshot,
+  parseRememberedManagerLoginSnapshot,
+  rememberManagerLogin,
+  subscribeRememberedLogin,
+} from "@/lib/rememberedLogin";
 
 const verificationEmailSentMessage =
   "確認メールを送信しました。メール内のリンクを開いてからログインしてください。";
 
-
 function ManagerLoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const rememberedLoginSnapshot = useSyncExternalStore(
+    subscribeRememberedLogin,
+    getRememberedManagerLoginSnapshot,
+    getRememberedLoginServerSnapshot,
+  );
+  const rememberedLogin = useMemo(
+    () => parseRememberedManagerLoginSnapshot(rememberedLoginSnapshot),
+    [rememberedLoginSnapshot],
+  );
+  const [emailOverride, setEmailOverride] = useState<string | null>(null);
+  const [shouldRememberLoginOverride, setShouldRememberLoginOverride] =
+    useState<boolean | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const email = emailOverride ?? rememberedLogin?.email ?? "";
+  const shouldRememberLogin =
+    shouldRememberLoginOverride ?? rememberedLogin !== null;
 
+  useEffect(() => {
+    if (rememberedLoginSnapshot && !rememberedLogin) {
+      clearRememberedManagerLogin();
+    }
+  }, [rememberedLogin, rememberedLoginSnapshot]);
 
   const verificationEmailSent =
     searchParams.get("verificationEmailSent") === "1";
@@ -37,11 +70,15 @@ function ManagerLoginContent() {
     setMessage("");
     setIsSubmitting(true);
 
+    const formData = new FormData(event.currentTarget);
+    const submittedEmail = String(formData.get("email") ?? "").trim();
+    const submittedPassword = String(formData.get("password") ?? "");
+
     try {
       const userCredential = await signInWithEmailAndPassword(
         auth,
-        email,
-        password,
+        submittedEmail,
+        submittedPassword,
       );
       await userCredential.user.reload();
       const tokenResult = await getIdTokenResult(userCredential.user, true);
@@ -57,6 +94,11 @@ function ManagerLoginContent() {
         return;
       }
 
+      if (shouldRememberLogin) {
+        rememberManagerLogin({ email: submittedEmail });
+      } else {
+        clearRememberedManagerLogin();
+      }
       router.push("/manager/select-organization");
     } catch {
       setError("メールアドレスまたはパスワードが正しくありません。");
@@ -93,11 +135,12 @@ function ManagerLoginContent() {
             <span className="flex h-12 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100">
               <MailIcon className="size-5 text-slate-400" />
               <input
+                name="email"
                 type="email"
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) => setEmailOverride(event.target.value)}
                 required
-                autoComplete="email"
+                autoComplete="username"
                 className="h-full min-w-0 flex-1 bg-transparent outline-none"
               />
             </span>
@@ -108,15 +151,34 @@ function ManagerLoginContent() {
             <span className="flex h-12 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100">
               <KeyIcon className="size-5 text-slate-400" />
               <input
+                name="password"
                 type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
                 required
                 autoComplete="current-password"
                 className="h-full min-w-0 flex-1 bg-transparent outline-none"
               />
             </span>
           </label>
+
+          <label className="flex items-center gap-3 text-sm font-semibold text-slate-600">
+            <input
+              type="checkbox"
+              checked={shouldRememberLogin}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setShouldRememberLoginOverride(checked);
+                if (!checked) {
+                  setEmailOverride(email);
+                  clearRememberedManagerLogin();
+                }
+              }}
+              className="size-4 accent-blue-600"
+            />
+            ログイン情報を保存する（メールアドレスのみ・{managerLoginRememberDays}日間）
+          </label>
+          <p className="-mt-2 text-xs text-slate-500">
+            パスワードはブラウザのパスワード管理機能で管理されます。
+          </p>
 
           {displayMessage && (
             <p className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-700">
