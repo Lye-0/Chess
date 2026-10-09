@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:emulator": "node scripts/dev/emulator.mjs",
+    "emulator:seed": "node scripts/dev/emulator.mjs --seed",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

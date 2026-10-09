@@ -209,7 +209,10 @@ export async function createManagerOrganization(
     throw new Error("組織名を入力してください。");
   }
 
-  const idToken = await manager.getIdToken();
+  // Emulator restarts and account reseeding can invalidate cached tokens.
+  // Refresh before creating an organization so the API receives the current
+  // authentication state, including the email verification claim.
+  const idToken = await manager.getIdToken(true);
   const response = await fetch("/api/manager/organizations", {
     method: "POST",
     headers: {

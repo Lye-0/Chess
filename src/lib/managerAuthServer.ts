@@ -41,6 +41,14 @@ export async function verifyManagerRequest(
   } catch (error) {
     if (error instanceof ManagerAuthError) throw error;
 
+    // Log only the error code. Tokens and account information must stay out
+    // of server logs, while configuration/session failures remain diagnosable.
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : "unknown";
+    console.warn("[manager-auth] ID token verification failed:", code);
+
     throw new ManagerAuthError("管理者ログインを確認できませんでした。", 401);
   }
 }

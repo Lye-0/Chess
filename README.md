@@ -369,6 +369,25 @@ npm run dev
 
 <http://localhost:3000> をブラウザで開きます。
 
+### エミュレーターモードで起動する
+
+```bash
+npm run dev:emulator
+```
+
+Auth / Firestore Emulator と Next.js をまとめて起動します。Java と npm レジストリへの接続が必要です。専用の `demo-chess-dev` を使い、`.env.local` の Firebase 設定をローカル用に上書きするため、本番の認証情報は不要です。
+
+- 管理者ログイン: <http://127.0.0.1:3001/login/manager>
+- Emulator UI: <http://127.0.0.1:4000>
+- メールアドレス: `developer@example.test`
+- パスワード: 初回に生成し、`.local/emulator-login.json` に保存します。
+
+固定の開発用管理者は起動ごとに作成または更新され、メール確認済みでログインできます。ログイン後は組織を作成してください。ログイン情報とエミュレーターのデータは Git の管理対象外です。ログイン情報を変更する場合は保存ファイルを編集し、再起動してください。
+
+Ctrl+C で通常終了すると Auth / Firestore のデータを `.local/firebase-data` に保存し、次回起動時に復元します。強制終了時は保存されない場合がありますが、同じログイン情報の管理者は次回起動時に再作成されます。使用するポートは Next.js `3001`、Firestore `8080`、Auth `9099`、UI `4000` です。Next.js のビルド保存先は `.next-emulator` なので、通常の開発サーバーとは同時に起動できます。既存のエミュレーターは終了してから起動してください。
+
+専用エミュレーターが起動済みの場合、`npm run emulator:seed` でアカウントだけを再作成・更新できます。
+
 ## 利用できるコマンド
 
 ```bash
