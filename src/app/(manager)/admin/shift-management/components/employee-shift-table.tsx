@@ -10,15 +10,20 @@ import type { PayrollSettings } from "@/lib/payroll";
 import type { OrganizationPosition } from "@/lib/managerOrganizations";
 import {
   createManagerShiftAssignment,
+  removeShiftRequest,
   updateManagerShiftAssignment,
   type ShiftRequest,
 } from "@/lib/shiftRequests";
 
-const snapMinutes = 15;
+const cellMinutes = 30;
+const snapMinutes = cellMinutes;
 const minimumShiftMinutes = 30;
+const cellWidth = 32;
 const defaultStartMinutes = 6 * 60;
 const defaultEndMinutes = 24 * 60;
 const maximumEndMinutes = 30 * 60;
+
+type EditMode = "add" | "remove" | "adjust";
 
 type TimeRange = {
   start: number;
@@ -27,8 +32,9 @@ type TimeRange = {
 
 type ActiveDrag = TimeRange & {
   key: string;
-  kind: "existing" | "create";
-  mode: "move" | "resize-start" | "resize-end" | "create";
+  kind: "existing" | "cells";
+  mode: "move" | "resize-start" | "resize-end" | "cells";
+  action?: "add" | "remove";
   pointerStartX: number;
   originalStart: number;
   originalEnd: number;
@@ -67,6 +73,31 @@ function formatTimelineTime(minutes: number) {
 
 function snap(value: number) {
   return Math.round(value / snapMinutes) * snapMinutes;
+}
+
+function rangesOverlap(first: TimeRange, second: TimeRange) {
+  return first.start < second.end && second.start < first.end;
+}
+
+function getCellStart(
+  clientX: number,
+  rowLeft: number,
+  rowWidth: number,
+  timelineRange: TimeRange,
+) {
+  const totalMinutes = timelineRange.end - timelineRange.start;
+  const rawMinutes =
+    timelineRange.start + ((clientX - rowLeft) / rowWidth) * totalMinutes;
+  const clampedMinutes = clamp(
+    rawMinutes,
+    timelineRange.start,
+    timelineRange.end - 1,
+  );
+
+  return (
+    timelineRange.start +
+    Math.floor((clampedMinutes - timelineRange.start) / cellMinutes) * cellMinutes
+  );
 }
 
 function clamp(value: number, minimum: number, maximum: number) {
@@ -117,6 +148,8 @@ export function EmployeeShiftTable({
   organizationId: string;
 }) {
   const [selectedPositionId, setSelectedPositionId] = useState("");
+  const [editMode, setEditMode] = useState<EditMode>("add");
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [activeDrag, setActiveDrag] = useState<ActiveDrag | null>(null);
   const [savingKeys, setSavingKeys] = useState<Set<string>>(() => new Set());
   const [message, setMessage] = useState<string | null>(null);
@@ -147,14 +180,20 @@ export function EmployeeShiftTable({
   }, [dateRequests]);
   const timelineRange = useMemo(() => getTimelineRange(dateRequests), [dateRequests]);
   const totalMinutes = timelineRange.end - timelineRange.start;
-  const timelineWidth = Math.max(960, (totalMinutes / 60) * 72);
-  const minuteWidth = timelineWidth / totalMinutes;
-  const hourMarkers = Array.from(
-    { length: Math.floor(totalMinutes / 60) + 1 },
-    (_, index) => timelineRange.start + index * 60,
+  const timelineCells = Array.from(
+    { length: Math.ceil(totalMinutes / cellMinutes) },
+    (_, index) => timelineRange.start + index * cellMinutes,
   );
+  const timelineWidth = Math.max(960, timelineCells.length * cellWidth);
+  const minuteWidth = timelineWidth / totalMinutes;
   const editable = isFutureDate(date);
   const activeDragKey = activeDrag?.key;
+  const selectedDateLabel = new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  }).format(new Date(`${date}T00:00:00`));
 
   function updateActiveDrag(next: ActiveDrag | null) {
     activeDragRef.current = next;
@@ -168,10 +207,12 @@ export function EmployeeShiftTable({
       const current = activeDragRef.current;
       if (!current) return;
 
-      if (current.kind === "create") {
-        const pointerMinutes = snap(
-          timelineRange.start +
-            ((event.clientX - current.rowLeft) / current.rowWidth) * totalMinutes,
+      if (current.kind === "cells") {
+        const pointerMinutes = getCellStart(
+          event.clientX,
+          current.rowLeft,
+          current.rowWidth,
+          timelineRange,
         );
         const first = clamp(
           Math.min(current.originalStart, pointerMinutes),
@@ -179,7 +220,10 @@ export function EmployeeShiftTable({
           timelineRange.end - minimumShiftMinutes,
         );
         const last = clamp(
-          Math.max(current.originalStart, pointerMinutes),
+          Math.max(
+            current.originalStart + minimumShiftMinutes,
+            pointerMinutes + minimumShiftMinutes,
+          ),
           first + minimumShiftMinutes,
           timelineRange.end,
         );
@@ -232,38 +276,156 @@ export function EmployeeShiftTable({
       setActiveDrag(next);
     }
 
+    function getAssignmentInput(request: ShiftRequest, range: TimeRange) {
+      return {
+        date: request.date,
+        startTime: toTimeString(range.start),
+        endTime: toTimeString(range.end),
+        positionId: request.positionId || selectedPosition?.id || "unassigned",
+        positionName:
+          request.positionName || selectedPosition?.name || "ポジション未設定",
+      };
+    }
+
+    async function removeSelectedCells(current: ActiveDrag) {
+      if (!current.employee) return;
+
+      const selectedRange = { start: current.start, end: current.end };
+      const overlappingRequests = dateRequests.filter(
+        (request) =>
+          request.employeeId === current.employee?.employeeId &&
+          rangesOverlap(getRequestRange(request), selectedRange),
+      );
+
+      if (overlappingRequests.length === 0) {
+        setMessage("選択した範囲に削除できるシフトはありません。");
+        return;
+      }
+
+      for (const request of overlappingRequests) {
+        const storedRange = getRequestRange(request);
+        const remainingRanges: TimeRange[] = [];
+
+        if (selectedRange.start > storedRange.start) {
+          remainingRanges.push({
+            start: storedRange.start,
+            end: Math.min(selectedRange.start, storedRange.end),
+          });
+        }
+        if (selectedRange.end < storedRange.end) {
+          remainingRanges.push({
+            start: Math.max(selectedRange.end, storedRange.start),
+            end: storedRange.end,
+          });
+        }
+
+        const validRanges = remainingRanges.filter(
+          (range) => range.end > range.start,
+        );
+
+        if (validRanges.length === 0) {
+          await removeShiftRequest(request.id, organizationId);
+          continue;
+        }
+
+        await updateManagerShiftAssignment(
+          request.id,
+          getAssignmentInput(request, validRanges[0]),
+          organizationId,
+        );
+
+        if (validRanges[1]) {
+          await createManagerShiftAssignment(
+            current.employee,
+            getAssignmentInput(request, validRanges[1]),
+            payrollSettings,
+            organizationId,
+          );
+        }
+      }
+
+      setMessage(
+        `${current.employee.name}の${formatTimelineTime(current.start)}–${formatTimelineTime(current.end)}を削除しました。`,
+      );
+    }
+
+    async function addSelectedCells(current: ActiveDrag) {
+      if (!current.employee) return;
+
+      const selectedRange = { start: current.start, end: current.end };
+      const overlappingRequests = dateRequests.filter(
+        (request) =>
+          request.employeeId === current.employee?.employeeId &&
+          rangesOverlap(getRequestRange(request), selectedRange),
+      );
+      const approvedOverlaps = overlappingRequests.filter(
+        (request) => request.status === "承認済",
+      );
+
+      if (approvedOverlaps.length > 0) {
+        setMessage(
+          "選択範囲には確定済みシフトがあります。削除モードまたはバー調整を使ってください。",
+        );
+        return;
+      }
+
+      const pendingOverlaps = overlappingRequests.filter(
+        (request) => request.status !== "承認済",
+      );
+      if (pendingOverlaps.length > 1) {
+        setMessage(
+          "複数の希望が重なっています。バー調整で1件ずつ確定してください。",
+        );
+        return;
+      }
+
+      const pendingRequest = pendingOverlaps[0];
+      if (pendingRequest) {
+        await updateManagerShiftAssignment(
+          pendingRequest.id,
+          getAssignmentInput(pendingRequest, selectedRange),
+          organizationId,
+        );
+      } else {
+        await createManagerShiftAssignment(
+          current.employee,
+          {
+            date,
+            startTime: toTimeString(current.start),
+            endTime: toTimeString(current.end),
+            positionId: selectedPosition?.id || "unassigned",
+            positionName: selectedPosition?.name || "ポジション未設定",
+          },
+          payrollSettings,
+          organizationId,
+        );
+      }
+
+      setMessage(
+        `${current.employee.name}の${formatTimelineTime(current.start)}–${formatTimelineTime(current.end)}を追加しました。`,
+      );
+    }
+
     async function handlePointerUp() {
       const current = activeDragRef.current;
       if (!current) return;
       activeDragRef.current = null;
       setActiveDrag(null);
 
-      if (!current.hasMoved) return;
-      if (!selectedPosition && current.kind === "create") {
-        setMessage("先にポジションを登録・選択してください。");
-        return;
-      }
-
       const key = current.key;
       setSavingKeys((keys) => new Set(keys).add(key));
       setMessage(null);
 
       try {
-        if (current.kind === "create" && current.employee && selectedPosition) {
-          await createManagerShiftAssignment(
-            current.employee,
-            {
-              date,
-              startTime: toTimeString(current.start),
-              endTime: toTimeString(current.end),
-              positionId: selectedPosition.id,
-              positionName: selectedPosition.name,
-            },
-            payrollSettings,
-            organizationId,
-          );
-          setMessage(`${current.employee.name}のシフトを追加しました。`);
+        if (current.kind === "cells") {
+          if (current.action === "remove") {
+            await removeSelectedCells(current);
+          } else {
+            await addSelectedCells(current);
+          }
         } else if (current.request) {
+          if (!current.hasMoved) return;
+
           const fallbackPosition = selectedPosition;
           await updateManagerShiftAssignment(
             current.request.id,
@@ -280,7 +442,9 @@ export function EmployeeShiftTable({
             },
             organizationId,
           );
-          setMessage(`${current.request.employeeName}のシフト時間を確定しました。`);
+          setMessage(
+            `${current.request.employeeName}のシフト時間を確定しました。`,
+          );
         }
       } catch (error) {
         console.error(error);
@@ -306,12 +470,12 @@ export function EmployeeShiftTable({
   }, [
     activeDragKey,
     date,
+    dateRequests,
     minuteWidth,
     organizationId,
     payrollSettings,
     selectedPosition,
-    timelineRange.end,
-    timelineRange.start,
+    timelineRange,
     totalMinutes,
   ]);
 
@@ -320,9 +484,16 @@ export function EmployeeShiftTable({
     request: ShiftRequest,
     mode: ActiveDrag["mode"],
   ) {
-    if (!editable || savingKeys.has(request.id)) return;
+    if (
+      !editable ||
+      editMode !== "adjust" ||
+      savingKeys.has(request.id)
+    ) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
+    setSelectedRequestId(request.id);
     const range = getRequestRange(request);
 
     updateActiveDrag({
@@ -341,16 +512,80 @@ export function EmployeeShiftTable({
     });
   }
 
-  function startCreating(
+  useEffect(() => {
+    if (!selectedRequestId || editMode !== "adjust" || !editable) return;
+
+    const selectedRequest = dateRequests.find(
+      (request) => request.id === selectedRequestId,
+    );
+    if (!selectedRequest) return;
+    const requestToDelete = selectedRequest;
+
+    async function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectedRequestId(null);
+        return;
+      }
+      if (event.key !== "Backspace" && event.key !== "Delete") return;
+
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      if (event.repeat || savingKeys.has(requestToDelete.id)) return;
+
+      event.preventDefault();
+      setSelectedRequestId(null);
+      setSavingKeys((keys) => new Set(keys).add(requestToDelete.id));
+      setMessage(null);
+
+      try {
+        await removeShiftRequest(requestToDelete.id, organizationId);
+        setMessage(
+          `${requestToDelete.employeeName}の${requestToDelete.startTime}–${requestToDelete.endTime}を削除しました。`,
+        );
+      } catch (error) {
+        console.error(error);
+        setMessage(
+          "シフトを削除できませんでした。Firebaseの接続を確認してください。",
+        );
+      } finally {
+        setSavingKeys((keys) => {
+          const next = new Set(keys);
+          next.delete(requestToDelete.id);
+          return next;
+        });
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    dateRequests,
+    editMode,
+    editable,
+    organizationId,
+    savingKeys,
+    selectedRequestId,
+  ]);
+
+  function startCellSelection(
     event: ReactPointerEvent<HTMLDivElement>,
     employee: EmployeeProfile,
   ) {
-    if (!editable || !selectedPosition || event.button !== 0) return;
+    if (!editable || editMode === "adjust" || event.button !== 0) return;
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
-    const pointerMinutes = snap(
-      timelineRange.start +
-        ((event.clientX - rect.left) / rect.width) * totalMinutes,
+    const pointerMinutes = getCellStart(
+      event.clientX,
+      rect.left,
+      rect.width,
+      timelineRange,
     );
     const start = clamp(
       pointerMinutes,
@@ -359,9 +594,10 @@ export function EmployeeShiftTable({
     );
 
     updateActiveDrag({
-      key: `new:${employee.employeeId}`,
-      kind: "create",
-      mode: "create",
+      key: `cells:${employee.employeeId}`,
+      kind: "cells",
+      mode: "cells",
+      action: editMode,
       pointerStartX: event.clientX,
       originalStart: start,
       originalEnd: start + minimumShiftMinutes,
@@ -382,12 +618,54 @@ export function EmployeeShiftTable({
 
   return (
     <section className="mt-4 overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-black/10 bg-[#f8fafc] p-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h3 className="text-sm font-semibold">従業員シフト表</h3>
-          <p className="mt-1 text-xs leading-5 text-[#64748b]">
-            希望は点線、確定シフトは実線で表示します。バーを動かすと確定し、左右の端で時間を調整できます。
+      <div className="flex flex-col border-b border-[#b98b20] bg-[#fde7a3] sm:flex-row sm:items-center">
+        <h3 className="border-b border-[#b98b20] px-4 py-3 text-base font-bold sm:border-r sm:border-b-0">
+          従業員シフト表
+        </h3>
+        <p className="px-4 py-3 text-sm font-bold text-[#5f4711]">
+          {selectedDateLabel}
+        </p>
+        <span className="mx-4 mb-3 rounded border border-[#b98b20] bg-white/65 px-2 py-1 text-xs font-bold text-[#5f4711] sm:ml-auto sm:mb-0">
+          1マス30分
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-3 border-b border-black/10 bg-[#f8fafc] p-4 xl:flex-row xl:items-end xl:justify-between">
+        <div className="grid gap-2">
+          <p className="text-xs leading-5 text-[#64748b]">
+            追加・削除はクリックで1マス、横ドラッグで連続したマスを操作します。バー調整では移動・リサイズのほか、選択後にBackspace / Deleteで削除できます。
           </p>
+          <div className="inline-flex w-fit rounded-lg border border-black/10 bg-white p-1 shadow-sm" aria-label="シフト表の操作モード">
+            {(
+              [
+                ["add", "追加"],
+                ["remove", "削除"],
+                ["adjust", "バー調整"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={editMode === mode}
+                onClick={() => {
+                  setEditMode(mode);
+                  if (mode !== "adjust") setSelectedRequestId(null);
+                }}
+                className={[
+                  "h-8 rounded-md px-3 text-xs font-bold transition",
+                  editMode === mode
+                    ? mode === "remove"
+                      ? "bg-[#b91c1c] text-white"
+                      : mode === "adjust"
+                        ? "bg-[#334155] text-white"
+                        : "bg-[#166534] text-white"
+                    : "text-[#475569] hover:bg-[#f1f5f9]",
+                ].join(" ")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="grid gap-1 text-xs font-semibold text-[#475569]">
@@ -424,38 +702,50 @@ export function EmployeeShiftTable({
       <div className="overflow-x-auto">
         <div className="min-w-max">
           <div className="flex border-b border-black/10 bg-white">
-            <div className="sticky left-0 z-30 flex w-44 shrink-0 items-end border-r border-black/10 bg-white px-3 pb-2 text-xs font-semibold text-[#475569]">
-              従業員
+            <div className="sticky left-0 z-40 flex w-10 shrink-0 items-center justify-center border-r border-black/15 bg-[#f1f5f9] text-[10px] font-bold text-[#475569]">
+              No.
             </div>
-            <div className="relative h-11" style={{ width: timelineWidth }}>
-              {hourMarkers.map((minute) => (
+            <div className="sticky left-10 z-40 flex w-36 shrink-0 items-center border-r border-black/15 bg-[#e7f0f8] px-3 text-xs font-bold text-[#334155]">
+              氏名
+            </div>
+            <div
+              className="grid h-11 bg-white"
+              style={{
+                width: timelineWidth,
+                gridTemplateColumns: `repeat(${timelineCells.length}, 1fr)`,
+              }}
+            >
+              {timelineCells.map((minute) => (
                 <span
                   key={minute}
-                  className="absolute bottom-2 -translate-x-1/2 text-[11px] font-semibold text-[#64748b]"
-                  style={{ left: (minute - timelineRange.start) * minuteWidth }}
+                  className={[
+                    "flex items-end justify-center border-r border-black/10 pb-2 text-[10px] font-bold text-[#64748b]",
+                    minute % 60 === 0 ? "border-l border-l-black/30" : "",
+                  ].join(" ")}
                 >
-                  {formatTimelineTime(minute)}
+                  {minute % 60 === 0 ? formatTimelineTime(minute) : ""}
                 </span>
               ))}
             </div>
-            <div className="sticky right-0 z-30 flex w-20 shrink-0 items-end justify-center border-l border-black/10 bg-white pb-2 text-xs font-semibold text-[#475569]">
+            <div className="sticky right-0 z-40 flex w-20 shrink-0 items-center justify-center border-l border-black/20 bg-[#fde600] text-xs font-bold text-[#3f3f00]">
               合計
             </div>
           </div>
 
           {sortedEmployees.map((employee, employeeIndex) => {
             const employeeRequests = requestsByEmployee[employee.employeeId] ?? [];
-            const rowHeight = Math.max(58, 14 + employeeRequests.length * 44);
+            const rowHeight = 58;
             const totalEmployeeMinutes = employeeRequests.reduce((total, request) => {
               if (request.status !== "承認済") return total;
               const range = getRequestRange(request);
               return total + range.end - range.start;
             }, 0);
             const creationPreview =
-              activeDrag?.kind === "create" &&
+              activeDrag?.kind === "cells" &&
               activeDrag.employee?.employeeId === employee.employeeId
                 ? activeDrag
                 : null;
+            const rowSaving = savingKeys.has(`cells:${employee.employeeId}`);
 
             return (
               <div
@@ -465,8 +755,16 @@ export function EmployeeShiftTable({
               >
                 <div
                   className={[
-                    "sticky left-0 z-20 flex w-44 shrink-0 items-center gap-2 border-r border-black/10 px-3",
+                    "sticky left-0 z-30 flex w-10 shrink-0 items-center justify-center border-r border-black/15 text-[10px] font-semibold text-[#475569]",
                     employeeIndex % 2 === 0 ? "bg-white" : "bg-[#f8fafc]",
+                  ].join(" ")}
+                >
+                  {employeeIndex + 1}
+                </div>
+                <div
+                  className={[
+                    "sticky left-10 z-30 flex w-36 shrink-0 items-center gap-2 border-r border-black/15 px-3",
+                    employeeIndex % 2 === 0 ? "bg-[#f3f8fc]" : "bg-[#e7f0f8]",
                   ].join(" ")}
                 >
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#e2e8f0] text-[11px] font-bold text-[#475569]">
@@ -484,33 +782,41 @@ export function EmployeeShiftTable({
 
                 <div
                   className={[
-                    "relative cursor-crosshair select-none",
+                    "relative select-none",
                     employeeIndex % 2 === 0 ? "bg-white" : "bg-[#f8fafc]",
+                    editMode === "adjust" ? "cursor-default" : "cursor-crosshair",
                     !editable ? "cursor-not-allowed opacity-70" : "",
+                    rowSaving ? "animate-pulse" : "",
                   ].join(" ")}
-                  style={{
-                    width: timelineWidth,
-                    backgroundImage:
-                      "repeating-linear-gradient(to right, transparent 0, transparent calc(25% - 1px), rgba(148,163,184,.18) calc(25% - 1px), rgba(148,163,184,.18) 25%)",
-                    backgroundSize: `${minuteWidth * 60}px 100%`,
-                  }}
-                  onPointerDown={(event) => startCreating(event, employee)}
+                  style={{ width: timelineWidth }}
+                  onPointerDown={(event) => startCellSelection(event, employee)}
                   title={
                     editable
-                      ? "空いている場所を横にドラッグして確定シフトを追加"
+                      ? editMode === "adjust"
+                        ? "バーをドラッグして移動、左右の端で時間を調整"
+                        : `${editMode === "remove" ? "削除" : "追加"}: クリックで30分、横ドラッグでまとめて操作`
                       : "過去日のシフトは編集できません"
                   }
                 >
-                  {hourMarkers.map((minute) => (
-                    <span
-                      key={minute}
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-y-0 border-l border-black/10"
-                      style={{ left: (minute - timelineRange.start) * minuteWidth }}
-                    />
-                  ))}
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 grid"
+                    style={{
+                      gridTemplateColumns: `repeat(${timelineCells.length}, 1fr)`,
+                    }}
+                  >
+                    {timelineCells.map((minute) => (
+                      <span
+                        key={minute}
+                        className={[
+                          "border-r border-black/10",
+                          minute % 60 === 0 ? "border-l border-l-black/30" : "",
+                        ].join(" ")}
+                      />
+                    ))}
+                  </div>
 
-                  {employeeRequests.map((request, requestIndex) => {
+                  {employeeRequests.map((request) => {
                     const storedRange = getRequestRange(request);
                     const range =
                       activeDrag?.kind === "existing" &&
@@ -533,17 +839,24 @@ export function EmployeeShiftTable({
                       <div
                         key={request.id}
                         className={[
-                          "absolute flex h-9 touch-none items-center overflow-hidden rounded-md border px-3 text-[11px] font-semibold shadow-sm",
+                          "absolute top-[10px] z-10 flex h-9 touch-none items-center overflow-hidden rounded-md border px-3 text-[11px] font-semibold shadow-sm hover:z-20",
                           approved
                             ? request.managerCreated
                               ? "border-[#8b5cf6] bg-[#ede9fe] text-[#5b21b6]"
                               : "border-[#2563eb] bg-[#dbeafe] text-[#1e40af]"
                             : "border-dashed border-[#d97706] bg-[#fffbeb] text-[#92400e]",
-                          saving ? "animate-pulse" : "cursor-grab active:cursor-grabbing",
+                          editMode !== "adjust" ? "pointer-events-none" : "",
+                          saving
+                            ? "animate-pulse"
+                            : editMode === "adjust"
+                              ? "cursor-grab active:cursor-grabbing"
+                              : "",
+                          selectedRequestId === request.id
+                            ? "z-20 ring-2 ring-[#0f172a] ring-offset-1"
+                            : "",
                         ].join(" ")}
                         style={{
                           left,
-                          top: 7 + requestIndex * 44,
                           width,
                         }}
                         title={`${request.employeeName} / ${formatTimelineTime(range.start)}-${formatTimelineTime(range.end)} / ${request.positionName || "ポジション未設定"}${originalTime}`}
@@ -579,7 +892,12 @@ export function EmployeeShiftTable({
 
                   {creationPreview && (
                     <div
-                      className="pointer-events-none absolute top-2 flex h-9 items-center rounded-md border border-dashed border-[#7c3aed] bg-[#ede9fe] px-3 text-[11px] font-semibold text-[#5b21b6] shadow-sm"
+                      className={[
+                        "pointer-events-none absolute inset-y-1 z-20 flex items-center rounded-sm border px-3 text-[11px] font-bold shadow-sm",
+                        creationPreview.action === "remove"
+                          ? "border-[#b91c1c] bg-[#fee2e2]/90 text-[#991b1b]"
+                          : "border-[#15803d] bg-[#dcfce7]/90 text-[#166534]",
+                      ].join(" ")}
                       style={{
                         left:
                           (creationPreview.start - timelineRange.start) * minuteWidth,
@@ -591,16 +909,15 @@ export function EmployeeShiftTable({
                     >
                       {formatTimelineTime(creationPreview.start)}–
                       {formatTimelineTime(creationPreview.end)}・
-                      {selectedPosition?.name}
+                      {creationPreview.action === "remove"
+                        ? "削除"
+                        : selectedPosition?.name || "追加"}
                     </div>
                   )}
                 </div>
 
                 <div
-                  className={[
-                    "sticky right-0 z-20 flex w-20 shrink-0 items-center justify-center border-l border-black/10 text-xs font-bold",
-                    employeeIndex % 2 === 0 ? "bg-white" : "bg-[#f8fafc]",
-                  ].join(" ")}
+                  className="sticky right-0 z-30 flex w-20 shrink-0 items-center justify-center border-l border-black/20 bg-[#fde600] text-xs font-bold text-[#3f3f00]"
                 >
                   {totalEmployeeMinutes > 0
                     ? getDurationLabel({ start: 0, end: totalEmployeeMinutes })
@@ -621,7 +938,7 @@ export function EmployeeShiftTable({
         <span><i className="mr-1 inline-block h-2.5 w-5 rounded-sm border border-dashed border-[#d97706] bg-[#fffbeb]" />提出された希望</span>
         <span><i className="mr-1 inline-block h-2.5 w-5 rounded-sm border border-[#2563eb] bg-[#dbeafe]" />承認済み</span>
         <span><i className="mr-1 inline-block h-2.5 w-5 rounded-sm border border-[#8b5cf6] bg-[#ede9fe]" />管理者が編集・追加</span>
-        <span className="font-normal">空き行は横にドラッグして追加（15分単位）</span>
+        <span className="font-normal">追加・削除は30分単位。バー調整で選択後、Backspace / Deleteでも削除</span>
       </div>
     </section>
   );

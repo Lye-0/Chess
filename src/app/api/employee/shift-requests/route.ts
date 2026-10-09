@@ -268,8 +268,7 @@ export async function POST(request: Request) {
           !isValidShiftTimeRange(
             generatedRequest.startTime,
             generatedRequest.endTime,
-          ) ||
-          !generatedRequest.positionId,
+          ),
       )
     ) {
       return NextResponse.json(
@@ -291,16 +290,30 @@ export async function POST(request: Request) {
 
     const positionSnapshots = await Promise.all(
       employeeGeneratedRequests.map((generatedRequest) =>
-        organizationRef
-          .collection("positions")
-          .doc(generatedRequest.positionId)
-          .get(),
+        generatedRequest.positionId
+          ? organizationRef
+              .collection("positions")
+              .doc(generatedRequest.positionId)
+              .get()
+          : Promise.resolve(null),
       ),
     );
+
+    // A position can be omitted only while this organization has none registered.
+    if (employeeGeneratedRequests.some((generatedRequest) => !generatedRequest.positionId)) {
+      const registeredPositions = await organizationRef.collection("positions").limit(1).get();
+
+      if (!registeredPositions.empty) {
+        return NextResponse.json(
+          { error: "ポジションを選択してください。" },
+          { status: 400 },
+        );
+      }
+    }
     const generatedRequestsWithPositions = employeeGeneratedRequests.map(
       (generatedRequest, index) => {
         const positionSnapshot = positionSnapshots[index];
-        const positionName = String(positionSnapshot.data()?.name ?? "");
+        const positionName = String(positionSnapshot?.data()?.name ?? "");
 
         return {
           ...generatedRequest,
@@ -315,7 +328,7 @@ export async function POST(request: Request) {
       },
     );
 
-    if (positionSnapshots.some((positionSnapshot) => !positionSnapshot.exists)) {
+    if (positionSnapshots.some((positionSnapshot) => positionSnapshot && !positionSnapshot.exists)) {
       return NextResponse.json(
         { error: "選択されたポジションが見つかりません。" },
         { status: 404 },

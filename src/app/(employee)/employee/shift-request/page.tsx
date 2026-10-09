@@ -219,7 +219,7 @@ function getMonthStart(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
-function sortSlots(slots: ShiftSlot[]) {
+function sortSlots<T extends ShiftSlot>(slots: T[]): T[] {
   return [...slots].sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
     return a.startTime.localeCompare(b.startTime);
@@ -1008,7 +1008,10 @@ function EmployeeShiftRequestContent() {
       isEmployeeGenerated: true,
     };
 
-    if (!isValidShiftTimeRange(draft.startTime, draft.endTime) || !selectedPosition) {
+    if (
+      !isValidShiftTimeRange(draft.startTime, draft.endTime) ||
+      (positions.length > 0 && !selectedPosition)
+    ) {
       setErrorMessage("時間とポジションを正しく入力してください。");
       return;
     }
@@ -1056,7 +1059,7 @@ function EmployeeShiftRequestContent() {
 
     if (
       !isValidShiftTimeRange(customDraftForm.startTime, customDraftForm.endTime) ||
-      !selectedPosition
+      (positions.length > 0 && !selectedPosition)
     ) {
       setErrorMessage("時間とポジションを正しく入力してください。");
       return;
@@ -1068,8 +1071,8 @@ function EmployeeShiftRequestContent() {
         date,
         startTime: customDraftForm.startTime,
         endTime: customDraftForm.endTime,
-        positionId: selectedPosition.id,
-        positionName: selectedPosition.name,
+        positionId: selectedPosition?.id ?? "",
+        positionName: selectedPosition?.name ?? "",
         employeeGenerated: true,
         capacity: 1,
         requestCount: 0,
@@ -1337,6 +1340,7 @@ function EmployeeShiftRequestContent() {
                           ポジション
                           <select
                             value={customDraftForm.positionId}
+                            disabled={isLoading || positions.length === 0}
                             onChange={(event) =>
                               setCustomDraftForm((current) => ({
                                 ...current,
@@ -1345,7 +1349,9 @@ function EmployeeShiftRequestContent() {
                             }
                             className="h-10 min-w-0 rounded-md border border-black/10 px-3 text-sm text-[#030213]"
                           >
-                            <option value="">選択してください</option>
+                            <option value="">
+                              {positions.length === 0 ? "ポジション未設定" : "選択してください"}
+                            </option>
                             {positions.map((position) => (
                               <option key={position.id} value={position.id}>
                                 {position.name}
@@ -1356,7 +1362,7 @@ function EmployeeShiftRequestContent() {
                         <button
                           type="button"
                           onClick={addMonthlyEmployeeGeneratedDrafts}
-                          disabled={positions.length === 0}
+                          disabled={isLoading}
                           className="h-10 rounded-md border border-[#bbf7d0] px-4 text-sm font-semibold text-[#166534] transition hover:bg-[#f0fdf4] disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-[#eef0f4] disabled:text-[#717182] min-[520px]:col-span-2 sm:col-span-1"
                         >
                           月内追加
@@ -1364,15 +1370,15 @@ function EmployeeShiftRequestContent() {
                         <button
                           type="button"
                           onClick={addEmployeeGeneratedDraft}
-                          disabled={positions.length === 0}
+                          disabled={isLoading}
                           className="h-10 rounded-md bg-[#030213] px-4 text-sm font-semibold text-white transition hover:bg-[#171624] disabled:cursor-not-allowed disabled:bg-[#eef0f4] disabled:text-[#717182] min-[520px]:col-span-2 sm:col-span-1"
                         >
                           追加
                         </button>
                       </div>
                       {positions.length === 0 && !isPositionsLoading && (
-                        <p className="mt-3 text-xs text-[#b91c1c]">
-                          管理者がポジションを登録すると、募集枠なしの希望を追加できます。
+                        <p className="mt-3 text-xs text-[#717182]">
+                          ポジションが未登録のため、日付と時間だけで希望を追加できます。
                         </p>
                       )}
                     </section>

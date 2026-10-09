@@ -682,6 +682,14 @@ export async function removeShiftRequest(
         0,
         Number(slotData.requestCount ?? 0) - 1,
       );
+      const isDedicatedManagerSlot =
+        requestData.managerCreated === true || slotData.managerCreated === true;
+
+      if (isDedicatedManagerSlot && requestCount === 0) {
+        transaction.delete(slotRef);
+        return;
+      }
+
       const approvedCount = getStoredCounter(
         slotData,
         "approvedCount",

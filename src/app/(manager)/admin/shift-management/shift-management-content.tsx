@@ -351,7 +351,7 @@ function AdminShiftManagementContent() {
               ) : (
                 <div className="mt-4 rounded-lg border border-dashed border-black/10 px-4 py-5 text-center text-sm text-[#717182]">
                   <p>この日の募集枠や提出済み希望はありません。</p>
-                  <p className="mt-1 text-xs">上の表を横にドラッグすると、従業員の確定シフトを直接追加できます。</p>
+                  <p className="mt-1 text-xs">上の表は希望がなくても、30分マスのクリックまたは横ドラッグで確定シフトを直接追加できます。</p>
                 </div>
               )}
             </section>

@@ -728,6 +728,76 @@ async function verifyShiftAtomicity(db, appUrl) {
     );
 
     console.log("[security:emulator] shift request atomic deduplication: PASS");
+
+    await organization.collection("positions").doc(positionId).delete();
+    const unassignedBody = {
+      employeeGeneratedRequests: [
+        { date: generatedDate, startTime: "15:00", endTime: "16:00" },
+        { date, startTime: "22:00", endTime: "05:00", positionId: "" },
+      ],
+    };
+    const unassignedResponses = await Promise.all([
+      submit(cookie, unassignedBody),
+      submit(cookie, unassignedBody),
+    ]);
+    assert(
+      unassignedResponses.every((response) => response.status === 200),
+      "ポジション未登録時の単日・複数日希望が送信できません。",
+    );
+    const unassignedRequests = await organization.collection("shiftRequests")
+      .where("employeeId", "==", employeeId).where("positionId", "==", "").get();
+    assert(unassignedRequests.size === 2, "ポジションなし希望の重複排除に失敗しました。");
+    assert(
+      unassignedRequests.docs.every((snapshot) => {
+        const data = snapshot.data();
+        return data.positionName === "" && data.employeeGenerated === true &&
+          data.status === "希望済" && data.slotId === "";
+      }),
+      "ポジションなし希望の保存内容が不正です。",
+    );
+    const shiftDataResponse = await fetch(appUrl + "/api/employee/shift-data", {
+      headers: { cookie }, signal: AbortSignal.timeout(requestTimeoutMs),
+    });
+    const shiftData = await json(shiftDataResponse);
+    assert(
+      shiftDataResponse.status === 200 &&
+        shiftData.requests.filter((request) => request.positionId === "").length === 2,
+      "ポジションなし希望が従業員一覧に反映されません。",
+    );
+
+    const invalidPositionResponse = await submit(cookie, {
+      employeeGeneratedRequests: [{
+        date, startTime: "17:00", endTime: "18:00", positionId: "missing-position",
+      }],
+    });
+    assert(invalidPositionResponse.status === 404, "存在しないポジションを受け付けました。");
+
+    const invalidTimeResponse = await submit(cookie, {
+      employeeGeneratedRequests: [{ date, startTime: "25:00", endTime: "18:00" }],
+    });
+    assert(invalidTimeResponse.status === 400, "ポジションなし希望の不正な時間を受け付けました。");
+
+    await organization.collection("settings").doc("shiftRequests").set({
+      employeeGeneratedRequestsEnabled: false,
+    });
+    assert((await submit(cookie, unassignedBody)).status === 403,
+      "募集枠なし希望の無効設定を回避できました。");
+    await organization.collection("settings").doc("shiftRequests").set({
+      employeeGeneratedRequestsEnabled: true,
+    });
+    await organization.collection("positions").doc(positionId).set({ name: "登録済みポジション" });
+    assert((await submit(cookie, unassignedBody)).status === 400,
+      "ポジション登録済み組織で未選択の希望を受け付けました。");
+
+    const withdrawnRequest = unassignedRequests.docs[0];
+    const withdrawResponse = await fetch(appUrl + "/api/employee/shift-requests", {
+      method: "DELETE", headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ requestId: withdrawnRequest.id }),
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    });
+    assert(withdrawResponse.status === 200 && !(await withdrawnRequest.ref.get()).exists,
+      "ポジションなし希望を撤回できません。");
+    console.log("[security:emulator] shift requests without registered positions: PASS");
   } finally {
     const requestSnapshots = await organization.collection("shiftRequests").get();
     const keySnapshots = await organization.collection("shiftRequestKeys").get();
