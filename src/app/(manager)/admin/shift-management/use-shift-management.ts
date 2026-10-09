@@ -1122,6 +1122,8 @@ export function useShiftManagement(displayMonth: Date) {
     isCheckingOrganization,
     isLoading,
     errorMessage,
+    employees,
+    requests,
     groupedSlots,
     requestCountBySlot,
     requestsBySlot,

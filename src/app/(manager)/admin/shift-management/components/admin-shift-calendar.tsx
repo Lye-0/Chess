@@ -116,7 +116,7 @@ export function AdminShiftCalendar({
           const summary = summaryByDate[day.date];
           const hasSlots = Boolean(summary && summary.slotCount > 0);
           const selected = selectedDate === day.date;
-          const disabled = day.outside || !hasSlots;
+          const disabled = day.outside;
           const isToday = todayDate === day.date;
 
           return (
@@ -136,7 +136,9 @@ export function AdminShiftCalendar({
                   ? "border-[#030213] bg-[#030213] text-white shadow-sm"
                   : disabled
                     ? "cursor-not-allowed border-black/10 bg-[#f7f8fb] text-[#b4b7c0]"
-                    : getSummaryTone(summary),
+                    : hasSlots
+                      ? getSummaryTone(summary)
+                      : "border-black/10 bg-white text-[#64748b] hover:bg-[#f8fafc]",
               ].join(" ")}
             >
               <span

@@ -17,10 +17,15 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { defaultOrganizationId } from "./people";
 import {
+  defaultOrganizationId,
+  type EmployeeProfile,
+} from "./people";
+import {
+  createPayrollSnapshot,
   normalizePayrollSnapshot,
   type EmployeePayrollSummary,
+  type PayrollSettings,
   type PayrollSnapshot,
 } from "./payroll";
 
@@ -71,6 +76,9 @@ export type ShiftRequest = {
   positionId: string;
   positionName: string;
   employeeGenerated: boolean;
+  managerCreated: boolean;
+  requestedStartTime: string;
+  requestedEndTime: string;
   status: ShiftRequestStatus;
   submittedDate: string;
   actualStartTime: string;
@@ -88,6 +96,9 @@ export type ShiftRequestInput = Omit<
   | "status"
   | "submittedDate"
   | "employeeGenerated"
+  | "managerCreated"
+  | "requestedStartTime"
+  | "requestedEndTime"
   | "actualStartTime"
   | "actualEndTime"
   | "actualPay"
@@ -213,6 +224,9 @@ function toShiftRequest(
     positionId: String(data.positionId ?? ""),
     positionName: String(data.positionName ?? ""),
     employeeGenerated: data.employeeGenerated === true,
+    managerCreated: data.managerCreated === true,
+    requestedStartTime: String(data.requestedStartTime ?? ""),
+    requestedEndTime: String(data.requestedEndTime ?? ""),
     status: normalizeShiftRequestStatus(data.status),
     submittedDate: String(data.submittedDate ?? ""),
     actualStartTime: String(data.actualStartTime ?? ""),
@@ -387,6 +401,205 @@ export async function createEmployeeGeneratedShiftRequests(
     } | null;
     throw new Error(result?.error ?? "希望シフトの送信に失敗しました。");
   }
+}
+
+export type ManagerShiftAssignmentInput = {
+  date: string;
+  startTime: string;
+  endTime: string;
+  positionId: string;
+  positionName: string;
+};
+
+function assertValidManagerShiftAssignment(
+  input: ManagerShiftAssignmentInput,
+) {
+  const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(input.date);
+  const isValidTime = (value: string) => {
+    if (!/^\d{2}:\d{2}$/.test(value)) return false;
+    const [hour, minute] = value.split(":").map(Number);
+    return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+  };
+
+  if (
+    !isValidDate ||
+    !isValidTime(input.startTime) ||
+    !isValidTime(input.endTime) ||
+    input.startTime === input.endTime ||
+    !input.positionId.trim() ||
+    !input.positionName.trim()
+  ) {
+    throw new Error("Manager shift assignment is invalid.");
+  }
+
+  if (!isShiftStartInFuture(input)) {
+    throw new Error("Manager shift assignment must start in the future.");
+  }
+}
+
+function getLocalDateString(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+export async function createManagerShiftAssignment(
+  employee: EmployeeProfile,
+  input: ManagerShiftAssignmentInput,
+  payrollSettings: PayrollSettings,
+  organizationId = defaultOrganizationId,
+) {
+  assertValidManagerShiftAssignment(input);
+
+  const slotRef = doc(getShiftSlotsCollection(organizationId));
+  const requestRef = doc(getShiftRequestsCollection(organizationId));
+  const payrollSnapshot = createPayrollSnapshot(
+    employee.employmentType,
+    payrollSettings,
+  );
+
+  await runTransaction(db, async (transaction) => {
+    transaction.set(slotRef, {
+      ...input,
+      managerCreated: true,
+      employeeGenerated: false,
+      capacity: 1,
+      requestCount: 1,
+      approvedCount: 1,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    transaction.set(requestRef, {
+      employeeId: employee.employeeId,
+      employeeName: employee.name,
+      employeeEmail: employee.email,
+      employmentType: employee.employmentType,
+      slotId: slotRef.id,
+      ...input,
+      employeeGenerated: false,
+      managerCreated: true,
+      status: "承認済",
+      submittedDate: getLocalDateString(),
+      payrollSnapshot,
+      approvedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function updateManagerShiftAssignment(
+  requestId: string,
+  input: ManagerShiftAssignmentInput,
+  organizationId = defaultOrganizationId,
+) {
+  assertValidManagerShiftAssignment(input);
+
+  const requestRef = doc(getShiftRequestsCollection(organizationId), requestId);
+  const preflightRequest = await getDoc(requestRef);
+
+  if (!preflightRequest.exists()) {
+    throw new Error("Shift request not found.");
+  }
+
+  const preflightData = preflightRequest.data();
+  const preflightSlotId = String(preflightData.slotId ?? "");
+  const legacyApprovedCount = preflightSlotId
+    ? await countApprovedShiftRequestsBySlot(preflightSlotId, organizationId)
+    : 0;
+
+  await runTransaction(db, async (transaction) => {
+    const requestSnapshot = await transaction.get(requestRef);
+
+    if (!requestSnapshot.exists()) {
+      throw new Error("Shift request not found.");
+    }
+
+    const requestData = requestSnapshot.data();
+    const oldSlotId = String(requestData.slotId ?? "");
+    const oldSlotRef = oldSlotId
+      ? getShiftSlotDocument(oldSlotId, organizationId)
+      : null;
+    const oldSlotSnapshot = oldSlotRef
+      ? await transaction.get(oldSlotRef)
+      : null;
+    const isDedicatedManagerSlot = Boolean(
+      oldSlotSnapshot?.exists() &&
+        (requestData.managerCreated === true ||
+          oldSlotSnapshot.data()?.managerCreated === true),
+    );
+    const wasApproved =
+      normalizeShiftRequestStatus(requestData.status) === "承認済";
+
+    if (isDedicatedManagerSlot && oldSlotRef) {
+      transaction.update(oldSlotRef, {
+        ...input,
+        capacity: 1,
+        requestCount: 1,
+        approvedCount: 1,
+        updatedAt: serverTimestamp(),
+      });
+      transaction.update(requestRef, {
+        ...input,
+        managerCreated: true,
+        status: "承認済",
+        approvedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      return;
+    }
+
+    const nextSlotRef = doc(getShiftSlotsCollection(organizationId));
+
+    if (oldSlotRef && oldSlotSnapshot?.exists()) {
+      const oldSlotData = oldSlotSnapshot.data() ?? {};
+      const requestCount = Math.max(
+        0,
+        getStoredCounter(oldSlotData, "requestCount", 1) - 1,
+      );
+      const approvedCount = getStoredCounter(
+        oldSlotData,
+        "approvedCount",
+        legacyApprovedCount,
+      );
+
+      transaction.update(oldSlotRef, {
+        requestCount,
+        approvedCount: wasApproved
+          ? Math.max(0, approvedCount - 1)
+          : approvedCount,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    transaction.set(nextSlotRef, {
+      ...input,
+      managerCreated: true,
+      employeeGenerated: false,
+      capacity: 1,
+      requestCount: 1,
+      approvedCount: 1,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    transaction.update(requestRef, {
+      slotId: nextSlotRef.id,
+      ...input,
+      employeeGenerated: false,
+      managerCreated: true,
+      requestedStartTime:
+        String(requestData.requestedStartTime ?? "").trim() ||
+        String(requestData.startTime ?? ""),
+      requestedEndTime:
+        String(requestData.requestedEndTime ?? "").trim() ||
+        String(requestData.endTime ?? ""),
+      status: "承認済",
+      approvedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  });
 }
 
 export async function withdrawEmployeeShiftRequest(

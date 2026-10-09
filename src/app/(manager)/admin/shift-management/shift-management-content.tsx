@@ -11,7 +11,7 @@ import {
 import { getDisplayedRequestCount } from "./request-utils";
 import { useShiftManagement } from "./use-shift-management";
 import { AdminShiftCalendar } from "./components/admin-shift-calendar";
-import { SelectedDayTimeline } from "./components/selected-day-timeline";
+import { EmployeeShiftTable } from "./components/employee-shift-table";
 import { MemoizedShiftSlotCard } from "./components/shift-slot-card";
 import { ShiftFormModal } from "./components/shift-form-modal";
 import { DeleteRequestModal } from "./components/delete-request-modal";
@@ -30,14 +30,6 @@ function isSameMonth(date: string, month: Date) {
   );
 }
 
-function getPreferredDateForMonth(dates: string[], month: Date, todayDate: string) {
-  const datesInMonth = dates.filter((date) => isSameMonth(date, month));
-
-  if (datesInMonth.includes(todayDate)) return todayDate;
-
-  return datesInMonth.find((date) => date > todayDate) ?? datesInMonth[0] ?? null;
-}
-
 function AdminShiftManagementContent() {
   const [calendarState, setCalendarState] = useState(() => ({
     displayMonth: getMonthStart(new Date()),
@@ -45,11 +37,14 @@ function AdminShiftManagementContent() {
     hasUserMovedCalendar: false,
   }));
   const {
+    organizationId,
     organizationQuery,
     currentOrganization,
     isCheckingOrganization,
     isLoading,
     errorMessage,
+    employees,
+    requests,
     groupedSlots,
     requestCountBySlot,
     requestsBySlot,
@@ -95,31 +90,19 @@ function AdminShiftManagementContent() {
     confirmDeleteRequest,
   } = useShiftManagement(calendarState.displayMonth);
   const todayDate = useMemo(() => toDateString(new Date()), []);
-  const slotDates = useMemo(() => Object.keys(groupedSlots).sort(), [groupedSlots]);
-  const fallbackSelectedDate = useMemo(() => {
-    if (slotDates.length === 0) return null;
-    if (slotDates.includes(todayDate)) return todayDate;
-
-    return slotDates.find((date) => date > todayDate) ?? slotDates[0];
-  }, [slotDates, todayDate]);
-  const displayMonth = useMemo(() => {
-    if (calendarState.hasUserMovedCalendar || !fallbackSelectedDate) {
-      return calendarState.displayMonth;
-    }
-
-    return getMonthStart(getDateFromString(fallbackSelectedDate));
-  }, [calendarState.displayMonth, calendarState.hasUserMovedCalendar, fallbackSelectedDate]);
+  const displayMonth = calendarState.displayMonth;
   const selectedDate = useMemo(() => {
     if (
       calendarState.selectedDate &&
-      groupedSlots[calendarState.selectedDate] &&
       isSameMonth(calendarState.selectedDate, displayMonth)
     ) {
       return calendarState.selectedDate;
     }
 
-    return getPreferredDateForMonth(slotDates, displayMonth, todayDate);
-  }, [calendarState.selectedDate, displayMonth, groupedSlots, slotDates, todayDate]);
+    return isSameMonth(todayDate, displayMonth)
+      ? todayDate
+      : toDateString(displayMonth);
+  }, [calendarState.selectedDate, displayMonth, todayDate]);
   const calendarDays = useMemo(
     () => getMonthCalendarDays(displayMonth),
     [displayMonth],
@@ -161,13 +144,10 @@ function AdminShiftManagementContent() {
   const selectedDateSummary = selectedDate
     ? calendarSummaryByDate[selectedDate] ?? null
     : null;
-  const selectedDateIndex = selectedDate ? slotDates.indexOf(selectedDate) : -1;
-  const previousShiftDate =
-    selectedDateIndex > 0 ? slotDates[selectedDateIndex - 1] : null;
-  const nextShiftDate =
-    selectedDateIndex >= 0 && selectedDateIndex < slotDates.length - 1
-      ? slotDates[selectedDateIndex + 1]
-      : null;
+  const selectedDateRequests = useMemo(
+    () => requests.filter((request) => request.date === selectedDate),
+    [requests, selectedDate],
+  );
   const deleteRequestSlotPositionName = useMemo(() => {
     if (!deleteRequestTarget) return "";
 
@@ -183,19 +163,17 @@ function AdminShiftManagementContent() {
 
   function changeDisplayMonth(offset: number) {
     setCalendarState((current) => {
-      const currentDisplayMonth =
-        current.hasUserMovedCalendar || !fallbackSelectedDate
-          ? current.displayMonth
-          : getMonthStart(getDateFromString(fallbackSelectedDate));
       const nextMonth = new Date(
-        currentDisplayMonth.getFullYear(),
-        currentDisplayMonth.getMonth() + offset,
+        current.displayMonth.getFullYear(),
+        current.displayMonth.getMonth() + offset,
         1,
       );
 
       return {
         displayMonth: nextMonth,
-        selectedDate: getPreferredDateForMonth(slotDates, nextMonth, todayDate),
+        selectedDate: isSameMonth(todayDate, nextMonth)
+          ? todayDate
+          : toDateString(nextMonth),
         hasUserMovedCalendar: true,
       };
     });
@@ -209,9 +187,12 @@ function AdminShiftManagementContent() {
     });
   }
 
-  function jumpToShiftDate(date: string) {
+  function moveSelectedDate(offset: number) {
+    const nextDate = getDateFromString(selectedDate);
+    nextDate.setDate(nextDate.getDate() + offset);
+    const date = toDateString(nextDate);
     setCalendarState({
-      displayMonth: getMonthStart(getDateFromString(date)),
+      displayMonth: getMonthStart(nextDate),
       selectedDate: date,
       hasUserMovedCalendar: true,
     });
@@ -271,11 +252,6 @@ function AdminShiftManagementContent() {
             <div className="flex min-h-[170px] flex-col items-center justify-center text-center text-[#717182]">
               <p>シフトを読み込んでいます</p>
             </div>
-          ) : slotDates.length === 0 ? (
-            <div className="mt-6 flex min-h-[170px] flex-col items-center justify-center rounded-lg border border-black/10 text-center text-[#717182]">
-              <p>この月にはシフトがありません</p>
-              <p className="mt-2">右上のボタンから追加してください</p>
-            </div>
           ) : selectedDate ? (
             <section className="mt-6 rounded-lg border border-black/10 p-3 sm:p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -283,46 +259,46 @@ function AdminShiftManagementContent() {
                   <h2 className="text-lg font-semibold">
                     {getDateLabel(selectedDate)}のシフト
                   </h2>
-                  {selectedDateSummary && (
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold">
-                      <span className="rounded-md bg-[#eef2ff] px-2 py-1 text-[#1d4ed8]">
-                        {selectedDateSummary.slotCount}枠
-                      </span>
-                      <span className="rounded-md bg-[#f1f5f9] px-2 py-1 text-[#475569]">
-                        希望 {selectedDateSummary.requestCount}人
-                      </span>
-                      <span className="rounded-md bg-[#f0fdf4] px-2 py-1 text-[#166534]">
-                        承認 {selectedDateSummary.approvedCount}/{selectedDateSummary.capacity}人
-                      </span>
-                    </div>
-                  )}
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold">
+                    <span className="rounded-md bg-[#eef2ff] px-2 py-1 text-[#1d4ed8]">
+                      {selectedDateSummary?.slotCount ?? 0}枠
+                    </span>
+                    <span className="rounded-md bg-[#f1f5f9] px-2 py-1 text-[#475569]">
+                      希望 {selectedDateSummary?.requestCount ?? 0}人
+                    </span>
+                    <span className="rounded-md bg-[#f0fdf4] px-2 py-1 text-[#166534]">
+                      承認 {selectedDateSummary?.approvedCount ?? 0}/{selectedDateSummary?.capacity ?? 0}人
+                    </span>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
                   <button
                     type="button"
-                    disabled={!previousShiftDate}
-                    onClick={() => previousShiftDate && jumpToShiftDate(previousShiftDate)}
+                    onClick={() => moveSelectedDate(-1)}
                     className="h-9 rounded-md border border-black/10 px-3 text-sm font-semibold text-[#475569] shadow-sm transition hover:bg-[#eef2f7] disabled:cursor-not-allowed disabled:text-[#b4b7c0] disabled:shadow-none"
                   >
-                    前のシフト日
+                    前の日
                   </button>
                   <button
                     type="button"
-                    disabled={!nextShiftDate}
-                    onClick={() => nextShiftDate && jumpToShiftDate(nextShiftDate)}
+                    onClick={() => moveSelectedDate(1)}
                     className="h-9 rounded-md border border-black/10 px-3 text-sm font-semibold text-[#475569] shadow-sm transition hover:bg-[#eef2f7] disabled:cursor-not-allowed disabled:text-[#b4b7c0] disabled:shadow-none"
                   >
-                    次のシフト日
+                    次の日
                   </button>
                 </div>
               </div>
+              <EmployeeShiftTable
+                date={selectedDate}
+                employees={employees}
+                requests={selectedDateRequests}
+                positions={positions}
+                payrollSettings={payrollSettings}
+                organizationId={organizationId}
+              />
               {selectedDateSlots.length > 0 ? (
                 <>
-                  <SelectedDayTimeline
-                    slots={selectedDateSlots}
-                    requestsBySlot={requestsBySlot}
-                    requestCountBySlot={requestCountBySlot}
-                  />
+                  <h3 className="mt-6 text-sm font-semibold">募集枠と希望の詳細</h3>
                   <div className="mt-4 space-y-3">
                   {selectedDateSlots.map((slot) => {
                     const slotRequests = requestsBySlot[slot.id] ?? [];
@@ -373,8 +349,9 @@ function AdminShiftManagementContent() {
                   </div>
                 </>
               ) : (
-                <div className="flex min-h-[140px] flex-col items-center justify-center text-center text-[#717182]">
-                  <p>この日のシフトはありません</p>
+                <div className="mt-4 rounded-lg border border-dashed border-black/10 px-4 py-5 text-center text-sm text-[#717182]">
+                  <p>この日の募集枠や提出済み希望はありません。</p>
+                  <p className="mt-1 text-xs">上の表を横にドラッグすると、従業員の確定シフトを直接追加できます。</p>
                 </div>
               )}
             </section>
