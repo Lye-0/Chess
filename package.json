@@ -34,7 +34,6 @@
       "@grpc/grpc-js": "1.13.7"
     }
   },
-  "packageManager": "npm@11.21.1",
   "allowScripts": {
     "unrs-resolver@1.12.2": true,
     "@firebase/util": false,
