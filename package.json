@@ -11,24 +11,33 @@
     "security:csv": "node scripts/security/csv-export-regression.mjs"
   },
   "dependencies": {
-    "firebase": "^12.14.0",
-    "firebase-admin": "14.1.0",
-    "next": "16.2.9",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "firebase": "^12.19.0",
+    "firebase-admin": "14.5.0",
+    "next": "16.4.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^20.19.43",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.4.2",
     "react-scan": "^0.5.7",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3"
   },
   "overrides": {
-    "jwks-rsa": "3.2.2"
+    "jwks-rsa": "3.2.2",
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "1.13.7"
+    }
+  },
+  "packageManager": "npm@11.21.1",
+  "allowScripts": {
+    "unrs-resolver@1.12.2": true,
+    "@firebase/util": false,
+    "protobufjs": false
   }
 }
